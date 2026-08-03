@@ -15,6 +15,8 @@ local function clean(reason)
     return tostring(reason or "unknown error"):gsub("[%c]+", " "):sub(1, 240)
 end
 
+local NOTICE_LIMIT = 50
+
 local function nodeView(node)
     return {
         id=node.id, role=node.role, label=node.label or node.id,
@@ -59,8 +61,6 @@ function Coordinator:_replaceNodes(nodes)
         if node.state ~= "DISABLED" then self.scanQueue[#self.scanQueue + 1] = node.id end
     end
 end
-
-local NOTICE_LIMIT = 50
 
 function Coordinator:_recordError(component, reason, node)
     local message = clean(reason)
