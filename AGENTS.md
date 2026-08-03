@@ -16,7 +16,7 @@ Operators drive recovery from the terminal: retry and cancel on the Requests pag
 - `controller/colossal/tests/` contains the host-runnable Lua suite and must never be deployed.
 - `controller/colossal/deployment_manifest.lua` is the exact runtime deployment allow-list.
 - `docs/operations.md` describes topology, setup, recovery, upgrades, and deployment safety.
-- `docs/superpowers/specs/` holds design specs and `docs/superpowers/plans/` holds smaller work items. Pending: `specs/2026-08-03-scan-scheduling-design.md`, `plans/2026-08-03-batch-limit-tuning.md`.
+- `docs/superpowers/specs/` holds design specs and `docs/superpowers/plans/` holds smaller work items. Pending: `specs/2026-08-03-scan-scheduling-design.md`, `specs/2026-08-03-crafting-turtle-design.md`, `plans/2026-08-03-batch-limit-tuning.md`.
 
 ## Live-server safety
 
