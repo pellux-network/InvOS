@@ -29,6 +29,12 @@ local defaultModules = {
     "tests.test_setup_recovery",
     "tests.test_setup_duplicates",
     "tests.test_setup_ui",
+    "tests.test_inventory_adapter",
+    "tests.test_coordinator",
+    "tests.test_coordinator_transfers",
+    "tests.test_responsiveness",
+    "tests.test_error_recovery",
+    "tests.test_main",
 }
 
 local modules = {}

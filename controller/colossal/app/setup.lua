@@ -273,7 +273,7 @@ function Setup:commit(report)
     local config = copy(report.draft)
     config.schema, config.configured = 1, true
     config.installation = {computer_id=self.os.getComputerID(),
-        computer_label=self.os.getComputerLabel()}
+        computer_label=self.os.getComputerLabel() or ""}
     local valid, reason = Setup.validateConfig(config)
     if not valid then return nil, reason end
     local aliases = copy(report.aliases or self.pendingAliases or {schema=1,items={}})
