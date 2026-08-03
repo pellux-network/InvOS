@@ -123,8 +123,7 @@ function Requests:tick(context)
             request.pending_moved = result.moved
             request.rescan = copy(result.rescan)
             self:_state(request, "VERIFYING")
-        elseif result.reason and (result.reason.code=="SOURCE_CHANGED" or
-            result.reason.code=="DESTINATION_CHANGED") then
+        elseif result.reason and result.reason.code=="SOURCE_CHANGED" then
             request.rescan=copy(result.rescan)
             self:_block(request,context,result.reason)
         else
@@ -152,8 +151,8 @@ function Requests:tick(context)
             elseif request.delivered >= request.requested then
                 self:_state(request, "COMPLETE")
             elseif result.moved <= 0 then
-                self:_block(request, context, {code="SHORT_TRANSFER",
-                    message="Pickup accepted no items",retryable=true})
+                self:_block(request, context, {code="PICKUP_FULL",
+                    message="Pickup accepted no items; make space and retry",retryable=true})
             else
                 self:_state(request, "PARTIAL")
             end

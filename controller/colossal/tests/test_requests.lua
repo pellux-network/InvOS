@@ -10,7 +10,7 @@ local function transfer(moves)
     function value:execute(_, planned)
         self.execute_calls=self.execute_calls+1
         local moved=moves[self.cursor]; self.cursor=self.cursor+1
-        return {state="VERIFYING",moved=moved,journal={step=planned},rescan={"store","pickup"}}
+        return {state="VERIFYING",moved=moved,journal={step=planned},rescan={"store"}}
     end
     function value:verify(journal, _)
         self.verify_calls=self.verify_calls+1
@@ -20,9 +20,8 @@ local function transfer(moves)
 end
 
 local function planned(limit)
-    return {source_name="store",source_slot=1,destination_name="pickup",destination_slot=1,
-        source_epoch=1,destination_epoch=2,source_pre_count=limit,destination_pre_count=0,
-        identity_key=stone,limit=limit}
+    return {source_name="store",source_slot=1,destination_name="pickup",
+        source_epoch=1,source_pre_count=limit,identity_key=stone,limit=limit}
 end
 
 local function service(plans, moves)
@@ -43,7 +42,7 @@ end
 
 local function context(generation)
     return {index={},pickup={},generation=generation or 1,now=100,
-        observed={source={},destination={}}}
+        observed={source={}}}
 end
 
 return {
@@ -63,6 +62,19 @@ return {
         T.equal(requests:get(request.id).delivered,90)
         T.equal(worker.execute_calls,2)
     end },
+    { name = "zero move blocks as retryable Pickup full after verification", run = function()
+        local requests=service({{plan={planned(5)},remainder=0}},{0})
+        local request=requests:create({key=stone},5)
+        local ctx=context()
+        requests:tick(ctx);requests:tick(ctx);requests:tick(ctx)
+        local result=requests:tick(ctx)
+        T.equal(result.state,"BLOCKED")
+        T.equal(result.delivered,0)
+        T.equal(result.reason.code,"PICKUP_FULL")
+        T.equal(result.reason.retryable,true)
+        T.contains(result.reason.message,"Pickup")
+        T.equal(result.rescan,nil)
+    end },
     { name = "cancellation during verification stops future steps but keeps moved count", run = function()
         local requests = service({{plan={planned(20)},remainder=30}}, {20})
         local request=requests:create({key=stone},50)
@@ -77,7 +89,7 @@ return {
     end },
     { name = "blocked request waits for generation change instead of busy retrying", run = function()
         local blocked={plan={},remainder=5,
-            reason={code="PICKUP_FULL",message="full",retryable=true}}
+            reason={code="PICKUP_UNAVAILABLE",message="offline",retryable=true}}
         local requests,_,alerts,planCalls=service({blocked,{plan={planned(5)},remainder=0}},{5})
         local request=requests:create({key=stone},5)
         local ctx=context(7)

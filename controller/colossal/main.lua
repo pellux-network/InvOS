@@ -74,8 +74,11 @@ local function observedFor(adapter,journal)
         if ok then return value end
         return {}
     end
-    return {source=inspect(step.source_name,step.source_slot),
-        destination=inspect(step.destination_name,step.destination_slot)}
+    local observed={source=inspect(step.source_name,step.source_slot)}
+    if journal.operation.kind~="request" then
+        observed.destination=inspect(step.destination_name,step.destination_slot)
+    end
+    return observed
 end
 
 local function setupChoices(service,step)

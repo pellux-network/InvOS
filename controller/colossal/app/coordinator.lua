@@ -110,8 +110,11 @@ function Coordinator:_observed()
         end
         return {}
     end
-    return {source=slot(step.source_name,step.source_slot),
-        destination=slot(step.destination_name,step.destination_slot)}
+    local observed={source=slot(step.source_name,step.source_slot)}
+    if journal.operation.kind~="request" then
+        observed.destination=slot(step.destination_name,step.destination_slot)
+    end
+    return observed
 end
 
 function Coordinator:_snapshotForRole(role)
