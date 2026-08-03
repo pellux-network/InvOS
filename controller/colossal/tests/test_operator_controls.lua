@@ -64,13 +64,15 @@ return {
         T.arrayEqual(requests.calls.retry, {"request-2"})
     end},
     {name="cancelling the selected request calls the request service by id", run=function()
+        -- The Requests page renders newest first, so selection 1 is the last entry
+        -- Requests:list() returns (request-2), not the first.
         local requests = recordingRequests({{id="request-1"}, {id="request-2"}})
         local d = baseDeps(); d.requests = requests
         local coordinator = Coordinator.new(d)
         coordinator.uiState.page, coordinator.uiState.mode = "requests", "page"
         coordinator.uiState.request_selection = 1
         coordinator:command({type="CANCEL_REQUEST"})
-        T.arrayEqual(requests.calls.cancel, {"request-1"})
+        T.arrayEqual(requests.calls.cancel, {"request-2"})
     end},
     {name="an out of range request selection is a safe no-op", run=function()
         local requests = recordingRequests({{id="request-1"}})
@@ -192,6 +194,7 @@ return {
         T.truthy(seenLimit >= 50)
     end},
     {name="the full keyboard path retries a request without touching internal state directly", run=function()
+        -- Selection 2, newest first, lands on the oldest entry (request-1).
         local requests = recordingRequests({{id="request-1"}, {id="request-2"}})
         local d = baseDeps(); d.requests = requests
         local coordinator = Coordinator.new(d)
@@ -201,7 +204,16 @@ return {
         coordinator:handle({"key", keys.down})
         T.equal(coordinator:viewModel().ui.request_selection, 2)
         coordinator:handle({"key", keys.r})
-        T.arrayEqual(requests.calls.retry, {"request-2"})
+        T.arrayEqual(requests.calls.retry, {"request-1"})
+    end},
+    {name="the requests page renders newest first", run=function()
+        local requests = recordingRequests({{id="request-1"}, {id="request-2"}, {id="request-3"}})
+        local d = baseDeps(); d.requests = requests
+        local coordinator = Coordinator.new(d)
+        local model = coordinator:viewModel()
+        T.equal(model.requests[1].id, "request-3")
+        T.equal(model.requests[2].id, "request-2")
+        T.equal(model.requests[3].id, "request-1")
     end},
     {name="the full keyboard path acknowledges an alert after a two key recovery cancel", run=function()
         local alerts = recordingAlerts({{key="alert-1"}})

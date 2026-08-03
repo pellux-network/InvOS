@@ -112,6 +112,22 @@ return {
         T.equal(transfer.execute_calls,1);local active=alerts:active()
         T.equal(active[1].severity,"critical");T.equal(active[1].details.code,"RECONCILE_DIRECTION")
     end},
+    {name="completed requests are capped, dropping the oldest terminal ones first, while queued requests are kept regardless of age",run=function()
+        local requests=select(1,service({},{}))
+        local ids={}
+        for i=1,35 do
+            local r=requests:create({key=stone},1)
+            ids[i]=r.id
+            requests:cancel(r.id)
+        end
+        local queued=requests:create({key=stone},1)
+        T.equal(#requests:list(),31)
+        T.equal(requests:get(ids[1]),nil)
+        T.equal(requests:get(ids[5]),nil)
+        T.equal(requests:get(ids[6]).state,"CANCELLED")
+        T.equal(requests:get(ids[35]).state,"CANCELLED")
+        T.truthy(requests:get(queued.id))
+    end},
     {name="waiting reconciliation keeps the request in verification",run=function()
         local requests,transfer,alerts=service({{plan={planned(2)},remainder=0}},
             {{state="WAITING",reason={code="STORAGE_SCOPE_INCOMPLETE",retryable=true},rescan={"storage"}},
