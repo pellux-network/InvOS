@@ -42,6 +42,16 @@ local function advance(requests,ctx)
 end
 
 return {
+    {name="request display name prefers identity display_name over the raw name",run=function()
+        local requests=select(1,service({{plan={planned(1)},remainder=0}},{}))
+        local request=requests:create({key=stone,name="minecraft:stone",display_name="Stone"},1)
+        T.equal(request.display_name,"Stone")
+    end},
+    {name="request display name falls back to the identity name when no display name is set",run=function()
+        local requests=select(1,service({{plan={planned(1)},remainder=0}},{}))
+        local request=requests:create({key=stone,name="minecraft:stone"},1)
+        T.equal(request.display_name,"minecraft:stone")
+    end},
     {name="over-delivery credits measured stock delta once and never retries",run=function()
         local requests,transfer,alerts=service({{plan={planned(2)},remainder=0}},
             {{state="COMPLETE",moved=3,reported_moved=1}})

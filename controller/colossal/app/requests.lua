@@ -43,6 +43,7 @@ function Requests:create(identity, quantity)
     local request = {
         id=self.idGenerator(self.counter), kind="request", state="QUEUED",
         identity=copy(identity), requested=quantity, delivered=0, moved=0,
+        display_name=identity.display_name or identity.name,
         attempts=0, created_at=self.clock(), updated_at=self.clock(),
     }
     self.ordered[#self.ordered + 1] = request

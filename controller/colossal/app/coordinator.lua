@@ -15,6 +15,8 @@ local function clean(reason)
     return tostring(reason or "unknown error"):gsub("[%c]+", " "):sub(1, 240)
 end
 
+local NOTICE_LIMIT = 50
+
 local function nodeView(node)
     return {
         id=node.id, role=node.role, label=node.label or node.id,
@@ -63,7 +65,12 @@ end
 function Coordinator:_recordError(component, reason, node)
     local message = clean(reason)
     self.notices[#self.notices + 1] = {severity="error",component=component,message=message}
+    while #self.notices > NOTICE_LIMIT do table.remove(self.notices, 1) end
     if node then node.state, node.reason = "ERROR", message end
+    if self.deps.alerts and type(self.deps.alerts.set) == "function" then
+        pcall(self.deps.alerts.set, self.deps.alerts, "component_error:" .. tostring(component),
+            "critical", component .. " error: " .. message, {component=component})
+    end
     self.dirty = true
 end
 
@@ -140,6 +147,20 @@ function Coordinator:_refreshLifecycle(now)
     end
 end
 
+-- A tall terminal has room for far more than 10 rows once the results list scrolls, and a
+-- fixed cap left nothing to scroll to. Derive a generous bound from the live surface height
+-- when one is available, and otherwise fall back to a bound well above the old default.
+function Coordinator:_defaultSearchLimit()
+    local surface = self.ui and self.ui.surface
+    if surface and type(surface.getSize) == "function" then
+        local ok, _, height = pcall(surface.getSize)
+        if ok and type(height) == "number" and height > 0 then
+            return math.max(50, height * 4)
+        end
+    end
+    return 50
+end
+
 function Coordinator:_rebuildIndex()
     local snapshots = {}
     for _, node in ipairs(self.nodes) do
@@ -152,7 +173,7 @@ function Coordinator:_rebuildIndex()
     if ok then
         self.index, self.enrichment = result, nil
         local queryOk, results = pcall(self.deps.search, result, self.uiState.query or "",
-            self.deps.aliases or {}, self.deps.search_limit or 10)
+            self.deps.aliases or {}, self.deps.search_limit or self:_defaultSearchLimit())
         if queryOk then
             local reduced, effect = self.ui:reduce(self.uiState,
                 {type="SYNC_RESULTS",results=results or {}})
@@ -353,6 +374,29 @@ function Coordinator:_dispatch(effect)
         local ok, reason = pcall(self.deps.requests.create, self.deps.requests,
             identity, effect.quantity)
         if not ok then self:_recordError("request", reason) end
+    elseif effect.type == "RETRY_REQUEST" and self.deps.requests then
+        local target = self.deps.requests.list and self.deps.requests:list()[effect.index]
+        if target then
+            local ok, reason = pcall(self.deps.requests.retry, self.deps.requests, target.id)
+            if not ok then self:_recordError("request", reason) end
+        end
+    elseif effect.type == "CANCEL_REQUEST" and self.deps.requests then
+        local target = self.deps.requests.list and self.deps.requests:list()[effect.index]
+        if target then
+            local ok, reason = pcall(self.deps.requests.cancel, self.deps.requests, target.id)
+            if not ok then self:_recordError("request", reason) end
+        end
+    elseif effect.type == "ACKNOWLEDGE_ALERT" and self.deps.alerts then
+        local target = self.deps.alerts.active and self.deps.alerts:active()[effect.index]
+        if target then
+            local ok, reason = pcall(self.deps.alerts.acknowledge, self.deps.alerts, target.key)
+            if not ok then self:_recordError("alert", reason) end
+        end
+    elseif effect.type == "RESOLVE_RECOVERY" and self.deps.recovery then
+        local ok, reason = pcall(self.deps.recovery.resolve, self.deps.recovery)
+        if not ok then self:_recordError("recovery", reason) end
+    elseif effect.type == "TOGGLE_PAUSE" then
+        if self.paused then self:resume() else self:pause() end
     elseif effect.type == "SETUP_COMMITTED" and effect.config then
         self:completeSetup(effect.config)
     elseif self.deps.on_effect then
@@ -461,10 +505,23 @@ function Coordinator:_nodeForRole(role)
     for _, node in ipairs(self.nodes) do if node.role==role then return copy(node) end end
 end
 
+function Coordinator:_syncPageCounts(model)
+    local requestsReduced = self.ui:reduce(self.uiState,
+        {type="SYNC_REQUESTS",count=#(model.requests or {})})
+    self.uiState = requestsReduced or self.uiState
+    local alertsReduced = self.ui:reduce(self.uiState,
+        {type="SYNC_ALERTS",count=#(model.alerts or {})})
+    self.uiState = alertsReduced or self.uiState
+end
+
 function Coordinator:redraw()
     local model=self:_model()
-    local ok, reason=pcall(self.ui.render,self.ui,self.uiState,model)
-    if not ok then self:_recordError("terminal",reason) end
+    self:_syncPageCounts(model)
+    local ok, result=pcall(self.ui.render,self.ui,self.uiState,model)
+    if not ok then self:_recordError("terminal",result)
+    elseif type(result) == "table" and result.hit_regions then
+        self.uiState.hit_regions = result.hit_regions
+    end
     if self.deps.monitor and self.deps.monitor_surface then
         local monitorOk, monitorReason=pcall(self.deps.monitor.render,self.deps.monitor_surface,model)
         if not monitorOk then self:_recordError("monitor",monitorReason) end
