@@ -65,6 +65,30 @@ function Scanner:begin(node)
     }
 end
 
+local function stackLimit(scan, slot, listed)
+    if scan.node.role ~= "dropoff" then return true end
+    if type(scan.inventory.getItemDetail) ~= "function" then
+        return nil, failure("PERIPHERAL_INVALID",
+            "Drop-off does not provide getItemDetail", scan.node)
+    end
+    local detailOk, detail = Runtime.safeCall("detail " .. scan.node.id .. " slot " .. slot,
+        scan.inventory.getItemDetail, slot)
+    if not detailOk then return nil, failure("PERIPHERAL_ERROR", detail, scan.node) end
+    if type(detail) ~= "table" then
+        return nil, failure("DETAIL_MISSING",
+            "Drop-off slot " .. slot .. " no longer has item details", scan.node)
+    end
+    if detail.name ~= listed.name or detail.count ~= listed.count or detail.nbt ~= listed.nbt then
+        return nil, failure("DETAIL_MISMATCH",
+            "Drop-off slot " .. slot .. " changed during its scan", scan.node)
+    end
+    if type(detail.maxCount) ~= "number" or detail.maxCount < 1 or detail.maxCount % 1 ~= 0 then
+        return nil, failure("INVALID_MAX_COUNT",
+            "Drop-off slot " .. slot .. " returned invalid maxCount", scan.node)
+    end
+    return true, detail.maxCount
+end
+
 function Scanner:step(scan, budget)
     if type(scan) ~= "table" then
         return true, nil, failure("INVALID_SCAN", "scan state is required")
@@ -101,11 +125,14 @@ function Scanner:step(scan, budget)
         if item.nbt ~= nil and type(item.nbt) ~= "string" then
             return true, nil, failure("INVALID_NBT", "slot " .. slot .. " has invalid NBT", scan.node)
         end
+        local detailOk, maxCount = stackLimit(scan, slot, item)
+        if not detailOk then return true, nil, maxCount end
         scan.slots[slot] = {
             name = item.name,
             nbt = item.nbt,
             count = item.count,
             identity_key = Identity.key(item.name, item.nbt),
+            max_count = maxCount,
         }
         scan.occupied = scan.occupied + 1
     end

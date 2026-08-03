@@ -10,12 +10,16 @@ local function peripheralFor(inventory)
     }
 end
 
-local function makeInventory(listed, size)
-    local calls = { size = 0, list = 0 }
+local function makeInventory(listed, size, detail)
+    local calls = { size = 0, list = 0, detail = 0 }
     return {
         calls = calls,
         size = function() calls.size = calls.size + 1; return size or 3075 end,
         list = function() calls.list = calls.list + 1; return listed end,
+        getItemDetail = function(slot)
+            calls.detail = calls.detail + 1
+            return detail and detail(slot) or nil
+        end,
     }
 end
 
@@ -94,6 +98,51 @@ return {
             T.equal(done, true)
             T.equal(snapshot, nil)
             T.equal(reason.code, case.code)
+        end
+    end },
+    { name = "Drop-off scan records authoritative item stack limits", run = function()
+        local listed={ [2]={name="the_vault:chest_upgrade_tool",count=1} }
+        local inventory=makeInventory(listed,27,function(slot)
+            T.equal(slot,2)
+            return {name="the_vault:chest_upgrade_tool",count=1,maxCount=1}
+        end)
+        local scanner=Scanner.new(peripheralFor(inventory),function() return 5 end)
+        local done,snapshot=scanner:step(scanner:begin({id="drop",role="dropoff",
+            peripheral_name="drop"}),8)
+        T.equal(done,true)
+        T.equal(snapshot.slots[2].max_count,1)
+        T.equal(inventory.calls.detail,1)
+    end },
+    { name = "Storage scan never requests per-item details", run = function()
+        local inventory=makeInventory({[1]={name="minecraft:stone",count=64}},3075,
+            function() error("storage detail must not be called") end)
+        local scanner=Scanner.new(peripheralFor(inventory),function() return 5 end)
+        local done,snapshot=scanner:step(scanner:begin({id="main",role="storage",
+            peripheral_name="colossal"}),8)
+        T.equal(done,true)
+        T.equal(snapshot.slots[1].count,64)
+        T.equal(inventory.calls.detail,0)
+    end },
+    { name = "Drop-off rejects unavailable mismatched and invalid details", run = function()
+        local base={name="minecraft:ender_pearl",count=1,nbt="same"}
+        local cases={
+            {detail=function() error("detached") end,code="PERIPHERAL_ERROR"},
+            {detail=function() return nil end,code="DETAIL_MISSING"},
+            {detail=function() return {name="minecraft:stone",count=1,nbt="same",maxCount=16} end,
+                code="DETAIL_MISMATCH"},
+            {detail=function() return {name=base.name,count=2,nbt=base.nbt,maxCount=16} end,
+                code="DETAIL_MISMATCH"},
+            {detail=function() return {name=base.name,count=base.count,nbt=base.nbt,maxCount=0} end,
+                code="INVALID_MAX_COUNT"},
+        }
+        for _,case in ipairs(cases) do
+            local inventory=makeInventory({[1]=base},27,case.detail)
+            local scanner=Scanner.new(peripheralFor(inventory),function() return 5 end)
+            local done,snapshot,reason=scanner:step(scanner:begin({id="drop",role="dropoff",
+                peripheral_name="drop"}),8)
+            T.equal(done,true)
+            T.equal(snapshot,nil)
+            T.equal(reason and reason.code,case.code)
         end
     end },
     { name = "scanner reports a missing wrapped peripheral", run = function()

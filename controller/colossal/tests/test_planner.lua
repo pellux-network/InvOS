@@ -132,6 +132,27 @@ return {
         T.equal(remainder, 16)
         T.equal(reason.code, "STORAGE_FULL")
     end },
+    { name = "import honors non-stackable and reduced stack limits", run = function()
+        local tool="the_vault:chest_upgrade_tool"
+        local nonStackable={peripheral_name="drop",slot=1,epoch=1,name=tool,count=1,
+            identity_key=Identity.key(tool,nil),max_count=1}
+        local toolStorage=storage("tools",1,2,{[1]=item(tool,nil,1)})
+        local toolPlan=Planner.planImport(nonStackable,{toolStorage})
+        T.equal(#toolPlan,1)
+        T.equal(toolPlan[1].destination_slot,2)
+        T.equal(toolPlan[1].limit,1)
+
+        local pearl="minecraft:ender_pearl"
+        local reduced={peripheral_name="drop",slot=1,epoch=1,name=pearl,count=4,
+            identity_key=Identity.key(pearl,nil),max_count=16}
+        local pearlStorage=storage("pearls",1,2,{[1]=item(pearl,nil,15)})
+        local pearlPlan=Planner.planImport(reduced,{pearlStorage})
+        T.equal(#pearlPlan,2)
+        T.equal(pearlPlan[1].destination_slot,1)
+        T.equal(pearlPlan[1].limit,1)
+        T.equal(pearlPlan[2].destination_slot,2)
+        T.equal(pearlPlan[2].limit,3)
+    end },
     { name = "planner never mixes NBT variants", run = function()
         local healing = Identity.key("minecraft:potion", "healing")
         local index = indexFrom({ storage("a", 1, 2, {

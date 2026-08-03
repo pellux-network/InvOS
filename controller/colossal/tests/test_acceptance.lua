@@ -40,7 +40,7 @@ local function Harness(options)
             getItemDetail=function(slot)
                 local item=inventory.slots[slot];if not item then return nil end
                 local detail=clone(item);detail.displayName=item.name:gsub("minecraft:",""):gsub("_"," ")
-                detail.maxCount=64;return detail
+                detail.maxCount=item.maxCount or 64;return detail
             end,
             pushItems=function(destination,fromSlot,limit,toSlot)
                 if options.pushItems then
@@ -53,11 +53,12 @@ local function Harness(options)
                 if not selected then return 0 end
                 local existing=target.slots[selected]
                 if existing and (existing.name~=source.name or existing.nbt~=source.nbt) then return 0 end
-                local capacity=64-(existing and existing.count or 0)
+                local capacity=(source.maxCount or 64)-(existing and existing.count or 0)
                 local moved=math.min(limit or source.count,source.count,capacity)
                 if moved<=0 then return 0 end
                 if existing then existing.count=existing.count+moved
-                else target.slots[selected]={name=source.name,nbt=source.nbt,count=moved} end
+                else target.slots[selected]={name=source.name,nbt=source.nbt,count=moved,
+                    maxCount=source.maxCount} end
                 source.count=source.count-moved;if source.count==0 then inventory.slots[fromSlot]=nil end
                 return moved
             end,
@@ -129,6 +130,17 @@ return {
         T.equal(app:storageCount(key),30)
         T.equal(app:count("drop",key)+app:count("pickup",key)+app:storageCount(key),100)
         T.contains(app.monitor.allText(),"COLOSSAL STORAGE")
+    end},
+    {name="sequential non-stackable deposits use distinct storage slots",run=function()
+        local app=Harness();local name="the_vault:chest_upgrade_tool"
+        local key=name.."\0-"
+        app.inventories.drop.slots[1]={name=name,count=1,maxCount=1}
+        app:runUntil(function() return app:storageCount(key)==1 end,300)
+        app.inventories.drop.slots[1]={name=name,count=1,maxCount=1}
+        app:runUntil(function() return app:storageCount(key)==2 end,300)
+        T.equal(app.inventories.store_a.slots[1].count,1)
+        T.equal(app.inventories.store_a.slots[2].count,1)
+        T.equal(app:count("drop",key),0)
     end},
     {name="misreported compacted retrieval completes once from pooled inventory truth",run=function()
         local calls=0;local echo="the_vault:gem_echo\0-"
