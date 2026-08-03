@@ -51,7 +51,14 @@ Avoid manually changing storage while a transfer is verifying. The controller tr
 
 ### Full inventory
 
-Empty or expand the named Drop-off, Pickup, or storage node. The alert remains active while blocked work is preserved. A changed inventory generation triggers a retry; no restart is required.
+Empty or expand the named Drop-off, Pickup, or storage node. The alert remains active while blocked work is preserved.
+
+Most blocked work resumes on its own: a changed inventory generation or the expiring retry backoff returns it to planning without a restart. Two cases deliberately do not, because a move that measured zero must not be replayed from unrelated background scan generations:
+
+- An import blocked as `SHORT_TRANSFER`, meaning storage accepted nothing.
+- A request blocked as `PICKUP_FULL`, meaning Pickup accepted nothing.
+
+Both wait for an explicit operator retry. Until retry and cancel are bound to keys, the only way to issue one is to restart the controller, which clears in-flight import and request state without touching storage.
 
 ### Offline node
 
@@ -60,6 +67,10 @@ Check the wired modem, cable, interface, and chunk loading. Reattaching the peri
 ### Ambiguous journal
 
 After a restart, the controller reconciles an unfinished call from the saved exact identity total across the recorded storage-node scope. It never inspects remembered Pickup/Drop-off contents, trusts a compacted slot, or repeats the call. If every recorded node is healthy, recovery completes from the aggregate delta and retires the journal. If the delta is impossible or the journal cannot be proven, the normal UI remains responsive but inventory automation stays blocked behind a critical alert. Do not delete the journal or repeat the request; restore every recorded storage node and review any concurrent manual storage changes.
+
+If the block cannot be cleared by restoring nodes, an operator can release it explicitly. Releasing retires the unprovable journal, records a warning naming the release, and lets automation continue. Only do this after comparing storage totals against expectations, because releasing abandons the attempt to prove what the interrupted call moved.
+
+A Drop-off change noticed before any inventory call is not ambiguous, because nothing was issued. The import abandons that attempt and rediscovers whatever the Drop-off holds next tick, so taking items back out of Drop-off mid-import no longer stalls importing.
 
 ### Corrupted configuration
 

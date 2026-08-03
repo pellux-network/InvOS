@@ -41,6 +41,22 @@ function Recovery:_finish(result,severity,message)
     return copy(self.event)
 end
 
+-- A recovery that cannot prove what moved deliberately halts automation behind a critical
+-- alert. That is the correct default, but it left no way out except deleting the journal by
+-- hand, so give the operator an explicit, audited release.
+function Recovery:resolve()
+    if self.event.state~="BLOCKED" then return nil,"recovery is not blocked" end
+    local callOk,retired,reason=pcall(self.transfer.retire,self.transfer)
+    if not callOk then retired,reason=nil,retired end
+    self.journal=nil
+    self.event={state="COMPLETE",moved=0,released=true,retired=retired==true}
+    self:_alert("warning","An operator released an unprovable transfer recovery; "..
+        "verify storage totals against expectations"..
+        (retired and "" or "; journal removal failed: "..tostring(reason)),
+        {code="RECOVERY_RELEASED",retired=retired==true})
+    return true
+end
+
 function Recovery:tick(context)
     if not self.journal or self.event.state=="BLOCKED" then return copy(self.event) end
     local result=self.transfer:recover(self.journal,(context or {}).storage or {})

@@ -74,6 +74,29 @@ return {
         T.equal(imports:status().state,"BLOCKED");T.equal(transfer.execute_calls,1)
         T.truthy(imports:retry());T.equal(imports:status().state,"PLANNING")
     end},
+    {name="Drop-off change before any call abandons the import instead of wedging",run=function()
+        local imports=service({{plan={step(5)},remainder=0}},{})
+        local ctx=context(5)
+        T.equal(imports:tick(ctx).state,"PLANNING")
+        ctx.dropoff.slots[1]={name="minecraft:dirt",count=3,identity_key="minecraft:dirt\0-"}
+        imports:tick(ctx)
+        T.equal(imports:status().state,"IDLE","a pre-call Drop-off change must not be terminal")
+        T.equal(imports:tick(ctx).state,"PLANNING","the new Drop-off contents import normally")
+        T.equal(imports:status().source.identity_key,"minecraft:dirt\0-")
+    end},
+    {name="emptied Drop-off slot during a partial import abandons without wedging",run=function()
+        local imports,transfer=service({{plan={step(5)},remainder=0}},
+            {{state="COMPLETE",moved=2,reported_moved=2}})
+        local ctx=context(5)
+        imports:tick(ctx);imports:tick(ctx);imports:tick(ctx)
+        T.equal(imports:tick(ctx).state,"PARTIAL")
+        ctx.dropoff.slots[1]=nil
+        imports:tick(ctx)
+        T.equal(imports:status().state,"IDLE")
+        T.equal(transfer.execute_calls,1,"no further call is issued for the vanished source")
+        ctx.dropoff.slots[1]={name="minecraft:stone",count=4,identity_key=stone}
+        T.equal(imports:tick(ctx).state,"PLANNING","later Drop-off contents still import")
+    end},
     {name="opposite import delta raises a critical actionable alert",run=function()
         local imports,transfer,alerts=service({{plan={step(5)},remainder=0}},
             {{state="WAITING",reason={code="RECONCILE_DIRECTION"},rescan={"storage"}}})
