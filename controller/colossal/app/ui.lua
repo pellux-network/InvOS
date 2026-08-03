@@ -70,6 +70,8 @@ function UI.initialState()
         page="search", mode="search", query="", selection=1, scroll=1,
         quantity_text="", variant_selection=1, results={}, result_count=0,
         notice=nil, hit_regions={},
+        request_selection=1, request_count=0, alert_selection=1, alert_count=0,
+        storage_scroll=1, recovery_confirm_armed=false,
     }
 end
 
@@ -106,10 +108,45 @@ function UI:reduce(current, command)
         if state.mode == "variant" then
             state.variant_selection = math.max(1,
                 math.min(#(state.variants or {}), state.variant_selection + command.delta))
+        elseif state.page == "requests" then
+            state.request_selection = math.max(1, math.min(math.max(1, state.request_count or 0),
+                (state.request_selection or 1) + command.delta))
+        elseif state.page == "alerts" then
+            state.alert_selection = math.max(1, math.min(math.max(1, state.alert_count or 0),
+                (state.alert_selection or 1) + command.delta))
+        elseif state.page == "storage" then
+            state.storage_scroll = math.max(1, (state.storage_scroll or 1) + command.delta)
         else
             state.selection = math.max(1,
                 math.min(math.max(1, state.result_count or 0), state.selection + command.delta))
         end
+    elseif kind == "SYNC_REQUESTS" then
+        state.request_count = command.count or 0
+        state.request_selection = math.max(1, math.min(state.request_selection or 1,
+            math.max(1, state.request_count)))
+    elseif kind == "SYNC_ALERTS" then
+        state.alert_count = command.count or 0
+        state.alert_selection = math.max(1, math.min(state.alert_selection or 1,
+            math.max(1, state.alert_count)))
+    elseif kind == "RETRY_REQUEST" then
+        return state, {type="RETRY_REQUEST",index=state.request_selection}
+    elseif kind == "CANCEL_REQUEST" then
+        return state, {type="CANCEL_REQUEST",index=state.request_selection}
+    elseif kind == "ACKNOWLEDGE_ALERT" then
+        return state, {type="ACKNOWLEDGE_ALERT",index=state.alert_selection}
+    elseif kind == "TOGGLE_PAUSE" then
+        return state, {type="TOGGLE_PAUSE"}
+    elseif kind == "ARM_RECOVERY_RELEASE" then
+        state.recovery_confirm_armed = true
+        state.notice = "Press Enter to release recovery: gives up proof of what the " ..
+            "interrupted transfer moved. Any other key cancels."
+    elseif kind == "CANCEL_RECOVERY_RELEASE" then
+        state.recovery_confirm_armed = false
+        state.notice = nil
+    elseif kind == "CONFIRM_RECOVERY_RELEASE" then
+        state.recovery_confirm_armed = false
+        state.notice = "Recovery released"
+        return state, {type="RESOLVE_RECOVERY"}
     elseif kind == "OPEN_QUANTITY" then
         local selected = selectedResult(state)
         if selected then
