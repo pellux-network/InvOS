@@ -133,7 +133,7 @@ function ImportService:tick(context)
             self:_state("TRANSFERRING")
         end
     elseif active.state == "TRANSFERRING" then
-        local result = self.transfer:execute(active, active.step)
+        local result = self.transfer:execute(active, active.step, context.storage or {})
         if result.state == "VERIFYING" then
             active.journal = result.journal
             active.pending_moved = result.moved
@@ -146,20 +146,36 @@ function ImportService:tick(context)
                 "critical", active.reason.message, {code=active.reason.code})
         end
     elseif active.state == "VERIFYING" then
-        local result = self.transfer:verify(active.journal, context.observed or {})
-        if result.state ~= "COMPLETE" then
+        local result = self.transfer:verify(active.journal, context.storage or {})
+        if result.state == "WAITING" then
+            active.rescan=copy(result.rescan)
+            active.reason=copy(result.reason)
+        elseif result.state ~= "COMPLETE" then
             active.reason = copy(result.reason)
             self:_state("FAILED")
             self.alerts:set("import_failed:" .. active.source.identity_key,
                 "critical", active.reason.message, {code=active.reason.code})
-        elseif result.moved <= 0 then
-            self:_block(context, {code="SHORT_TRANSFER",
-                message="Storage accepted no items",retryable=true})
         else
+            local stepLimit=active.step.limit
             active.moved = active.moved + result.moved
-            active.step, active.journal, active.pending_moved = nil, nil, nil
+            active.reported_moved=result.reported_moved
+            if result.moved>stepLimit then
+                self.alerts:set("import_overdelivery:"..active.id,"critical",
+                    "Storage received "..result.moved.." items for a "..stepLimit.." item step",
+                    {code="OVER_DELIVERY",requested=stepLimit,measured=result.moved,
+                        reported=result.reported_moved,import_id=active.id})
+            end
+            local retired,retireReason=self.transfer:retire()
+            if not retired then self.alerts:set("journal_retire:"..active.id,"warning",
+                "Completed transfer journal could not be retired: "..tostring(retireReason),
+                {code="JOURNAL_RETIRE",import_id=active.id}) end
+            active.step,active.journal,active.pending_moved,active.rescan=nil,nil,nil,nil
+            active.reason=nil
             self.alerts:resolve("import_blocked:" .. active.source.identity_key)
-            if active.moved >= active.original_count then
+            if result.moved<=0 then
+                self:_block(context,{code="SHORT_TRANSFER",
+                    message="Storage accepted no items",retryable=true})
+            elseif active.moved >= active.original_count then
                 self:_state("COMPLETE")
             else
                 self:_state("PARTIAL")

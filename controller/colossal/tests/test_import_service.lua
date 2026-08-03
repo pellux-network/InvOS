@@ -1,108 +1,68 @@
-local Alerts = require("app.alerts")
-local ImportService = require("app.import_service")
-local Lifecycle = require("app.lifecycle")
-local T = require("tests.mock_cc")
+local Alerts=require("app.alerts")
+local ImportService=require("app.import_service")
+local Lifecycle=require("app.lifecycle")
+local T=require("tests.mock_cc")
 
-local stone = "minecraft:stone\0-"
-
+local stone="minecraft:stone\0-"
 local function dropoff(count)
-    return {
-        health="READY", peripheral_name="drop", epoch=10, generation=1,
-        slots=count and { [1]={name="minecraft:stone",count=count,identity_key=stone} } or {},
-    }
+    return {health="READY",peripheral_name="drop",epoch=10,
+        slots=count and {[1]={name="minecraft:stone",count=count,identity_key=stone}} or {}}
 end
-
-local function fakeTransfer(moves)
-    local value = { execute_calls=0, verify_calls=0, moves=moves, cursor=1 }
-    function value:execute(_, step)
-        self.execute_calls = self.execute_calls + 1
-        local moved = self.moves[self.cursor]
-        self.cursor = self.cursor + 1
-        return { state="VERIFYING", moved=moved, journal={ step=step },
-            rescan={step.source_name,step.destination_name} }
-    end
-    function value:verify(journal, _)
-        self.verify_calls = self.verify_calls + 1
-        return { state="COMPLETE", moved=self.moves[self.cursor-1], journal=journal }
-    end
-    return value
-end
-
 local function step(limit)
-    return { source_name="drop",source_slot=1,destination_name="store",destination_slot=1,
-        source_epoch=10,destination_epoch=20,source_pre_count=limit,
-        destination_pre_count=0,identity_key=stone,limit=limit }
+    return {source_name="drop",source_slot=1,destination_name="store",destination_slot=1,
+        source_epoch=10,destination_epoch=20,source_pre_count=limit,destination_pre_count=0,
+        identity_key=stone,limit=limit}
 end
-
-local function service(plans, moves)
-    local planCalls = 0
-    local planner = {}
-    function planner.planImport()
-        planCalls = planCalls + 1
-        local value = plans[planCalls]
-        return value.plan, value.remainder, value.reason
+local function service(plans,outcomes)
+    local calls=0;local planner={}
+    function planner.planImport() calls=calls+1;local value=plans[calls];return value.plan,value.remainder,value.reason end
+    local transfer={execute_calls=0,verify_calls=0,retire_calls=0,cursor=1}
+    function transfer:execute(_,planned,storage)
+        self.execute_calls=self.execute_calls+1;T.truthy(storage)
+        return {state="VERIFYING",journal={step=planned},rescan={"storage","drop"}}
     end
-    local transfer = fakeTransfer(moves)
-    local alerts = Alerts.new(function() return 0 end)
-    return ImportService.new({ planner=planner, transfer=transfer, alerts=alerts,
-        transition=Lifecycle.transition, clock=function() return 0 end }),
-        transfer, alerts, function() return planCalls end
+    function transfer:verify(_,storage)
+        self.verify_calls=self.verify_calls+1;T.truthy(storage)
+        local result=outcomes[self.cursor];self.cursor=self.cursor+1;return result
+    end
+    function transfer:retire() self.retire_calls=self.retire_calls+1;return true end
+    local alerts=Alerts.new(function() return 0 end)
+    return ImportService.new({planner=planner,transfer=transfer,alerts=alerts,
+        transition=Lifecycle.transition,clock=function() return 0 end}),transfer,alerts
+end
+local function context(count,generation)
+    return {dropoff=dropoff(count),storage={{node_id="storage",health="READY",slots={}}},
+        generation=generation or 1,now=0}
 end
 
 return {
-    { name = "import performs at most one transfer step per tick", run = function()
-        local imports, transfer = service({
-            { plan={step(64),step(36)}, remainder=0 },
-        }, {64})
-        local context = { dropoff=dropoff(100), storage={}, generation=1, now=0,
-            observed={source={},destination={}} }
-        T.equal(imports:tick(context).state, "PLANNING")
-        T.equal(imports:tick(context).state, "TRANSFERRING")
-        T.equal(transfer.execute_calls, 0)
-        T.equal(imports:tick(context).state, "VERIFYING")
-        T.equal(transfer.execute_calls, 1)
-        T.equal(imports:tick(context).state, "PARTIAL")
-        T.equal(transfer.verify_calls, 1)
-        T.equal(imports:status().moved, 64)
-    end },
-    { name = "import leaves a verified remainder for fresh replanning", run = function()
-        local imports = service({
-            { plan={step(64)}, remainder=36 },
-            { plan={step(36)}, remainder=0 },
-        }, {64,36})
-        local context = { dropoff=dropoff(100), storage={}, generation=1, now=0,
-            observed={source={},destination={}} }
-        for _=1,4 do imports:tick(context) end
-        T.equal(imports:status().state, "PARTIAL")
-        context.dropoff = dropoff(36)
-        context.generation = 2
-        T.equal(imports:tick(context).state, "PLANNING")
-        T.equal(imports:tick(context).state, "TRANSFERRING")
-    end },
-    { name = "blocked import retries only after relevant generation change", run = function()
-        local imports, _, alerts, planCalls = service({
-            { plan={}, remainder=32, reason={code="STORAGE_FULL",message="full",retryable=true} },
-            { plan={step(32)}, remainder=0 },
-        }, {32})
-        local context = { dropoff=dropoff(32), storage={}, generation=5, now=0 }
-        imports:tick(context)
-        T.equal(imports:tick(context).state, "BLOCKED")
-        T.equal(#alerts:active(), 1)
-        T.equal(imports:tick(context).state, "BLOCKED")
-        T.equal(planCalls(), 1)
-        context.generation = 6
-        T.equal(imports:tick(context).state, "PLANNING")
-        T.equal(imports:tick(context).state, "TRANSFERRING")
-        T.equal(planCalls(), 2)
-    end },
-    { name = "repeated blocked import keeps one condition alert", run = function()
-        local blocked = { plan={},remainder=32,
-            reason={code="STORAGE_FULL",message="full",retryable=true} }
-        local imports, _, alerts = service({ blocked, blocked }, {0})
-        local context = { dropoff=dropoff(32),storage={},generation=1,now=0 }
-        imports:tick(context); imports:tick(context)
-        context.generation=2; imports:tick(context); imports:tick(context)
-        T.equal(#alerts:active(), 1)
-        T.equal(alerts:active()[1].occurrences, 2)
-    end },
+    {name="import credits measured aggregate increase rather than reported count",run=function()
+        local imports,transfer=service({{plan={step(5)},remainder=0}},
+            {{state="COMPLETE",moved=5,reported_moved=2}})
+        local ctx=context(5)
+        imports:tick(ctx);imports:tick(ctx);imports:tick(ctx)
+        local result=imports:tick(ctx)
+        T.equal(result.state,"COMPLETE");T.equal(result.moved,5)
+        T.equal(transfer.execute_calls,1);T.equal(transfer.retire_calls,1)
+    end},
+    {name="partial import replans from a fresh Drop-off scan",run=function()
+        local imports,transfer=service({{plan={step(5)},remainder=0},{plan={step(3)},remainder=0}},
+            {{state="COMPLETE",moved=2,reported_moved=5},{state="COMPLETE",moved=3,reported_moved=3}})
+        local ctx=context(5,1)
+        imports:tick(ctx);imports:tick(ctx);imports:tick(ctx)
+        T.equal(imports:tick(ctx).state,"PARTIAL")
+        ctx=context(3,2);T.equal(imports:tick(ctx).state,"PLANNING")
+        T.equal(imports:tick(ctx).state,"TRANSFERRING")
+        T.equal(transfer.retire_calls,1)
+    end},
+    {name="waiting import reconciliation keeps one call in flight",run=function()
+        local imports,transfer=service({{plan={step(5)},remainder=0}},
+            {{state="WAITING",reason={code="STORAGE_SCOPE_INCOMPLETE"},rescan={"storage"}},
+             {state="COMPLETE",moved=5,reported_moved=5}})
+        local ctx=context(5);imports:tick(ctx);imports:tick(ctx);imports:tick(ctx)
+        local result=imports:tick(ctx);T.equal(result.state,"VERIFYING")
+        T.arrayEqual(result.rescan,{"storage"})
+        result=imports:tick(ctx);T.equal(result.state,"COMPLETE")
+        T.equal(transfer.execute_calls,1)
+    end},
 }

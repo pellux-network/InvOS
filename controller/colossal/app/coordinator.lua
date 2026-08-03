@@ -85,36 +85,7 @@ function Coordinator:_context(now)
         unhealthy_nodes=unhealthy, dropoff_ready=dropoffReady, pickup_ready=pickupReady,
         dropoff=self:_snapshotForRole("dropoff"), pickup=self:_snapshotForRole("pickup"),
         storage=storage, index=self.index, generation=self.generation,
-        observed=self:_observed(),
     }
-end
-
-function Coordinator:_observed()
-    local journal
-    for _, service in ipairs({self.deps.imports,self.deps.requests}) do
-        local status
-        if service and type(service.status)=="function" then status=service:status()
-        elseif service and type(service.list)=="function" then
-            local list=service:list(); status=list[1]
-        end
-        if status and status.journal then journal=status.journal; break end
-    end
-    local step=journal and journal.step
-    if not step then return {} end
-    local function slot(name,index)
-        for _,snapshot in pairs(self.snapshots) do
-            if snapshot.peripheral_name==name then
-                local item=(snapshot.slots or {})[index]
-                return {identity_key=item and item.identity_key or nil,count=item and item.count or 0}
-            end
-        end
-        return {}
-    end
-    local observed={source=slot(step.source_name,step.source_slot)}
-    if journal.operation.kind~="request" then
-        observed.destination=slot(step.destination_name,step.destination_slot)
-    end
-    return observed
 end
 
 function Coordinator:_snapshotForRole(role)

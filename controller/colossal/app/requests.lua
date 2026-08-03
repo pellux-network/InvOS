@@ -117,7 +117,7 @@ function Requests:tick(context)
             self:_state(request, "TRANSFERRING")
         end
     elseif request.state == "TRANSFERRING" then
-        local result = self.transfer:execute(request, request.step)
+        local result = self.transfer:execute(request, request.step, context.storage or {})
         if result.state == "VERIFYING" then
             request.journal = result.journal
             request.pending_moved = result.moved
@@ -133,16 +133,32 @@ function Requests:tick(context)
                 request.reason.message, {request_id=request.id,code=request.reason.code})
         end
     elseif request.state == "VERIFYING" then
-        local result = self.transfer:verify(request.journal, context.observed or {})
-        if result.state ~= "COMPLETE" then
+        local result = self.transfer:verify(request.journal, context.storage or {})
+        if result.state == "WAITING" then
+            request.rescan=copy(result.rescan)
+            request.reason=copy(result.reason)
+        elseif result.state ~= "COMPLETE" then
             request.reason = copy(result.reason)
             self:_state(request, "FAILED")
             self.alerts:set("request_failed:" .. request.id, "critical",
                 request.reason.message, {request_id=request.id,code=request.reason.code})
         else
+            local stepLimit=request.step.limit
             request.delivered = request.delivered + result.moved
             request.moved = request.delivered
+            request.reported_moved=result.reported_moved
+            if result.moved>stepLimit then
+                self.alerts:set("request_overdelivery:"..request.id,"critical",
+                    "Storage moved "..result.moved.." items for a "..stepLimit.." item step",
+                    {code="OVER_DELIVERY",requested=stepLimit,measured=result.moved,
+                        reported=result.reported_moved,request_id=request.id})
+            end
+            local retired,retireReason=self.transfer:retire()
+            if not retired then self.alerts:set("journal_retire:"..request.id,"warning",
+                "Completed transfer journal could not be retired: "..tostring(retireReason),
+                {code="JOURNAL_RETIRE",request_id=request.id}) end
             request.step, request.journal, request.pending_moved, request.rescan = nil, nil, nil, nil
+            request.reason=nil
             self.alerts:resolve("request_blocked:" .. request.id)
             self.alerts:resolve("request_failed:" .. request.id)
             if request.cancel_requested then
