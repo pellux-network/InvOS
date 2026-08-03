@@ -97,6 +97,40 @@ return {
         T.truthy(budgets[2].budget >= 512, "default storage budget must be bulk sized")
     end},
 
+    {name="metadata is only re-copied when enrichment actually progressed", run=function()
+        local copies = 0
+        local metadata = {}
+        for index = 1, 40 do metadata["item" .. index] = {display_name="n", max_count=64} end
+        local deps = base()
+        deps.registry = {}
+        deps.enrich_step = function(_, _, _, state)
+            -- a settled enrichment returns the same state, tick after tick
+            return state or {cursor=1, done=true, metadata=metadata}
+        end
+        local coordinator = Coordinator.new(deps)
+        coordinator:tick(1)
+        local seen = coordinator.metadata
+        for value = 2, 12 do
+            coordinator:tick(value)
+            if coordinator.metadata ~= seen then copies = copies + 1; seen = coordinator.metadata end
+        end
+        T.equal(copies, 0,
+            "a settled enrichment must not rebuild the metadata table every tick")
+    end},
+
+    {name="partial scan steps do not repaint the screen", run=function()
+        -- A scan spread over several work steps changes nothing on screen until it finishes,
+        -- so only its completion should repaint.
+        local deps = base({steps=4})
+        local renders = 0
+        deps.ui = {reduce=function(_, state) return state end, render=function() renders = renders + 1 end}
+        local coordinator = Coordinator.new(deps)
+        for value = 1, 12 do coordinator:tick(value) end
+        T.equal(deps.completed(), 3, "twelve ticks of four-step scans is three completions")
+        T.truthy(renders <= 4,
+            "three completed scans repainted " .. renders .. " times over twelve ticks")
+    end},
+
     {name="epoch lookup resolves a peripheral without copying the view model", run=function()
         local deps = base()
         local coordinator = Coordinator.new(deps)
