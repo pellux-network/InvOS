@@ -157,6 +157,10 @@ function ImportService:tick(context)
                 self.alerts:set("import_reconciliation:"..active.id,"critical",
                     "Storage changed opposite the import; review manual inventory changes",
                     {code="RECONCILE_DIRECTION",import_id=active.id})
+            elseif result.reason and result.reason.code=="STORAGE_SCOPE_INCOMPLETE" then
+                self.alerts:set("import_reconciliation:"..active.id,"warning",
+                    "Import is waiting for every recorded storage node to come online",
+                    {code="STORAGE_SCOPE_INCOMPLETE",import_id=active.id})
             end
         elseif result.state ~= "COMPLETE" then
             active.reason = copy(result.reason)
@@ -181,6 +185,7 @@ function ImportService:tick(context)
                 {code="JOURNAL_RETIRE",import_id=active.id}) end
             active.reason=nil
             self.alerts:resolve("import_blocked:" .. active.source.identity_key)
+            self.alerts:resolve("import_reconciliation:" .. active.id)
             if result.moved<=0 then
                 self:_block(context,{code="SHORT_TRANSFER",
                     message="Storage accepted no items",retryable=true})

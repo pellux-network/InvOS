@@ -74,6 +74,16 @@ return {
         coordinator:tick(1001); coordinator:tick(1002)
         T.arrayEqual(d.scans.begun,{"dropoff","pickup","storage_2"})
     end},
+    {name="disabling a scanned storage node purges its snapshot and index source",run=function()
+        local d=deps();local coordinator=Coordinator.new(d)
+        coordinator:tick(1000);coordinator:tick(1001)
+        T.truthy(coordinator:viewModel().snapshots.storage_1)
+        coordinator:completeSetup({configured=true,
+            dropoff={peripheral_name="drop"},pickup={peripheral_name="pickup"},
+            storage={{id="storage_1",peripheral_name="store1",enabled=false}}})
+        local model=coordinator:viewModel()
+        T.equal(model.snapshots.storage_1,nil);T.equal(model.nodes[2].state,"DISABLED")
+    end},
     {name="pause and resume gate automation without blocking scans",run=function()
         local d=deps(); local automation=0
         d.imports={tick=function() automation=automation+1 end,status=function() return {state="IDLE"} end}

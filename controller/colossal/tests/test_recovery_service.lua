@@ -18,10 +18,13 @@ return {
             calls=calls+1;T.equal(journal.id,"journal");T.equal(#storage,1)
             return {state="WAITING",rescan={"a","b"},reason={code="STORAGE_SCOPE_INCOMPLETE",message="waiting"}}
         end,retire=function() retired=retired+1;return true end}
-        local service=Recovery.new({journal={id="journal"},transfer=transfer,alerts=alerts()})
+        local notices=alerts()
+        local service=Recovery.new({journal={id="journal"},transfer=transfer,alerts=notices})
         local result=service:tick({storage={{node_id="a"}}})
         T.equal(result.state,"VERIFYING");T.equal(result.rescan[2],"b")
         T.equal(service:status().state,"VERIFYING");T.equal(calls,1);T.equal(retired,0)
+        T.equal(notices.values[1].severity,"warning")
+        T.equal(notices.values[1].details.code,"STORAGE_SCOPE_INCOMPLETE")
     end},
     {name="completed recovery records measured result and retires journal once",run=function()
         local retired=0;local notices=alerts()

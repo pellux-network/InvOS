@@ -11,12 +11,18 @@ local function reason(code,message,retryable)
 end
 
 local function identityTotal(identityKey,slots)
+    if type(slots)~="table" then
+        return nil,reason("MALFORMED_STORAGE_SNAPSHOT","Storage slots must be a table",false)
+    end
     local total=0
-    for _,item in pairs(slots or {}) do
-        if type(item)=="table" and item.identity_key==identityKey and
-            type(item.count)=="number" and item.count>=0 then
-            total=total+item.count
+    for slot,item in pairs(slots) do
+        if type(slot)~="number" or slot<1 or slot%1~=0 or type(item)~="table" or
+            type(item.identity_key)~="string" or item.identity_key=="" or
+            type(item.count)~="number" or item.count<1 or item.count%1~=0 then
+            return nil,reason("MALFORMED_STORAGE_SNAPSHOT",
+                "Storage snapshot contains an invalid slot item",false)
         end
+        if item.identity_key==identityKey then total=total+item.count end
     end
     return total
 end
@@ -40,17 +46,22 @@ function M.capture(identityKey,snapshots)
     end
     local total,nodeIds,seen,incomplete=0,{},{},false
     for _,snapshot in ipairs(snapshots or {}) do
-        if type(snapshot)=="table" and type(snapshot.node_id)=="string" and
-            snapshot.node_id~="" then
-            if seen[snapshot.node_id] then
-                return nil,reason("DUPLICATE_STORAGE_NODE","Storage scope contains duplicate node IDs",false)
-            end
-            seen[snapshot.node_id]=true
-            nodeIds[#nodeIds+1]=snapshot.node_id
-            if snapshot.health=="READY" then
-                total=total+identityTotal(identityKey,snapshot.slots)
-            else incomplete=true end
+        if type(snapshot)~="table" or type(snapshot.node_id)~="string" or
+            snapshot.node_id=="" or type(snapshot.health)~="string" or
+            type(snapshot.slots)~="table" then
+            return nil,reason("MALFORMED_STORAGE_SNAPSHOT",
+                "Storage scope contains an invalid node snapshot",false)
         end
+        if seen[snapshot.node_id] then
+            return nil,reason("DUPLICATE_STORAGE_NODE","Storage scope contains duplicate node IDs",false)
+        end
+        seen[snapshot.node_id]=true
+        nodeIds[#nodeIds+1]=snapshot.node_id
+        if snapshot.health=="READY" then
+            local subtotal,cause=identityTotal(identityKey,snapshot.slots)
+            if subtotal==nil then return nil,cause end
+            total=total+subtotal
+        else incomplete=true end
     end
     table.sort(nodeIds)
     if #nodeIds==0 then
@@ -74,9 +85,15 @@ function M.measure(kind,baseline,snapshots)
     end
     local byId={}
     for _,snapshot in ipairs(snapshots or {}) do
-        if type(snapshot)=="table" and type(snapshot.node_id)=="string" then
-            byId[snapshot.node_id]=snapshot
+        if type(snapshot)~="table" or type(snapshot.node_id)~="string" or snapshot.node_id=="" then
+            return {state="FAILED",reason=reason("MALFORMED_STORAGE_SNAPSHOT",
+                "Storage scope contains an invalid node snapshot",false)}
         end
+        if byId[snapshot.node_id] then
+            return {state="FAILED",reason=reason("DUPLICATE_STORAGE_NODE",
+                "Storage scope contains duplicate node IDs",false)}
+        end
+        byId[snapshot.node_id]=snapshot
     end
     local after=0
     for _,nodeId in ipairs(baseline.node_ids) do
@@ -86,7 +103,9 @@ function M.measure(kind,baseline,snapshots)
                 "Waiting for every baseline storage node",true),
                 rescan=copyArray(baseline.node_ids)}
         end
-        after=after+identityTotal(baseline.identity_key,snapshot.slots)
+        local subtotal,cause=identityTotal(baseline.identity_key,snapshot.slots)
+        if subtotal==nil then return {state="FAILED",reason=cause} end
+        after=after+subtotal
     end
     local moved=kind=="request" and baseline.total-after or after-baseline.total
     return {state="READY",before_total=baseline.total,after_total=after,moved=moved}

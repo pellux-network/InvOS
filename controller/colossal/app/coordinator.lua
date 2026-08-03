@@ -50,6 +50,7 @@ end
 
 function Coordinator:_replaceNodes(nodes)
     self.nodes, self.nodeById, self.scanQueue = {}, {}, {}
+    self.snapshots,self.scanRevision,self.activeScan,self.index,self.enrichment={}, {}, nil, nil, nil
     for _, definition in ipairs(nodes) do
         local node = nodeView(definition)
         self.nodes[#self.nodes + 1] = node
@@ -125,7 +126,9 @@ function Coordinator:_rebuildIndex()
     local snapshots = {}
     for _, node in ipairs(self.nodes) do
         local snapshot = self.snapshots[node.id]
-        if snapshot and node.role == "storage" then snapshots[#snapshots + 1] = snapshot end
+        if snapshot and node.role == "storage" and node.state=="READY" then
+            snapshots[#snapshots + 1] = snapshot
+        end
     end
     local ok, result = pcall(self.deps.build_index, snapshots, self.metadata)
     if ok then

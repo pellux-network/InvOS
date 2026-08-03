@@ -103,12 +103,13 @@ return {
         T.equal(active[1].severity,"critical");T.equal(active[1].details.code,"RECONCILE_DIRECTION")
     end},
     {name="waiting reconciliation keeps the request in verification",run=function()
-        local requests,transfer=service({{plan={planned(2)},remainder=0}},
+        local requests,transfer,alerts=service({{plan={planned(2)},remainder=0}},
             {{state="WAITING",reason={code="STORAGE_SCOPE_INCOMPLETE",retryable=true},rescan={"storage"}},
              {state="COMPLETE",moved=2,reported_moved=2}})
         requests:create({key=stone},2);local ctx=context()
         local result=advance(requests,ctx)
         T.equal(result.state,"VERIFYING");T.arrayEqual(result.rescan,{"storage"})
+        T.equal(alerts:active()[1].details.code,"STORAGE_SCOPE_INCOMPLETE")
         result=requests:tick(ctx);T.equal(result.state,"COMPLETE")
         T.equal(transfer.execute_calls,1);T.equal(transfer.retire_calls,1)
     end},

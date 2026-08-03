@@ -83,12 +83,13 @@ return {
         T.equal(active[1].details.code,"RECONCILE_DIRECTION")
     end},
     {name="waiting import reconciliation keeps one call in flight",run=function()
-        local imports,transfer=service({{plan={step(5)},remainder=0}},
+        local imports,transfer,alerts=service({{plan={step(5)},remainder=0}},
             {{state="WAITING",reason={code="STORAGE_SCOPE_INCOMPLETE"},rescan={"storage"}},
              {state="COMPLETE",moved=5,reported_moved=5}})
         local ctx=context(5);imports:tick(ctx);imports:tick(ctx);imports:tick(ctx)
         local result=imports:tick(ctx);T.equal(result.state,"VERIFYING")
         T.arrayEqual(result.rescan,{"storage"})
+        T.equal(alerts:active()[1].details.code,"STORAGE_SCOPE_INCOMPLETE")
         result=imports:tick(ctx);T.equal(result.state,"COMPLETE")
         T.equal(transfer.execute_calls,1)
     end},

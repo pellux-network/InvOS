@@ -52,6 +52,20 @@ return {
         T.equal(result.reason.code,"STORAGE_SCOPE_INCOMPLETE")
         T.arrayEqual(result.rescan,{"a","b"})
     end},
+    {name="capture rejects malformed nodes and item counts",run=function()
+        local baseline,cause=Reconciliation.capture(echo,{
+            {node_id="",health="READY",slots={}}})
+        T.equal(baseline,nil);T.equal(cause.code,"MALFORMED_STORAGE_SNAPSHOT")
+        baseline,cause=Reconciliation.capture(echo,{
+            snapshot("a",{[1]={identity_key=echo,count=-1}})})
+        T.equal(baseline,nil);T.equal(cause.code,"MALFORMED_STORAGE_SNAPSHOT")
+    end},
+    {name="measurement rejects duplicate post-scan node IDs",run=function()
+        local result=Reconciliation.measure("request",
+            {identity_key=echo,total=3,node_ids={"a"}},
+            {snapshot("a",{}),snapshot("a",{})})
+        T.equal(result.state,"FAILED");T.equal(result.reason.code,"DUPLICATE_STORAGE_NODE")
+    end},
     {name="aggregate reconciliation keeps exact NBT identities separate",run=function()
         local healing="minecraft:potion\0healing"
         local strength="minecraft:potion\0strength"

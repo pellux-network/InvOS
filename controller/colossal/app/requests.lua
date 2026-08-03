@@ -141,6 +141,10 @@ function Requests:tick(context)
                 self.alerts:set("request_reconciliation:"..request.id,"critical",
                     "Storage changed opposite the request; review manual inventory changes",
                     {code="RECONCILE_DIRECTION",request_id=request.id})
+            elseif result.reason and result.reason.code=="STORAGE_SCOPE_INCOMPLETE" then
+                self.alerts:set("request_reconciliation:"..request.id,"warning",
+                    "Request is waiting for every recorded storage node to come online",
+                    {code="STORAGE_SCOPE_INCOMPLETE",request_id=request.id})
             end
         elseif result.state ~= "COMPLETE" then
             request.reason = copy(result.reason)
@@ -167,6 +171,7 @@ function Requests:tick(context)
             request.reason=nil
             self.alerts:resolve("request_blocked:" .. request.id)
             self.alerts:resolve("request_failed:" .. request.id)
+            self.alerts:resolve("request_reconciliation:" .. request.id)
             if request.cancel_requested then
                 self:_state(request, "PARTIAL")
                 self:_state(request, "CANCELLED")

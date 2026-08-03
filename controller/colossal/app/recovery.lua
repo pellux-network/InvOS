@@ -48,6 +48,9 @@ function Recovery:tick(context)
         if result.reason and result.reason.code=="RECONCILE_DIRECTION" then
             self:_alert("critical","Storage changed opposite the unfinished transfer; automation is waiting for review",
                 {code="RECONCILE_DIRECTION",operation_id=self.journal.operation and self.journal.operation.id})
+        elseif result.reason and result.reason.code=="STORAGE_SCOPE_INCOMPLETE" then
+            self:_alert("warning","Unfinished transfer is waiting for every recorded storage node to come online",
+                {code="STORAGE_SCOPE_INCOMPLETE",operation_id=self.journal.operation and self.journal.operation.id})
         end
         self.event={state="VERIFYING",moved=0,rescan=copy(result.rescan or {}),
             reason=copy(result.reason)}
