@@ -23,7 +23,7 @@ function Requests.new(deps)
         transition=assert(deps.transition, "transition function is required"),
         clock=assert(deps.clock, "request clock is required"),
         idGenerator=assert(deps.idGenerator, "request ID generator is required"),
-        batchLimit=deps.batch_limit or 8,
+        batchLimit=deps.batch_limit or 8, recordUsage=deps.record_usage,
         counter=0, ordered={}, byId={},
     }, Requests)
 end
@@ -72,6 +72,9 @@ function Requests:create(identity, quantity)
     }
     self.ordered[#self.ordered + 1] = request
     self.byId[request.id] = request
+    -- Usage stats are a re-learnable cache, not core correctness, so a failure here
+    -- must never stop the request itself from being created.
+    if self.recordUsage then pcall(self.recordUsage, identity.key, request.created_at) end
     return copy(request)
 end
 

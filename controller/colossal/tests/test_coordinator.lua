@@ -55,6 +55,31 @@ return {
         T.equal(d.scans.steps,1)
         T.equal(coordinator:viewModel().ui.query,"s")
     end},
+    {name="recordItemRequested bumps usage stats for an enriched identity and marks the coordinator dirty",run=function()
+        local d=deps()
+        local buildCalls=0
+        d.build_index=function() buildCalls=buildCalls+1; return {items=function() return {} end} end
+        d.metadata={["mod:item"]={display_name="Item",max_count=64}}
+        local coordinator=Coordinator.new(d)
+        buildCalls=0
+        coordinator.dirty=false
+        coordinator:recordItemRequested("mod:item",555)
+        T.equal(coordinator.metadata["mod:item"].request_count,1)
+        T.equal(coordinator.metadata["mod:item"].last_requested,555)
+        T.equal(coordinator.metadata["mod:item"].display_name,"Item")
+        T.equal(buildCalls,1,"the index must be rebuilt so search picks up the new stats")
+        T.equal(coordinator.dirty,true)
+    end},
+    {name="recordItemRequested does nothing for an identity that has not been enriched yet",run=function()
+        local d=deps()
+        local buildCalls=0
+        d.build_index=function() buildCalls=buildCalls+1; return {items=function() return {} end} end
+        local coordinator=Coordinator.new(d)
+        buildCalls=0
+        coordinator:recordItemRequested("mod:unknown",555)
+        T.equal(coordinator.metadata["mod:unknown"],nil)
+        T.equal(buildCalls,0)
+    end},
     {name="view models are immutable copies",run=function()
         local coordinator=Coordinator.new(deps())
         local first=coordinator:viewModel(); first.ui.query="corrupt"; first.nodes[1].state="BROKEN"

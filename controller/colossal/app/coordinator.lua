@@ -165,6 +165,20 @@ function Coordinator:_defaultSearchLimit()
     return 50
 end
 
+-- Usage stats are only ever added to an identity that enrichment already gave a
+-- display_name and max_count, so every cached entry always has both or neither: a
+-- partial entry would fail Index.validateMetadata and block persisting everything else.
+function Coordinator:recordItemRequested(identityKey, timestamp)
+    local existing = self.metadata[identityKey]
+    if type(existing) ~= "table" then return end
+    local details = copy(existing)
+    details.request_count = (details.request_count or 0) + 1
+    details.last_requested = timestamp or self.clock()
+    self.metadata[identityKey] = details
+    self.dirty = true
+    self:_rebuildIndex()
+end
+
 function Coordinator:_rebuildIndex()
     local snapshots = {}
     for _, node in ipairs(self.nodes) do

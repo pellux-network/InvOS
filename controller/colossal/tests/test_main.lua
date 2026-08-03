@@ -169,6 +169,29 @@ return {
         local results=coordinator:viewModel().ui.results
         T.equal(results[1].display_name,"Stone")
     end},
+    {name="requesting an item persists its usage stats to the metadata cache",run=function()
+        local textutils,codec=tokenTextutils()
+        local fs=T.memoryFs()
+        local store=Store.new(fs,codec,"data")
+        T.truthy(store:write("config",configuredConfig(),Setup.validateConfig))
+        local nowValue=0
+        local inventories={drop=chestInventory(4,{}),pickup=chestInventory(4,{}),
+            store_a=chestInventory(4,{[1]={name="minecraft:stone",count=64,
+                displayName="Stone",maxCount=64}})}
+        local coordinator,services=Main.build(environment({fs=fs,textutils=textutils,
+            peripheral=peripheralFor(inventories),clock=function() return nowValue end}))
+        for tick=1,10 do nowValue=nowValue+10; coordinator:tick(tick) end
+        local key=Identity.key("minecraft:stone",nil)
+        T.truthy(coordinator.metadata[key],"stone must already be enriched before requesting it")
+        services.requests:create({key=key,name="minecraft:stone",display_name="Stone"},1)
+        for tick=11,60 do nowValue=nowValue+10; coordinator:tick(tick) end
+        T.equal(coordinator.metadata[key].request_count,1)
+        T.truthy(coordinator.metadata[key].last_requested>0)
+        local decoded=store:read("metadata",Index.validateMetadata)
+        T.truthy(decoded,"persisted metadata must validate")
+        T.equal(decoded.items[key].request_count,1)
+        T.truthy(decoded.items[key].last_requested>0)
+    end},
     {name="metadata writes coalesce during a learning burst instead of hitting disk every tick",run=function()
         local textutils,codec=tokenTextutils()
         local fs=T.memoryFs()
