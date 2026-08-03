@@ -48,6 +48,7 @@ local defaultModules = {
     "tests.test_node_capacity_view",
     "tests.test_pickup_preflight",
     "tests.test_request_replan",
+    "tests.test_hot_paths",
 }
 
 local modules = {}

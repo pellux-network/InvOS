@@ -140,10 +140,7 @@ function Main.build(environment)
     local coordinator
     local adapter=InventoryAdapter.new(peripheralApi,function(name)
         if not coordinator then return 0 end
-        for _,snapshot in pairs(coordinator:viewModel().snapshots or {}) do
-            if snapshot.peripheral_name==name then return snapshot.epoch end
-        end
-        return 0
+        return coordinator:epochFor(name)
     end)
     local transfer=Transfer.new({store=store,adapter=adapter,clock=now,
         reconciliation=Reconciliation})
@@ -216,7 +213,8 @@ function Main.build(environment)
     coordinator=Coordinator.new({clock=now,scanner=scanner,nodes=nodesFrom(config),
         configured=config.configured,ui=ui,keymap=Keymap,initial_ui=uiState,
         build_index=Index.build,search=Search.query,aliases=aliases.items,
-        enrich_step=Index.enrichStep,registry=adapter,metadata_budget=1,scan_budget=32,
+        enrich_step=Index.enrichStep,registry=adapter,metadata_budget=1,
+        scan_budget=512,dropoff_scan_budget=32,
         lifecycle=Lifecycle,recovery=recovery,imports=imports,requests=requests,alerts=alerts,
         monitor=Monitor,monitor_surface=monitorSurface,on_effect=onEffect,
         intervals={heartbeat=0.25}})

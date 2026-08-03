@@ -36,7 +36,8 @@ function Coordinator.new(deps)
     assert(type(deps.keymap) == "table", "keymap is required")
     local self = setmetatable({
         deps=deps, clock=assert(deps.clock, "clock is required"), scanner=deps.scanner,
-        ui=deps.ui, keymap=deps.keymap, scanBudget=deps.scan_budget or 32,
+        ui=deps.ui, keymap=deps.keymap, scanBudget=deps.scan_budget or 512,
+        dropoffScanBudget=deps.dropoff_scan_budget or 32,
         metadataBudget=deps.metadata_budget or 1, configured=deps.configured ~= false,
         recovering=deps.recovering == true, paused=deps.paused == true,
         uiState=copy(deps.initial_ui or {}), nodes={}, nodeById={},
@@ -66,7 +67,9 @@ function Coordinator:_recordError(component, reason, node)
     self.dirty = true
 end
 
-function Coordinator:_context(now)
+-- Lifecycle only needs role health counts. Building it without snapshot copies keeps
+-- the per-tick cost independent of how many slots the storage pool holds.
+function Coordinator:_statusContext(now)
     local ready, unhealthy = 0, 0
     local dropoffReady, pickupReady = false, false
     for _, node in ipairs(self.nodes) do
@@ -76,6 +79,16 @@ function Coordinator:_context(now)
             if node.role == "pickup" then pickupReady = true end
         elseif node.state ~= "DISABLED" and node.role == "storage" then unhealthy = unhealthy + 1 end
     end
+    return {
+        now=now, configured=self.configured, recovering=self.recovering, paused=self.paused,
+        initial_index_complete=self:_initialIndexComplete(), ready_storage=ready,
+        unhealthy_nodes=unhealthy, dropoff_ready=dropoffReady, pickup_ready=pickupReady,
+        generation=self.generation,
+    }
+end
+
+function Coordinator:_context(now)
+    local context = self:_statusContext(now)
     local storage = {}
     for _, node in ipairs(self.nodes) do
         if node.role == "storage" and node.state~="DISABLED" then
@@ -85,13 +98,18 @@ function Coordinator:_context(now)
             storage[#storage + 1]=snapshot
         end
     end
-    return {
-        now=now, configured=self.configured, recovering=self.recovering, paused=self.paused,
-        initial_index_complete=self:_initialIndexComplete(), ready_storage=ready,
-        unhealthy_nodes=unhealthy, dropoff_ready=dropoffReady, pickup_ready=pickupReady,
-        dropoff=self:_snapshotForRole("dropoff"), pickup=self:_snapshotForRole("pickup"),
-        storage=storage, index=self.index, generation=self.generation,
-    }
+    context.dropoff=self:_snapshotForRole("dropoff")
+    context.pickup=self:_snapshotForRole("pickup")
+    context.storage=storage
+    context.index=self.index
+    return context
+end
+
+function Coordinator:epochFor(peripheralName)
+    for _, snapshot in pairs(self.snapshots) do
+        if snapshot.peripheral_name == peripheralName then return snapshot.epoch or 0 end
+    end
+    return 0
 end
 
 function Coordinator:_snapshotForRole(role)
@@ -114,7 +132,7 @@ end
 function Coordinator:_refreshLifecycle(now)
     local derive = self.deps.lifecycle and self.deps.lifecycle.derive
     if derive then
-        local ok, state, reason = pcall(derive, self:_context(now or self.clock()))
+        local ok, state, reason = pcall(derive, self:_statusContext(now or self.clock()))
         if ok then self.lifecycle, self.lifecycleReason = state, reason
         else self.lifecycle, self.lifecycleReason = "ERROR", clean(state) end
     else
@@ -142,6 +160,13 @@ function Coordinator:_rebuildIndex()
             self:_dispatch(effect)
         else self:_recordError("search", results) end
     else self:_recordError("index", result) end
+end
+
+-- Drop-off scans call getItemDetail per occupied slot, so they stay peripheral bounded.
+-- Every other role is pure Lua slot bookkeeping and can absorb a bulk budget.
+function Coordinator:_budgetFor(node)
+    if node.role == "dropoff" then return self.dropoffScanBudget end
+    return self.scanBudget
 end
 
 function Coordinator:_scanStep()
@@ -175,7 +200,7 @@ function Coordinator:_scanStep()
     end
     local active = self.activeScan
     local ok, done, snapshot, reason = pcall(self.scanner.step, self.scanner,
-        active.state, self.scanBudget)
+        active.state, self:_budgetFor(active.node))
     if not ok then
         self:_recordError("scanner", done, active.node)
         self.activeScan = nil
