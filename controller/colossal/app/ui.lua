@@ -220,7 +220,7 @@ function UI:_header(state, model)
     local width = surface.getSize()
     fill(surface, 1, palette.gray)
     surface.setTextColor(palette.white)
-    writeClipped(surface, 2, 1, "COLOSSAL STORAGE", 20)
+    writeClipped(surface, 2, 1, "PELLSTORE", 20)
     local lifecycle = model.lifecycle or "BOOTING"
     surface.setTextColor(stateColor(lifecycle))
     writeClipped(surface, math.max(1, width - #lifecycle - 1), 1, lifecycle, #lifecycle)

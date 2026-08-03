@@ -20,7 +20,7 @@ return {
     { name = "small monitor shows essential state and stock", run = function()
         local surface=T.recordingSurface(18,6)
         Monitor.render(surface,view())
-        T.contains(surface.allText(),"STORAGE")
+        T.contains(surface.allText(),"PELLSTORE")
         T.contains(surface.allText(),"READY")
         T.contains(surface.allText(),"98,765")
         T.equal(surface.writesOutsideBounds(),0)

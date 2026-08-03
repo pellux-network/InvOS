@@ -8,10 +8,10 @@ while true do
     local ok = shell.run(path)
     if ok then break end
     if os.clock() - startedAt >= healthyRunSeconds then delay = 1 end
-    printError("Colossal Storage stopped with an error; restarting in " .. delay .. "s")
+    printError("PellStore stopped with an error; restarting in " .. delay .. "s")
     local slept = pcall(sleep, delay)
     if not slept then
-        printError("Colossal Storage supervisor stopped by operator")
+        printError("PellStore supervisor stopped by operator")
         break
     end
     delay = math.min(delay * 2, 30)
