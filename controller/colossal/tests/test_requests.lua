@@ -74,6 +74,34 @@ return {
         T.equal(result.state,"BLOCKED");T.equal(result.reason.code,"PICKUP_FULL")
         T.equal(transfer.retire_calls,1)
     end},
+    {name="throwing journal retirement cannot apply a request result twice",run=function()
+        local requests,transfer,alerts=service({{plan={planned(1)},remainder=0}},
+            {{state="COMPLETE",moved=1,reported_moved=1}})
+        function transfer:retire() self.retire_calls=self.retire_calls+1;error("disk detached") end
+        local request=requests:create({key=stone},1);local ctx=context()
+        local result=advance(requests,ctx)
+        T.equal(result.state,"COMPLETE");T.equal(result.delivered,1)
+        requests:tick(ctx);requests:tick(ctx)
+        T.equal(requests:get(request.id).delivered,1)
+        T.equal(transfer.execute_calls,1);T.equal(transfer.verify_calls,1)
+        T.equal(alerts:active()[1].details.code,"JOURNAL_RETIRE")
+    end},
+    {name="zero movement waits for explicit Pickup retry despite background generations",run=function()
+        local requests,transfer=service({{plan={planned(2)},remainder=0}},
+            {{state="COMPLETE",moved=0,reported_moved=2}})
+        local request=requests:create({key=stone},2);local ctx=context(1)
+        T.equal(advance(requests,ctx).state,"BLOCKED")
+        for generation=2,8 do ctx.generation=generation;ctx.now=100000+generation;requests:tick(ctx) end
+        T.equal(requests:get(request.id).state,"BLOCKED");T.equal(transfer.execute_calls,1)
+        T.truthy(requests:retry(request.id));T.equal(requests:get(request.id).state,"PLANNING")
+    end},
+    {name="opposite request delta raises a critical actionable alert",run=function()
+        local requests,transfer,alerts=service({{plan={planned(2)},remainder=0}},
+            {{state="WAITING",reason={code="RECONCILE_DIRECTION"},rescan={"storage"}}})
+        requests:create({key=stone},2);T.equal(advance(requests,context()).state,"VERIFYING")
+        T.equal(transfer.execute_calls,1);local active=alerts:active()
+        T.equal(active[1].severity,"critical");T.equal(active[1].details.code,"RECONCILE_DIRECTION")
+    end},
     {name="waiting reconciliation keeps the request in verification",run=function()
         local requests,transfer=service({{plan={planned(2)},remainder=0}},
             {{state="WAITING",reason={code="STORAGE_SCOPE_INCOMPLETE",retryable=true},rescan={"storage"}},

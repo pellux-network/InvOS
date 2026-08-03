@@ -55,6 +55,33 @@ return {
         T.equal(imports:tick(ctx).state,"TRANSFERRING")
         T.equal(transfer.retire_calls,1)
     end},
+    {name="throwing journal retirement cannot apply an import result twice",run=function()
+        local imports,transfer,alerts=service({{plan={step(5)},remainder=0}},
+            {{state="COMPLETE",moved=5,reported_moved=5}})
+        function transfer:retire() self.retire_calls=self.retire_calls+1;error("disk detached") end
+        local ctx=context(5);imports:tick(ctx);imports:tick(ctx);imports:tick(ctx)
+        local result=imports:tick(ctx);T.equal(result.state,"COMPLETE");T.equal(result.moved,5)
+        T.equal(imports:status().moved,5)
+        T.equal(transfer.execute_calls,1);T.equal(transfer.verify_calls,1)
+        T.equal(alerts:active()[1].details.code,"JOURNAL_RETIRE")
+    end},
+    {name="zero import waits for explicit retry despite background generations",run=function()
+        local imports,transfer=service({{plan={step(5)},remainder=0}},
+            {{state="COMPLETE",moved=0,reported_moved=0}})
+        local ctx=context(5,1);imports:tick(ctx);imports:tick(ctx);imports:tick(ctx)
+        T.equal(imports:tick(ctx).state,"BLOCKED")
+        for generation=2,8 do ctx.generation=generation;ctx.now=100000+generation;imports:tick(ctx) end
+        T.equal(imports:status().state,"BLOCKED");T.equal(transfer.execute_calls,1)
+        T.truthy(imports:retry());T.equal(imports:status().state,"PLANNING")
+    end},
+    {name="opposite import delta raises a critical actionable alert",run=function()
+        local imports,transfer,alerts=service({{plan={step(5)},remainder=0}},
+            {{state="WAITING",reason={code="RECONCILE_DIRECTION"},rescan={"storage"}}})
+        local ctx=context(5);imports:tick(ctx);imports:tick(ctx);imports:tick(ctx)
+        T.equal(imports:tick(ctx).state,"VERIFYING");T.equal(transfer.execute_calls,1)
+        local active=alerts:active();T.equal(active[1].severity,"critical")
+        T.equal(active[1].details.code,"RECONCILE_DIRECTION")
+    end},
     {name="waiting import reconciliation keeps one call in flight",run=function()
         local imports,transfer=service({{plan={step(5)},remainder=0}},
             {{state="WAITING",reason={code="STORAGE_SCOPE_INCOMPLETE"},rescan={"storage"}},

@@ -33,6 +33,27 @@ return {
         T.equal(notices.values[1].severity,"warning")
         service:tick({storage={}});T.equal(retired,1)
     end},
+    {name="recovery reports measured overdelivery as critical",run=function()
+        local notices=alerts()
+        local transfer={recover=function() return {state="COMPLETE",moved=3,reported_moved=1} end,
+            retire=function() return true end}
+        local service=Recovery.new({journal={operation={id="request-1"},step={limit=2}},
+            transfer=transfer,alerts=notices})
+        service:tick({storage={}})
+        T.equal(notices.values[1].severity,"critical")
+        T.equal(notices.values[1].details.code,"OVER_DELIVERY")
+    end},
+    {name="direction conflict raises a critical recovery alert and keeps the journal",run=function()
+        local notices=alerts();local retired=0
+        local transfer={recover=function() return {state="WAITING",rescan={"a"},
+            reason={code="RECONCILE_DIRECTION",message="opposite delta"}} end,
+            retire=function() retired=retired+1;return true end}
+        local service=Recovery.new({journal={operation={id="request-1"},step={limit=2}},
+            transfer=transfer,alerts=notices})
+        T.equal(service:tick({storage={}}).state,"VERIFYING")
+        T.equal(retired,0);T.equal(notices.values[1].severity,"critical")
+        T.equal(notices.values[1].details.code,"RECONCILE_DIRECTION")
+    end},
     {name="legacy journal is warned and retired without replay",run=function()
         local retired=0;local notices=alerts()
         local transfer={recover=function() return {state="LEGACY",reason={code="LEGACY_JOURNAL",message="legacy"}} end,

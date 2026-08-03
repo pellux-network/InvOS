@@ -26,7 +26,8 @@ function Recovery:_alert(severity,message,details)
 end
 
 function Recovery:_finish(result,severity,message)
-    local retired,reason=self.transfer:retire()
+    local callOk,retired,reason=pcall(self.transfer.retire,self.transfer)
+    if not callOk then retired,reason=nil,retired end
     if not retired then
         self:_alert("warning","Transfer recovery finished, but its old journal could not be removed: "..
             tostring(reason),{code="JOURNAL_RETIRE_FAILED"})
@@ -44,11 +45,22 @@ function Recovery:tick(context)
     if not self.journal or self.event.state=="BLOCKED" then return copy(self.event) end
     local result=self.transfer:recover(self.journal,(context or {}).storage or {})
     if result.state=="WAITING" then
+        if result.reason and result.reason.code=="RECONCILE_DIRECTION" then
+            self:_alert("critical","Storage changed opposite the unfinished transfer; automation is waiting for review",
+                {code="RECONCILE_DIRECTION",operation_id=self.journal.operation and self.journal.operation.id})
+        end
         self.event={state="VERIFYING",moved=0,rescan=copy(result.rescan or {}),
             reason=copy(result.reason)}
         return copy(self.event)
     end
     if result.state=="COMPLETE" then
+        local limit=self.journal.step and self.journal.step.limit
+        if type(limit)=="number" and result.moved>limit then
+            self.alerts:set("recovery_overdelivery:"..tostring(self.journal.operation and self.journal.operation.id),
+                "critical","Recovered transfer moved "..result.moved.." items for a "..limit.." item step",
+                {code="OVER_DELIVERY",requested=limit,measured=result.moved,
+                    reported=result.reported_moved})
+        end
         local differs=result.reported_moved~=nil and result.reported_moved~=result.moved
         return self:_finish(result,differs and "warning" or "info",
             differs and ("Recovered transfer from storage totals: inventory moved "..

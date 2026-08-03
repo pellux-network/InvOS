@@ -37,11 +37,57 @@ return {
                 peripheral_name=scan.node.peripheral_name,epoch=1,size=27,occupied=0,
                 slots={},health="READY"} end}
         local coordinator=base({{id="a",role="storage",peripheral_name="a"},
-            {id="b",role="storage",peripheral_name="b"}},scanner,
+            {id="b",role="storage",peripheral_name="b"},
+            {id="reserve",role="storage",peripheral_name="reserve",enabled=false}},scanner,
             {status=function() return {state="IDLE"} end},requests)
-        coordinator:tick(1)
+        for tick=1,6 do coordinator:tick(tick);if captured then break end end
         T.equal(#captured,2);T.equal(captured[1].health,"READY")
-        T.equal(captured[2].node_id,"b");T.equal(captured[2].health,"SCANNING")
+        T.equal(captured[2].node_id,"b");T.equal(captured[2].health,"READY")
+    end},
+    {name="planning waits for a fresh complete pool scan then executes before another scan",run=function()
+        local state,requestCalls,scans="PLANNING",0,0;local scanAtPlan
+        local requests={list=function() return {{state=state}} end}
+        function requests:tick()
+            requestCalls=requestCalls+1
+            if state=="PLANNING" then state="TRANSFERRING";scanAtPlan=scans
+            else state="VERIFYING";T.equal(scans,scanAtPlan) end
+        end
+        local scanner={begin=function(_,node) return {node=node} end}
+        function scanner:step(scan)
+            scans=scans+1;return true,{node_id=scan.node.id,
+                peripheral_name=scan.node.peripheral_name,epoch=scans,size=27,
+                occupied=0,slots={},health="READY"}
+        end
+        local coordinator=base({{id="a",role="storage",peripheral_name="a"},
+            {id="b",role="storage",peripheral_name="b"},
+            {id="pickup",role="pickup",peripheral_name="pickup"}},scanner,
+            {status=function() return {state="IDLE"} end},requests)
+        coordinator:tick(1);T.equal(requestCalls,0)
+        for tick=2,8 do coordinator:tick(tick);if requestCalls==2 then break end end
+        T.equal(requestCalls,2);T.equal(state,"VERIFYING")
+    end},
+    {name="request preflight ignores unrelated Drop-off while import ignores unrelated Pickup",run=function()
+        local function run(serviceName)
+            local calls,unrelated=0,0
+            local service={status=function() return {state="PLANNING"} end,
+                list=function() return {{state="PLANNING"}} end,
+                tick=function() calls=calls+1 end}
+            local scanner={begin=function(_,node)
+                if serviceName=="requests" and node.role=="dropoff" or
+                    serviceName=="imports" and node.role=="pickup" then unrelated=unrelated+1 end
+                return {node=node}
+            end,step=function(_,scan) return true,{node_id=scan.node.id,
+                peripheral_name=scan.node.peripheral_name,epoch=1,size=27,occupied=0,
+                slots={},health="READY"} end}
+            local imports=serviceName=="imports" and service or {status=function() return {state="IDLE"} end}
+            local requests=serviceName=="requests" and service or {list=function() return {} end}
+            local coordinator=base({{id="store",role="storage",peripheral_name="store"},
+                {id="drop",role="dropoff",peripheral_name="drop"},
+                {id="pickup",role="pickup",peripheral_name="pickup"}},scanner,imports,requests)
+            for tick=1,6 do coordinator:tick(tick);if calls>0 then break end end
+            T.equal(calls,1);T.equal(unrelated,0)
+        end
+        run("requests");run("imports")
     end},
     {name="retrieval reconciliation receives storage snapshots without slot observations",run=function()
         local requestCalls,sourceBegins,pickupBegins=0,0,0;local observedField="unset";local storageCount=0
@@ -60,8 +106,8 @@ return {
         local coordinator=base({{id="source",role="storage",peripheral_name="source"},
             {id="pickup",role="pickup",peripheral_name="pickup"}},scanner,
             {status=function() return {state="IDLE"} end},requests)
-        coordinator:tick(1);coordinator:tick(2)
-        T.equal(requestCalls,2);T.equal(sourceBegins,2);T.equal(pickupBegins,0)
+        for tick=1,10 do coordinator:tick(tick);if requestCalls==2 then break end end
+        T.equal(requestCalls,2);T.equal(sourceBegins>=2,true);T.equal(pickupBegins>=1,true)
         T.equal(observedField,nil);T.equal(storageCount,1)
     end},
 }

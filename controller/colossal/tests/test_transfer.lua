@@ -106,6 +106,21 @@ return {
         local complete=transfer:verify(result.journal,{snapshot("a",{})})
         T.equal(complete.state,"COMPLETE");T.equal(complete.moved,3);T.equal(adapter.push_calls,1)
     end},
+    {name="thrown called journal write remains verifying without another push",run=function()
+        local adapter={push_calls=0}
+        function adapter:inspect() return true,{identity_key=echo,count=3} end
+        function adapter:push() self.push_calls=self.push_calls+1;return true,1 end
+        local store={write=function(_,_,journal)
+            if journal.step.phase=="CALLED" then error("disk detached") end
+            return true
+        end,delete=function() return true end}
+        local transfer=Transfer.new({store=store,adapter=adapter,clock=function() return 1 end,
+            reconciliation=Reconciliation})
+        local result=transfer:execute(operation("request"),requestStep(2),{
+            snapshot("a",{[7]={identity_key=echo,count=3}})})
+        T.equal(result.state,"VERIFYING");T.equal(result.reason.code,"JOURNAL_WRITE_AFTER_CALL")
+        T.equal(result.journal.step.phase,"CALLING");T.equal(adapter.push_calls,1)
+    end},
     {name="opposite direction delta stays pending and cannot be retried",run=function()
         local transfer,_,adapter=makeTransfer(1)
         local called=transfer:execute(operation("request"),requestStep(2),{

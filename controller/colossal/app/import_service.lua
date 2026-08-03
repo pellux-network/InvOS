@@ -47,7 +47,7 @@ function ImportService:status()
 end
 
 function ImportService:retry()
-    if not self.active or self.active.state ~= "FAILED" then
+    if not self.active or (self.active.state ~= "FAILED" and self.active.state ~= "BLOCKED") then
         return nil, "import is not awaiting operator retry"
     end
     self.active.reason = nil
@@ -153,6 +153,11 @@ function ImportService:tick(context)
         if result.state == "WAITING" then
             active.rescan=copy(result.rescan)
             active.reason=copy(result.reason)
+            if result.reason and result.reason.code=="RECONCILE_DIRECTION" then
+                self.alerts:set("import_reconciliation:"..active.id,"critical",
+                    "Storage changed opposite the import; review manual inventory changes",
+                    {code="RECONCILE_DIRECTION",import_id=active.id})
+            end
         elseif result.state ~= "COMPLETE" then
             active.reason = copy(result.reason)
             self:_state("FAILED")
@@ -168,11 +173,12 @@ function ImportService:tick(context)
                     {code="OVER_DELIVERY",requested=stepLimit,measured=result.moved,
                         reported=result.reported_moved,import_id=active.id})
             end
-            local retired,retireReason=self.transfer:retire()
+            active.step,active.journal,active.pending_moved,active.rescan=nil,nil,nil,nil
+            local callOk,retired,retireReason=pcall(self.transfer.retire,self.transfer)
+            if not callOk then retired,retireReason=nil,retired end
             if not retired then self.alerts:set("journal_retire:"..active.id,"warning",
                 "Completed transfer journal could not be retired: "..tostring(retireReason),
                 {code="JOURNAL_RETIRE",import_id=active.id}) end
-            active.step,active.journal,active.pending_moved,active.rescan=nil,nil,nil,nil
             active.reason=nil
             self.alerts:resolve("import_blocked:" .. active.source.identity_key)
             if result.moved<=0 then
@@ -196,9 +202,11 @@ function ImportService:tick(context)
             self:_state("PLANNING")
         end
     elseif active.state == "BLOCKED" then
-        local generationChanged = context.generation ~= active.blocked_generation
-        local retryDue = (context.now or self.clock()) >= active.next_retry_at
-        if generationChanged or retryDue then self:_state("PLANNING") end
+        if not active.reason or active.reason.code~="SHORT_TRANSFER" then
+            local generationChanged = context.generation ~= active.blocked_generation
+            local retryDue = (context.now or self.clock()) >= active.next_retry_at
+            if generationChanged or retryDue then self:_state("PLANNING") end
+        end
     end
     return self:_event()
 end

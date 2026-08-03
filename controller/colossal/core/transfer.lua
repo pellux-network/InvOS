@@ -138,7 +138,10 @@ local function makeJournal(operation,step,baseline,now)
 end
 function Transfer:_write(journal,phase)
     journal.step.phase=phase;journal.updated_at=self.clock()
-    return self.store:write("journal",journal,Transfer.validateJournal)
+    local callOk,saved,writeReason=pcall(self.store.write,self.store,"journal",journal,
+        Transfer.validateJournal)
+    if not callOk then return nil,tostring(saved) end
+    return saved,writeReason
 end
 local function rescanFor(operation,step,nodeIds)
     local result,seen={},{}
@@ -224,7 +227,9 @@ function Transfer:recover(journal,storageSnapshots)
 end
 function Transfer:retire()
     if type(self.store.delete)~="function" then return nil,"store cannot retire journals" end
-    return self.store:delete("journal")
+    local callOk,deleted,deleteReason=pcall(self.store.delete,self.store,"journal")
+    if not callOk then return nil,tostring(deleted) end
+    return deleted,deleteReason
 end
 
 return Transfer

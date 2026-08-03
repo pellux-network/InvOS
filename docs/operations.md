@@ -35,14 +35,14 @@ Put items in Drop-off. The controller imports them into healthy storage nodes in
 
 On the controller, type any part of an item name. Results update while background scans continue. Select an item, choose an exact NBT variant when necessary, and request one, a stack, all available, or an exact number. Retrieved items arrive in Pickup. The public monitor is status-only and resizes automatically.
 
-Never manually modify an inventory while its transfer is in progress. The controller verifies every move and will stop rather than guess when observed counts differ.
+Avoid manually changing storage while a transfer is verifying. The controller treats complete live storage scans as truth, measures movement by exact item-and-NBT totals across the whole configured storage pool, and waits rather than guessing when a node is unavailable or an unrelated change makes the result ambiguous.
 
 ## Lifecycle states
 
 - `READY`: required inventories are healthy and the initial index is complete.
-- `DEGRADED`: the system remains usable with reduced capacity or an unavailable role/node; read the alert.
+- `DEGRADED`: search and status remain usable, but inventory movement waits whenever a configured storage node or required I/O inventory is unhealthy.
 - `PAUSED`: scans and UI remain available, but automated movement is stopped by the operator.
-- `RECOVERING`: a durable transfer journal needs reconciliation; new transfers are blocked.
+- `RECOVERING`: reserved for compatibility; current recovery runs as a responsive background worker and does not globally replace the UI.
 - `SETUP_REQUIRED`: configuration is absent, invalid for this computer, or not yet committed.
 - `INDEXING`: the initial live inventory index is still being built.
 - `ERROR`: persistence or another critical controller boundary failed. Input remains available when safe.
@@ -55,11 +55,11 @@ Empty or expand the named Drop-off, Pickup, or storage node. The alert remains a
 
 ### Offline node
 
-Check the wired modem, cable, interface, and chunk loading. Reattaching the peripheral schedules it for an immediate targeted scan. Other healthy storage nodes remain available in `DEGRADED` mode.
+Check the wired modem, cable, interface, and chunk loading. Reattaching the peripheral schedules it for an immediate targeted scan. Search remains available in `DEGRADED`, but transfers wait for every configured storage node so pooled totals cannot omit inventory.
 
 ### Ambiguous journal
 
-`RECOVERING` after a restart means the controller cannot prove whether an in-flight `pushItems` call occurred. Do not delete the journal or repeat the request blindly. Compare the named source and destination slots, correct any external changes, then use the recovery action shown by the controller. Ambiguous moves require explicit operator intervention.
+After a restart, the controller reconciles an unfinished call from the saved exact identity total across the recorded storage-node scope. It never inspects remembered Pickup/Drop-off contents, trusts a compacted slot, or repeats the call. If every recorded node is healthy, recovery completes from the aggregate delta and retires the journal. If the delta is impossible or the journal cannot be proven, the normal UI remains responsive but inventory automation stays blocked behind a critical alert. Do not delete the journal or repeat the request; restore every recorded storage node and review any concurrent manual storage changes.
 
 ### Corrupted configuration
 

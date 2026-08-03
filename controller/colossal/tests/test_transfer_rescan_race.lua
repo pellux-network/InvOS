@@ -30,10 +30,7 @@ return {{name="post-transfer gate discards a source scan started before the move
         ui=ui,keymap={command=function() end},initial_ui={query="",results={}},
         build_index=function() return {items=function() return {} end} end,search=function() return {} end,
         lifecycle={derive=function() return "READY","" end},requests=requests})
-    coordinator:tick(1)
-    coordinator:tick(2)
-    coordinator:tick(3)
-    coordinator:tick(4)
-    T.equal(sourceBegins,2)
+    for tick=1,8 do coordinator:tick(tick);if requestTicks==3 then break end end
+    T.equal(sourceBegins,3)
     T.equal(requestTicks,3)
 end}}

@@ -137,6 +137,11 @@ function Requests:tick(context)
         if result.state == "WAITING" then
             request.rescan=copy(result.rescan)
             request.reason=copy(result.reason)
+            if result.reason and result.reason.code=="RECONCILE_DIRECTION" then
+                self.alerts:set("request_reconciliation:"..request.id,"critical",
+                    "Storage changed opposite the request; review manual inventory changes",
+                    {code="RECONCILE_DIRECTION",request_id=request.id})
+            end
         elseif result.state ~= "COMPLETE" then
             request.reason = copy(result.reason)
             self:_state(request, "FAILED")
@@ -153,11 +158,12 @@ function Requests:tick(context)
                     {code="OVER_DELIVERY",requested=stepLimit,measured=result.moved,
                         reported=result.reported_moved,request_id=request.id})
             end
-            local retired,retireReason=self.transfer:retire()
+            request.step, request.journal, request.pending_moved, request.rescan = nil, nil, nil, nil
+            local callOk,retired,retireReason=pcall(self.transfer.retire,self.transfer)
+            if not callOk then retired,retireReason=nil,retired end
             if not retired then self.alerts:set("journal_retire:"..request.id,"warning",
                 "Completed transfer journal could not be retired: "..tostring(retireReason),
                 {code="JOURNAL_RETIRE",request_id=request.id}) end
-            request.step, request.journal, request.pending_moved, request.rescan = nil, nil, nil, nil
             request.reason=nil
             self.alerts:resolve("request_blocked:" .. request.id)
             self.alerts:resolve("request_failed:" .. request.id)
@@ -176,9 +182,11 @@ function Requests:tick(context)
     elseif request.state == "PARTIAL" then
         self:_state(request, "PLANNING")
     elseif request.state == "BLOCKED" then
-        local generationChanged = context.generation ~= request.blocked_generation
-        local retryDue = (context.now or self.clock()) >= request.next_retry_at
-        if generationChanged or retryDue then self:_state(request, "PLANNING") end
+        if not request.reason or request.reason.code~="PICKUP_FULL" then
+            local generationChanged = context.generation ~= request.blocked_generation
+            local retryDue = (context.now or self.clock()) >= request.next_retry_at
+            if generationChanged or retryDue then self:_state(request, "PLANNING") end
+        end
     end
     return copy(request)
 end

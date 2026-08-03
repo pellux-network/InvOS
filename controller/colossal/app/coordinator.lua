@@ -77,7 +77,7 @@ function Coordinator:_context(now)
     end
     local storage = {}
     for _, node in ipairs(self.nodes) do
-        if node.role == "storage" then
+        if node.role == "storage" and node.state~="DISABLED" then
             local snapshot=copy(self.snapshots[node.id] or {node_id=node.id,
                 peripheral_name=node.peripheral_name,slots={}})
             snapshot.health=node.state
@@ -221,7 +221,7 @@ function Coordinator:_gateReady()
     return true
 end
 
-function Coordinator:_setVerificationGate(serviceName,names)
+function Coordinator:_setVerificationGate(serviceName,names,phase)
     local required={}
     for _,name in ipairs(names or {}) do
         for _,node in ipairs(self.nodes) do
@@ -230,8 +230,18 @@ function Coordinator:_setVerificationGate(serviceName,names)
             end
         end
     end
-    self.verificationGate={service=serviceName,required=required}
+    self.verificationGate={service=serviceName,required=required,phase=phase or "verification"}
     self:requestRescan(names)
+end
+
+function Coordinator:_preflightNames(serviceName)
+    local names={}
+    for _,node in ipairs(self.nodes) do
+        local relevant=node.role=="storage" or serviceName=="requests" and node.role=="pickup" or
+            serviceName=="imports" and node.role=="dropoff"
+        if node.state~="DISABLED" and relevant then names[#names+1]=node.id end
+    end
+    return names
 end
 
 function Coordinator:_automationStep(now)
@@ -246,6 +256,13 @@ function Coordinator:_automationStep(now)
         for _,entry in ipairs(entries) do if entry[1]==self.verificationGate.service then selected=entry end end
         self.verificationGate=nil
     else
+        for _,entry in ipairs(entries) do
+            if (entry[1]=="imports" or entry[1]=="requests") and
+                serviceState(entry[1],entry[2])=="PLANNING" then
+                self:_setVerificationGate(entry[1],self:_preflightNames(entry[1]),"planning")
+                return
+            end
+        end
         for _,entry in ipairs(entries) do
             local state=serviceState(entry[1],entry[2])
             if state=="TRANSFERRING" or state=="VERIFYING" or
