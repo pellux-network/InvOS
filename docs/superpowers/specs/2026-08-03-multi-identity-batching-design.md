@@ -1,7 +1,12 @@
 # Multi-identity import batching (schema 4)
 
-Status: specified, not implemented. Builds directly on the schema 3 batch work in
-`perf/hot-paths` (`c95b67d`, `6ceb9be`).
+Status: implemented on `perf/multi-identity-batch`, shipped with `slot_batch_limit=1` so
+deployed behaviour matches single-slot importing until the limit is raised. Builds on the
+schema 3 batch work (`c95b67d`, `6ceb9be`).
+
+Head-of-line blocking, listed under "Import service" below, was deliberately left out of the
+first implementation so the batching change stayed reviewable on its own. A source whose plan
+comes back empty still blocks the batch rather than being deferred and skipped.
 
 ## Problem
 

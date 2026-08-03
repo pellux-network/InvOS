@@ -187,8 +187,12 @@ function Main.build(environment)
             (retired and "" or "; removal failed: "..tostring(retireReason)),
             {code=retired and "INVALID_JOURNAL_RETIRED" or "JOURNAL_RETIRE_FAILED"})
     end
+    -- slot_batch_limit=1 reproduces single-slot importing exactly. Raising it lets one gate
+    -- cycle drain several Drop-off slots, which is the whole point of the schema 4 journal,
+    -- but it should only be raised once the multi-identity path has been watched live.
     local imports=ImportService.new({planner=Planner,transfer=transfer,alerts=alerts,
-        transition=Lifecycle.transition,clock=now})
+        transition=Lifecycle.transition,clock=now,
+        slot_batch_limit=env.slot_batch_limit or 1})
     local requests=Requests.new({planner=Planner,transfer=transfer,alerts=alerts,
         transition=Lifecycle.transition,clock=now,
         idGenerator=function(counter) return "request-"..osApi.getComputerID().."-"..counter end})

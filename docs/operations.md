@@ -33,6 +33,8 @@ Use `5 SETUP` from the main interface to review or change configuration later. A
 
 Put items in Drop-off. The controller imports them into healthy storage nodes in priority order. Items already in storage are indexed automatically.
 
+Importing is batched. Each cycle scans storage, issues every planned move, then rescans to measure what actually landed, so the cost of a cycle is mostly fixed regardless of how much it carries. Two limits bound a batch: `slot_batch_limit` caps how many Drop-off slots join one cycle, and `batch_limit` caps the total moves issued in it. Raising `slot_batch_limit` is what makes a large mixed drop-off drain quickly; it ships at 1, matching single-slot importing, and should only be raised after the multi-item path has been watched on a live controller. Every item type in a batch is still measured separately against its own before-and-after storage total, so a batch spanning many types is proven exactly as one type is.
+
 On the controller, type any part of an item name. Results update while background scans continue. Select an item, choose an exact NBT variant when necessary, and request one, a stack, all available, or an exact number. Retrieved items arrive in Pickup. The public monitor is status-only and resizes automatically.
 
 Avoid manually changing storage while a transfer is verifying. The controller treats complete live storage scans as truth, measures movement by exact item-and-NBT totals across the whole configured storage pool, and waits rather than guessing when a node is unavailable or an unrelated change makes the result ambiguous.

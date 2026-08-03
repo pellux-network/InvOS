@@ -17,7 +17,7 @@ local function service(plans,outcomes)
     local calls=0;local planner={}
     function planner.planImport() calls=calls+1;local value=plans[calls];return value.plan,value.remainder,value.reason end
     local transfer={execute_calls=0,verify_calls=0,retire_calls=0,cursor=1}
-    function transfer:executeBatch(_,planned,storage)
+    function transfer:executeMultiBatch(_,planned,storage)
         self.execute_calls=self.execute_calls+1;T.truthy(storage)
         return {state="VERIFYING",journal={step=planned},rescan={"storage","drop"}}
     end
@@ -103,7 +103,7 @@ return {
         for index,planned in ipairs(plan) do planned.destination_slot=index end
         local imports,transfer=service({{plan=plan,remainder=0}},
             {{state="COMPLETE",moved=64,reported_moved=64}})
-        function transfer:executeBatch(_,steps,storage)
+        function transfer:executeMultiBatch(_,steps,storage)
             self.execute_calls=self.execute_calls+1;T.truthy(storage);submitted=steps
             return {state="VERIFYING",journal={step=steps},rescan={"storage","drop"}}
         end
@@ -122,7 +122,7 @@ return {
         local plan={}
         for index=1,20 do plan[index]=step(1);plan[index].destination_slot=index end
         local imports,transfer=service({{plan=plan,remainder=0}},{})
-        function transfer:executeBatch(_,steps) submitted=steps
+        function transfer:executeMultiBatch(_,steps) submitted=steps
             return {state="VERIFYING",journal={},rescan={}} end
         local ctx=context(20)
         imports:tick(ctx);imports:tick(ctx);imports:tick(ctx)
