@@ -165,6 +165,20 @@ function Coordinator:_defaultSearchLimit()
     return 50
 end
 
+-- Usage stats are only ever added to an identity that enrichment already gave a
+-- display_name and max_count, so every cached entry always has both or neither: a
+-- partial entry would fail Index.validateMetadata and block persisting everything else.
+function Coordinator:recordItemRequested(identityKey, timestamp)
+    local existing = self.metadata[identityKey]
+    if type(existing) ~= "table" then return end
+    local details = copy(existing)
+    details.request_count = (details.request_count or 0) + 1
+    details.last_requested = timestamp or self.clock()
+    self.metadata[identityKey] = details
+    self.dirty = true
+    self:_rebuildIndex()
+end
+
 function Coordinator:_rebuildIndex()
     local snapshots = {}
     for _, node in ipairs(self.nodes) do
@@ -391,13 +405,13 @@ function Coordinator:_dispatch(effect)
             identity, effect.quantity)
         if not ok then self:_recordError("request", reason) end
     elseif effect.type == "RETRY_REQUEST" and self.deps.requests then
-        local target = self.deps.requests.list and self.deps.requests:list()[effect.index]
+        local target = self.deps.requests.list and self:_requestsDisplay()[effect.index]
         if target then
             local ok, reason = pcall(self.deps.requests.retry, self.deps.requests, target.id)
             if not ok then self:_recordError("request", reason) end
         end
     elseif effect.type == "CANCEL_REQUEST" and self.deps.requests then
-        local target = self.deps.requests.list and self.deps.requests:list()[effect.index]
+        local target = self.deps.requests.list and self:_requestsDisplay()[effect.index]
         if target then
             local ok, reason = pcall(self.deps.requests.cancel, self.deps.requests, target.id)
             if not ok then self:_recordError("request", reason) end
@@ -500,11 +514,22 @@ function Coordinator:pause() self.paused=true; self:_refreshLifecycle(); self.di
 function Coordinator:resume() self.paused=false; self:_refreshLifecycle(); self.dirty=true end
 function Coordinator:setRecovering(value) self.recovering=value==true; self:_refreshLifecycle(); self.dirty=true end
 
+-- Requests:list() stays creation-order (oldest first): the gating checks above scan it
+-- for the first non-terminal entry, which is only the in-flight request in that order.
+-- Reverse a copy for display, so the Requests page and its retry/cancel selection agree
+-- on "topmost row is newest" without disturbing that gating scan.
+function Coordinator:_requestsDisplay()
+    local raw = self.deps.requests and self.deps.requests.list and self.deps.requests:list() or {}
+    local reversed = {}
+    for index = #raw, 1, -1 do reversed[#reversed + 1] = raw[index] end
+    return reversed
+end
+
 function Coordinator:_model()
     local items = self.index and self.index.items and self.index:items() or {}
     local total=0; for _, item in ipairs(items) do total=total+(item.quantity or 0) end
     local alerts = self.deps.alerts and self.deps.alerts.active and self.deps.alerts:active() or {}
-    local requests = self.deps.requests and self.deps.requests.list and self.deps.requests:list() or {}
+    local requests = self:_requestsDisplay()
     local nodes=copy(self.nodes)
     for _,node in ipairs(nodes) do
         local snapshot=self.snapshots[node.id]

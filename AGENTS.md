@@ -16,7 +16,7 @@ Operators drive recovery from the terminal: retry and cancel on the Requests pag
 - `controller/colossal/tests/` contains the host-runnable Lua suite and must never be deployed.
 - `controller/colossal/deployment_manifest.lua` is the exact runtime deployment allow-list.
 - `docs/operations.md` describes topology, setup, recovery, upgrades, and deployment safety.
-- `docs/superpowers/specs/` holds design specs and `docs/superpowers/plans/` holds smaller work items. Pending: `specs/2026-08-03-scan-scheduling-design.md`, `plans/2026-08-03-batch-limit-tuning.md`, `plans/2026-08-03-remaining-ux-gaps.md`.
+- `docs/superpowers/specs/` holds design specs and `docs/superpowers/plans/` holds smaller work items. Pending: `specs/2026-08-03-scan-scheduling-design.md`, `plans/2026-08-03-batch-limit-tuning.md`.
 
 ## Live-server safety
 
@@ -45,7 +45,7 @@ Operators drive recovery from the terminal: retry and cancel on the Requests pag
 - A change observed before any inventory call is not ambiguous, because nothing was issued. Abandon the stale attempt and rediscover rather than entering a terminal state.
 - A blocked batch replans the very same sources; it never rediscovers. So an item type that currently cannot be placed must be set aside with a backoff *and* its attempt abandoned, or a few unplaceable stacks low in the Drop-off hide every importable slot behind them.
 - Redraws happen only when something user-visible changed, so every such change must mark the coordinator dirty: scan completion, lifecycle transition, automation tick, recorded error, and command handling. A missed mark shows as a stale screen rather than an error, so verify against a live retrieval, not only tests.
-- Learned item metadata is a re-learnable cache. Persist display names and stack limits only; never persist quantities, slots, or node contents, and always boot successfully when the cache is missing or invalid.
+- Learned item metadata is a re-learnable cache. Persist display names, stack limits, and per-identity request counts and last-requested timestamps only; never persist quantities, slots, or node contents, and always boot successfully when the cache is missing or invalid. Usage stats are only ever added to an identity that already has a display name and stack limit, so a cached entry always has both or neither.
 - Retrieval verification depends on controlled Storage state, not mutable Pickup contents.
 - The scanned inventory index is derived state and must never be persisted as authoritative stock truth.
 - Item identity is namespaced item ID plus the CC:Tweaked NBT hash; never merge distinct NBT variants.

@@ -81,6 +81,28 @@ return {
         T.equal(value.max_count, 64)
         T.arrayEqual(value.aliases, { "cobble" })
     end },
+    { name = "index applies cached request usage stats to items and groups", run = function()
+        local key = Identity.key("minecraft:cobblestone", nil)
+        local index = Index.build({ snapshot("a", "READY", 1,
+            { [1] = item("minecraft:cobblestone", nil, 64) }) }, {
+            [key] = { display_name = "Cobblestone", max_count = 64,
+                request_count = 7, last_requested = 555 },
+        })
+        local value = index:items()[1]
+        T.equal(value.request_count, 7)
+        T.equal(value.last_requested, 555)
+        local group = index:groups()[1]
+        T.equal(group.request_count, 7)
+        T.equal(group.last_requested, 555)
+        T.equal(group.variants[1].request_count, 7)
+        T.equal(group.variants[1].last_requested, 555)
+    end },
+    { name = "index defaults request usage stats to zero without cached metadata", run = function()
+        local index = Index.build({ snapshot("a", "READY", 1,
+            { [1] = item("minecraft:stone", nil, 64) }) }, {})
+        T.equal(index:items()[1].request_count, 0)
+        T.equal(index:items()[1].last_requested, 0)
+    end },
     { name = "metadata enrichment is budgeted and uses one representative per identity", run = function()
         local index = Index.build({ snapshot("a", "READY", 1, {
             [1] = item("minecraft:stone", nil, 64),
@@ -173,5 +195,30 @@ return {
             T.equal(ok, nil, "must reject a " .. field .. " field")
             T.truthy(reason, "must explain rejection of " .. field)
         end
+    end },
+    { name = "metadata validator accepts optional request usage stats", run = function()
+        local ok = Index.validateMetadata({schema=1, items={
+            ["minecraft:stone\0-"] = {display_name="Stone", max_count=64,
+                request_count=3, last_requested=12345},
+        }})
+        T.equal(ok, true)
+    end },
+    { name = "metadata validator rejects malformed request usage stats", run = function()
+        local ok1, reason1 = Index.validateMetadata({schema=1, items={
+            ["minecraft:stone\0-"] = {display_name="Stone", max_count=64, request_count=-1},
+        }})
+        T.equal(ok1, nil); T.truthy(reason1)
+        local ok2, reason2 = Index.validateMetadata({schema=1, items={
+            ["minecraft:stone\0-"] = {display_name="Stone", max_count=64, request_count=1.5},
+        }})
+        T.equal(ok2, nil); T.truthy(reason2)
+        local ok3, reason3 = Index.validateMetadata({schema=1, items={
+            ["minecraft:stone\0-"] = {display_name="Stone", max_count=64, last_requested=-1},
+        }})
+        T.equal(ok3, nil); T.truthy(reason3)
+        local ok4, reason4 = Index.validateMetadata({schema=1, items={
+            ["minecraft:stone\0-"] = {display_name="Stone", max_count=64, last_requested="soon"},
+        }})
+        T.equal(ok4, nil); T.truthy(reason4)
     end },
 }

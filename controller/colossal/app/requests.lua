@@ -2,6 +2,7 @@ local Requests = {}
 Requests.__index = Requests
 
 local terminal = { COMPLETE=true, CANCELLED=true }
+local TERMINAL_LIMIT = 30
 
 local function copy(value, seen)
     if type(value) ~= "table" then return value end
@@ -22,7 +23,7 @@ function Requests.new(deps)
         transition=assert(deps.transition, "transition function is required"),
         clock=assert(deps.clock, "request clock is required"),
         idGenerator=assert(deps.idGenerator, "request ID generator is required"),
-        batchLimit=deps.batch_limit or 8,
+        batchLimit=deps.batch_limit or 8, recordUsage=deps.record_usage,
         counter=0, ordered={}, byId={},
     }, Requests)
 end
@@ -32,6 +33,29 @@ function Requests:_state(request, to)
     if not ok then error(reason, 2) end
     request.state = to
     request.updated_at = self.clock()
+    if terminal[to] then self:_prune() end
+end
+
+-- Terminal requests accumulate forever otherwise, growing the list every
+-- redraw pays to deep-copy. Non-terminal requests are never dropped, no
+-- matter how old, since they still need operator attention or automation.
+function Requests:_prune()
+    local terminalCount = 0
+    for _, request in ipairs(self.ordered) do
+        if terminal[request.state] then terminalCount = terminalCount + 1 end
+    end
+    local excess = terminalCount - TERMINAL_LIMIT
+    if excess <= 0 then return end
+    local kept = {}
+    for _, request in ipairs(self.ordered) do
+        if excess > 0 and terminal[request.state] then
+            self.byId[request.id] = nil
+            excess = excess - 1
+        else
+            kept[#kept + 1] = request
+        end
+    end
+    self.ordered = kept
 end
 
 function Requests:create(identity, quantity)
@@ -48,6 +72,9 @@ function Requests:create(identity, quantity)
     }
     self.ordered[#self.ordered + 1] = request
     self.byId[request.id] = request
+    -- Usage stats are a re-learnable cache, not core correctness, so a failure here
+    -- must never stop the request itself from being created.
+    if self.recordUsage then pcall(self.recordUsage, identity.key, request.created_at) end
     return copy(request)
 end
 

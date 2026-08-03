@@ -48,21 +48,29 @@ local function aliasesDefault() return {schema=1,items={}} end
 
 local function metadataDefault() return {schema=1,items={}} end
 
--- Learned display names and stack limits are a re-learnable cache, never authoritative
--- stock truth, so a missing or invalid cache must fall back quietly and re-learn.
--- Writes are budgeted: only when the learned set actually grows, and coalesced so a
--- burst of learning at boot does not hammer disk once per item every tick.
+-- Learned display names and stack limits, plus per-identity request counts and last-
+-- requested timestamps, are a re-learnable cache, never authoritative stock truth, so a
+-- missing or invalid cache must fall back quietly and re-learn. Writes are budgeted: only
+-- when the cache actually grew or an existing entry's usage stats advanced, and coalesced
+-- so a burst of activity does not hammer disk once per change every tick. Both signals are
+-- monotonically non-decreasing (keys are never removed, usage stats only ever increase),
+-- so comparing against the high-water mark is enough without diffing the whole cache.
 local function metadataPersister(persistStore, validator, now)
-    local lastWrittenCount, lastWriteAt, minIntervalMs = 0, -math.huge, 5000
+    local lastWrittenCount, lastWrittenActivity, lastWriteAt, minIntervalMs = 0, 0, -math.huge, 5000
     return function(state)
         if type(state) ~= "table" or type(state.metadata) ~= "table" then return end
-        local count = 0
-        for _ in pairs(state.metadata) do count = count + 1 end
-        if count <= lastWrittenCount then return end
+        local count, activity = 0, 0
+        for _, details in pairs(state.metadata) do
+            count = count + 1
+            if type(details) == "table" and (details.last_requested or 0) > activity then
+                activity = details.last_requested
+            end
+        end
+        if count <= lastWrittenCount and activity <= lastWrittenActivity then return end
         local nowMs = now()
         if not state.done and (nowMs - lastWriteAt) < minIntervalMs then return end
         local saved = persistStore:write("metadata", {schema=1, items=copy(state.metadata)}, validator)
-        if saved then lastWrittenCount, lastWriteAt = count, nowMs end
+        if saved then lastWrittenCount, lastWrittenActivity, lastWriteAt = count, activity, nowMs end
     end
 end
 
@@ -195,7 +203,10 @@ function Main.build(environment)
         slot_batch_limit=env.slot_batch_limit or 8})
     local requests=Requests.new({planner=Planner,transfer=transfer,alerts=alerts,
         transition=Lifecycle.transition,clock=now,
-        idGenerator=function(counter) return "request-"..osApi.getComputerID().."-"..counter end})
+        idGenerator=function(counter) return "request-"..osApi.getComputerID().."-"..counter end,
+        record_usage=function(key,timestamp)
+            if coordinator then coordinator:recordItemRequested(key,timestamp) end
+        end})
     local ui=UI.new(termApi.current and termApi.current() or termApi)
     local uiState=UI.initialState()
     if not config.configured then

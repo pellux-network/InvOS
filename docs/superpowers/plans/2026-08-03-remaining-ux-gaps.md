@@ -1,7 +1,8 @@
 # Remaining UX gaps
 
-Status: pending. Small, independent items left from the 2026-08-03 audit. Each is
-self-contained and suits a focused session; none touch reconciliation or the journal.
+Status: done. All three items landed on `fix/remaining-ux-gaps` (2026-08-03). Small,
+independent items left from the 2026-08-03 audit. Each is self-contained and suits a
+focused session; none touch reconciliation or the journal.
 
 ## 1. Empty-query result ordering is a no-op
 

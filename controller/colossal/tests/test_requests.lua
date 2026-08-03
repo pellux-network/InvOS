@@ -21,16 +21,18 @@ local function worker(outcomes)
     function value:retire() self.retire_calls=self.retire_calls+1;return true end
     return value
 end
-local function service(plans,outcomes)
+local function service(plans,outcomes,extra)
     local planCalls=0;local planner={}
     function planner.planRetrieval()
         planCalls=planCalls+1;local value=plans[planCalls]
         return value.plan,value.remainder,value.reason
     end
     local transfer=worker(outcomes);local alerts=Alerts.new(function() return 0 end)
-    local requests=Requests.new({planner=planner,transfer=transfer,alerts=alerts,
+    local deps={planner=planner,transfer=transfer,alerts=alerts,
         transition=Lifecycle.transition,clock=function() return 100 end,
-        idGenerator=function(counter) return "request-"..counter end})
+        idGenerator=function(counter) return "request-"..counter end}
+    for key,value in pairs(extra or {}) do deps[key]=value end
+    local requests=Requests.new(deps)
     return requests,transfer,alerts,function() return planCalls end
 end
 local function context(generation)
@@ -51,6 +53,26 @@ return {
         local requests=select(1,service({{plan={planned(1)},remainder=0}},{}))
         local request=requests:create({key=stone,name="minecraft:stone"},1)
         T.equal(request.display_name,"minecraft:stone")
+    end},
+    {name="create records item usage through the injected record_usage callback",run=function()
+        local calls={}
+        local requests=select(1,service({{plan={planned(1)},remainder=0}},{},
+            {record_usage=function(key,timestamp) calls[#calls+1]={key=key,timestamp=timestamp} end}))
+        local request=requests:create({key=stone,name="minecraft:stone"},1)
+        T.equal(#calls,1)
+        T.equal(calls[1].key,stone)
+        T.equal(calls[1].timestamp,request.created_at)
+    end},
+    {name="a throwing record_usage callback does not prevent the request from being created",run=function()
+        local requests=select(1,service({{plan={planned(1)},remainder=0}},{},
+            {record_usage=function() error("disk detached") end}))
+        local request=requests:create({key=stone,name="minecraft:stone"},1)
+        T.truthy(request.id)
+    end},
+    {name="create is safe without a record_usage callback",run=function()
+        local requests=select(1,service({{plan={planned(1)},remainder=0}},{}))
+        local request=requests:create({key=stone,name="minecraft:stone"},1)
+        T.truthy(request.id)
     end},
     {name="over-delivery credits measured stock delta once and never retries",run=function()
         local requests,transfer,alerts=service({{plan={planned(2)},remainder=0}},
@@ -111,6 +133,22 @@ return {
         requests:create({key=stone},2);T.equal(advance(requests,context()).state,"VERIFYING")
         T.equal(transfer.execute_calls,1);local active=alerts:active()
         T.equal(active[1].severity,"critical");T.equal(active[1].details.code,"RECONCILE_DIRECTION")
+    end},
+    {name="completed requests are capped, dropping the oldest terminal ones first, while queued requests are kept regardless of age",run=function()
+        local requests=select(1,service({},{}))
+        local ids={}
+        for i=1,35 do
+            local r=requests:create({key=stone},1)
+            ids[i]=r.id
+            requests:cancel(r.id)
+        end
+        local queued=requests:create({key=stone},1)
+        T.equal(#requests:list(),31)
+        T.equal(requests:get(ids[1]),nil)
+        T.equal(requests:get(ids[5]),nil)
+        T.equal(requests:get(ids[6]).state,"CANCELLED")
+        T.equal(requests:get(ids[35]).state,"CANCELLED")
+        T.truthy(requests:get(queued.id))
     end},
     {name="waiting reconciliation keeps the request in verification",run=function()
         local requests,transfer,alerts=service({{plan={planned(2)},remainder=0}},

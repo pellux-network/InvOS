@@ -45,10 +45,12 @@ local function buildGroups(ordered)
             identity_key = aggregate.key, name = aggregate.name, nbt = aggregate.nbt,
             display_name = aggregate.display_name or aggregate.name, quantity = aggregate.quantity,
             max_count = aggregate.max_count, aliases = copy(aggregate.aliases or {}),
-            request_count = 0, last_requested = 0,
+            request_count = aggregate.request_count, last_requested = aggregate.last_requested,
         }
         group.variants[#group.variants + 1] = variant
         group.quantity = group.quantity + (aggregate.quantity or 0)
+        group.request_count = math.max(group.request_count, aggregate.request_count)
+        group.last_requested = math.max(group.last_requested, aggregate.last_requested)
     end
     for _, group in ipairs(groupList) do
         if #group.variants == 1 then group.identity_key = group.variants[1].identity_key end
@@ -74,6 +76,8 @@ function M.build(snapshots, metadata)
                         display_name = details.display_name or item.name,
                         max_count = details.max_count,
                         aliases = copy(details.aliases or {}),
+                        request_count = details.request_count or 0,
+                        last_requested = details.last_requested or 0,
                         sources = {},
                     }
                     byIdentity[key] = aggregate
@@ -127,6 +131,8 @@ function Index:items()
             display_name = aggregate.display_name,
             max_count = aggregate.max_count,
             aliases = copy(aggregate.aliases),
+            request_count = aggregate.request_count,
+            last_requested = aggregate.last_requested,
         }
     end
     return result
@@ -214,6 +220,14 @@ function M.validateMetadata(value)
         end
         if details.aliases ~= nil and type(details.aliases) ~= "table" then
             return nil, "metadata entry for " .. key .. " aliases must be a table"
+        end
+        if details.request_count ~= nil and (type(details.request_count) ~= "number" or
+            details.request_count < 0 or details.request_count % 1 ~= 0) then
+            return nil, "metadata entry for " .. key .. " request_count must be a non-negative integer"
+        end
+        if details.last_requested ~= nil and (type(details.last_requested) ~= "number" or
+            details.last_requested < 0) then
+            return nil, "metadata entry for " .. key .. " last_requested must be a non-negative number"
         end
     end
     return true
