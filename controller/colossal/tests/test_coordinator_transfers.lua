@@ -28,6 +28,21 @@ return {
         coordinator:tick(3);T.equal(importCalls,2)
         coordinator:tick(4);T.equal(requestCalls,1)
     end},
+    {name="automation context exposes every configured storage node and its live health",run=function()
+        local captured
+        local requests={list=function() return {{state="PLANNING"}} end,
+            tick=function(_,context) captured=context.storage end}
+        local scanner={begin=function(_,node) return {node=node} end,
+            step=function(_,scan) return true,{node_id=scan.node.id,
+                peripheral_name=scan.node.peripheral_name,epoch=1,size=27,occupied=0,
+                slots={},health="READY"} end}
+        local coordinator=base({{id="a",role="storage",peripheral_name="a"},
+            {id="b",role="storage",peripheral_name="b"}},scanner,
+            {status=function() return {state="IDLE"} end},requests)
+        coordinator:tick(1)
+        T.equal(#captured,2);T.equal(captured[1].health,"READY")
+        T.equal(captured[2].node_id,"b");T.equal(captured[2].health,"SCANNING")
+    end},
     {name="retrieval reconciliation receives storage snapshots without slot observations",run=function()
         local requestCalls,sourceBegins,pickupBegins=0,0,0;local observedField="unset";local storageCount=0
         local requests={}

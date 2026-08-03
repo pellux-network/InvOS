@@ -123,7 +123,7 @@ function Requests:tick(context)
             request.pending_moved = result.moved
             request.rescan = copy(result.rescan)
             self:_state(request, "VERIFYING")
-        elseif result.reason and result.reason.code=="SOURCE_CHANGED" then
+        elseif result.reason and (result.reason.code=="SOURCE_CHANGED" or result.reason.retryable) then
             request.rescan=copy(result.rescan)
             self:_block(request,context,result.reason)
         else

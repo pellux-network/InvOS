@@ -38,21 +38,29 @@ function M.capture(identityKey,snapshots)
     if type(identityKey)~="string" or identityKey=="" then
         return nil,reason("INVALID_IDENTITY","Exact item identity is required",false)
     end
-    local total,nodeIds,seen=0,{},{}
+    local total,nodeIds,seen,incomplete=0,{},{},false
     for _,snapshot in ipairs(snapshots or {}) do
-        if type(snapshot)=="table" and snapshot.health=="READY" and
-            type(snapshot.node_id)=="string" and snapshot.node_id~="" then
+        if type(snapshot)=="table" and type(snapshot.node_id)=="string" and
+            snapshot.node_id~="" then
             if seen[snapshot.node_id] then
                 return nil,reason("DUPLICATE_STORAGE_NODE","Storage scope contains duplicate node IDs",false)
             end
             seen[snapshot.node_id]=true
             nodeIds[#nodeIds+1]=snapshot.node_id
-            total=total+identityTotal(identityKey,snapshot.slots)
+            if snapshot.health=="READY" then
+                total=total+identityTotal(identityKey,snapshot.slots)
+            else incomplete=true end
         end
     end
     table.sort(nodeIds)
     if #nodeIds==0 then
-        return nil,reason("NO_STORAGE_SCOPE","No healthy storage scope is available",true)
+        return nil,reason("NO_STORAGE_SCOPE","No configured storage scope is available",true)
+    end
+    if incomplete then
+        local cause=reason("STORAGE_SCOPE_INCOMPLETE",
+            "Waiting for every configured storage node",true)
+        cause.rescan=copyArray(nodeIds)
+        return nil,cause
     end
     return {identity_key=identityKey,total=total,node_ids=nodeIds}
 end

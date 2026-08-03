@@ -77,7 +77,12 @@ function Coordinator:_context(now)
     end
     local storage = {}
     for _, node in ipairs(self.nodes) do
-        if node.role == "storage" and self.snapshots[node.id] then storage[#storage + 1] = self.snapshots[node.id] end
+        if node.role == "storage" then
+            local snapshot=copy(self.snapshots[node.id] or {node_id=node.id,
+                peripheral_name=node.peripheral_name,slots={}})
+            snapshot.health=node.state
+            storage[#storage + 1]=snapshot
+        end
     end
     return {
         now=now, configured=self.configured, recovering=self.recovering, paused=self.paused,
@@ -243,7 +248,8 @@ function Coordinator:_automationStep(now)
     else
         for _,entry in ipairs(entries) do
             local state=serviceState(entry[1],entry[2])
-            if state=="TRANSFERRING" or state=="VERIFYING" then selected=entry;break end
+            if state=="TRANSFERRING" or state=="VERIFYING" or
+                entry[1]=="recovery" and state=="BLOCKED" then selected=entry;break end
         end
         if not selected then
             for offset=0,#entries-1 do

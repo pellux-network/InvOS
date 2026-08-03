@@ -82,9 +82,54 @@ return {
         function adapter:push() self.push_calls=self.push_calls+1;error("network vanished") end
         local result=transfer:execute(operation("request"),requestStep(2),{
             snapshot("a",{[7]={identity_key=echo,count=3}})})
-        T.equal(result.state,"FAILED");T.equal(result.reason.ambiguous,true)
-        T.equal(adapter.push_calls,1)
+        T.equal(result.state,"VERIFYING");T.equal(result.reason.ambiguous,true)
+        T.equal(result.journal.step.phase,"CALLING");T.equal(adapter.push_calls,1)
         T.equal(store:recover("journal",Transfer.validateJournal).step.phase,"CALLING")
+        local complete=transfer:verify(result.journal,{snapshot("a",{})})
+        T.equal(complete.state,"COMPLETE");T.equal(complete.moved,3)
+        T.equal(adapter.push_calls,1)
+    end},
+    {name="called journal write failure remains verifying without another push",run=function()
+        local failCalled=true;local adapter={push_calls=0}
+        function adapter:inspect() return true,{identity_key=echo,count=3} end
+        function adapter:push() self.push_calls=self.push_calls+1;return true,1 end
+        local store={write=function(_,_,journal)
+            if journal.step.phase=="CALLED" and failCalled then failCalled=false;return nil,"disk hiccup" end
+            return true
+        end,delete=function() return true end}
+        local transfer=Transfer.new({store=store,adapter=adapter,clock=function() return 1 end,
+            reconciliation=Reconciliation})
+        local result=transfer:execute(operation("request"),requestStep(2),{
+            snapshot("a",{[7]={identity_key=echo,count=3}})})
+        T.equal(result.state,"VERIFYING");T.equal(result.reason.code,"JOURNAL_WRITE_AFTER_CALL")
+        T.equal(result.journal.step.phase,"CALLING");T.equal(adapter.push_calls,1)
+        local complete=transfer:verify(result.journal,{snapshot("a",{})})
+        T.equal(complete.state,"COMPLETE");T.equal(complete.moved,3);T.equal(adapter.push_calls,1)
+    end},
+    {name="opposite direction delta stays pending and cannot be retried",run=function()
+        local transfer,_,adapter=makeTransfer(1)
+        local called=transfer:execute(operation("request"),requestStep(2),{
+            snapshot("a",{[7]={identity_key=echo,count=3}})})
+        local waiting=transfer:verify(called.journal,{
+            snapshot("a",{[7]={identity_key=echo,count=4}})})
+        T.equal(waiting.state,"WAITING");T.equal(waiting.reason.code,"RECONCILE_DIRECTION")
+        T.equal(adapter.push_calls,1)
+    end},
+    {name="reconciled journal write failure remains pending without another push",run=function()
+        local adapter={push_calls=0}
+        function adapter:inspect() return true,{identity_key=echo,count=3} end
+        function adapter:push() self.push_calls=self.push_calls+1;return true,2 end
+        local store={write=function(_,_,journal)
+            if journal.step.phase=="RECONCILED" then return nil,"disk full" end
+            return true
+        end,delete=function() return true end}
+        local transfer=Transfer.new({store=store,adapter=adapter,clock=function() return 1 end,
+            reconciliation=Reconciliation})
+        local called=transfer:execute(operation("request"),requestStep(2),{
+            snapshot("a",{[7]={identity_key=echo,count=3}})})
+        local waiting=transfer:verify(called.journal,{snapshot("a",{})})
+        T.equal(waiting.state,"WAITING");T.equal(waiting.reason.code,"JOURNAL_WRITE")
+        T.equal(adapter.push_calls,1)
     end},
     {name="retirement removes every journal variant",run=function()
         local transfer,store=makeTransfer(2)

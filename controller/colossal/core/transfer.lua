@@ -151,7 +151,8 @@ function Transfer:execute(operation,step,storageSnapshots)
         return failed("INVALID_OPERATION","operation and transfer step are required",false)
     end
     local baseline,baselineReason=self.reconciliation.capture(step.identity_key,storageSnapshots)
-    if not baseline then return failed(baselineReason.code,baselineReason.message,false) end
+    if not baseline then return {state="FAILED",moved=0,reason=copy(baselineReason),
+        rescan=copyArray(baselineReason.rescan or {})} end
     local ready,preflightReason=self:_preflight(operation,step)
     if not ready then return {state="FAILED",moved=0,reason=preflightReason,
         rescan=rescanFor(operation,step,baseline.node_ids)} end
@@ -163,12 +164,22 @@ function Transfer:execute(operation,step,storageSnapshots)
     local destinationSlot=operation.kind=="request" and nil or step.destination_slot
     local callOk,ok,moved=pcall(self.adapter.push,self.adapter,step.source_name,
         step.destination_name,step.source_slot,step.limit,destinationSlot)
-    if not callOk then return failed("TRANSFER_EXCEPTION",ok,true,baseline.node_ids) end
-    if not ok then return failed("TRANSFER_EXCEPTION",moved,true,baseline.node_ids) end
-    if not integer(moved) then return failed("INVALID_MOVED_COUNT","inventory returned "..tostring(moved),true,baseline.node_ids) end
-    journal.step.reported_moved=moved
-    saved,saveReason=self:_write(journal,"CALLED")
-    if not saved then return failed("JOURNAL_WRITE_AFTER_CALL",saveReason,true,baseline.node_ids) end
+    local callReason
+    if not callOk then callReason=reason("TRANSFER_EXCEPTION",ok,true)
+    elseif not ok then callReason=reason("TRANSFER_EXCEPTION",moved,true)
+    elseif not integer(moved) then
+        callReason=reason("INVALID_MOVED_COUNT","inventory returned "..tostring(moved),true)
+    end
+    if callReason then
+        return {state="VERIFYING",moved=0,journal=copy(journal),reason=callReason,
+            rescan=rescanFor(operation,step,baseline.node_ids)}
+    end
+    local called=copy(journal);called.step.reported_moved=moved
+    saved,saveReason=self:_write(called,"CALLED")
+    if not saved then return {state="VERIFYING",moved=moved,journal=copy(journal),
+        reason=reason("JOURNAL_WRITE_AFTER_CALL",saveReason,true),
+        rescan=rescanFor(operation,step,baseline.node_ids)} end
+    journal=called
     return {state="VERIFYING",moved=moved,journal=copy(journal),
         rescan=rescanFor(operation,step,baseline.node_ids)}
 end
@@ -191,11 +202,15 @@ function Transfer:verify(journal,storageSnapshots)
     local result=self.reconciliation.measure(journal.operation.kind,baselineFor(journal),storageSnapshots)
     if result.state=="WAITING" then return result end
     if result.state~="READY" then return failed(result.reason.code,result.reason.message,false,result.rescan) end
-    if result.moved<0 then return failed("RECONCILE_DIRECTION",
-        "Storage total changed opposite the transfer direction",false,journal.step.storage_node_ids) end
+    if result.moved<0 then return {state="WAITING",moved=0,
+        reason=reason("RECONCILE_DIRECTION",
+            "Storage total changed opposite the transfer direction; awaiting operator review",true),
+        rescan=copyArray(journal.step.storage_node_ids)} end
     local reconciled=copy(journal);reconciled.step.actual_moved=result.moved
     local saved,saveReason=self:_write(reconciled,"RECONCILED")
-    if not saved then return failed("JOURNAL_WRITE",saveReason,false,journal.step.storage_node_ids) end
+    if not saved then return {state="WAITING",moved=result.moved,
+        reason=reason("JOURNAL_WRITE",saveReason,true),
+        rescan=copyArray(journal.step.storage_node_ids)} end
     return {state="COMPLETE",moved=result.moved,reported_moved=reconciled.step.reported_moved,
         journal=reconciled,before_total=result.before_total,after_total=result.after_total}
 end

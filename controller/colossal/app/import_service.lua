@@ -139,6 +139,9 @@ function ImportService:tick(context)
             active.pending_moved = result.moved
             active.rescan = copy(result.rescan)
             self:_state("VERIFYING")
+        elseif result.reason and result.reason.retryable then
+            active.rescan=copy(result.rescan)
+            self:_block(context,result.reason)
         else
             active.reason = copy(result.reason)
             self:_state("FAILED")

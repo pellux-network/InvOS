@@ -41,7 +41,7 @@ function Recovery:_finish(result,severity,message)
 end
 
 function Recovery:tick(context)
-    if not self.journal then return copy(self.event) end
+    if not self.journal or self.event.state=="BLOCKED" then return copy(self.event) end
     local result=self.transfer:recover(self.journal,(context or {}).storage or {})
     if result.state=="WAITING" then
         self.event={state="VERIFYING",moved=0,rescan=copy(result.rescan or {}),
@@ -62,7 +62,11 @@ function Recovery:tick(context)
     if result.state=="DISCARD_SAFE" then
         return self:_finish(result,"info","Discarded a transfer intent recorded before any inventory call")
     end
-    return self:_finish(result,"warning","Retired an unreadable transfer journal without replaying it")
+    self:_alert("critical","Transfer recovery could not prove what moved; inventory automation is paused",
+        {code=result.reason and result.reason.code,ambiguous=true})
+    self.event={state="BLOCKED",moved=0,rescan=copy(result.rescan or {}),
+        reason=copy(result.reason)}
+    return copy(self.event)
 end
 
 return Recovery

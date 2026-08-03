@@ -35,6 +35,14 @@ return {
         T.equal(result.state,"READY")
         T.equal(result.moved,5)
     end},
+    {name="baseline capture rejects an incomplete configured storage scope",run=function()
+        local baseline,cause=Reconciliation.capture(echo,{
+            snapshot("a",{[1]={identity_key=echo,count=3}}),
+            snapshot("b",{},"ERROR"),
+        })
+        T.equal(baseline,nil);T.equal(cause.code,"STORAGE_SCOPE_INCOMPLETE")
+        T.arrayEqual(cause.rescan,{"a","b"})
+    end},
     {name="missing baseline node postpones rather than inventing movement",run=function()
         local baseline={identity_key=echo,total=7,node_ids={"a","b"}}
         local result=Reconciliation.measure("request",baseline,{

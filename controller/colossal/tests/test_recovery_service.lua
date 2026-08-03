@@ -41,6 +41,16 @@ return {
         T.equal(service:tick({storage={}}).state,"COMPLETE")
         T.equal(retired,1);T.equal(notices.values[1].severity,"warning")
     end},
+    {name="unresolved recovery failure is retained and blocks mutation",run=function()
+        local retired=0;local notices=alerts()
+        local transfer={recover=function() return {state="FAILED",rescan={"a"},
+            reason={code="UNRESOLVED",message="cannot prove movement",ambiguous=true}} end,
+            retire=function() retired=retired+1;return true end}
+        local service=Recovery.new({journal={},transfer=transfer,alerts=notices})
+        local result=service:tick({storage={}})
+        T.equal(result.state,"BLOCKED");T.equal(service:status().state,"BLOCKED")
+        T.equal(retired,0);T.equal(notices.values[1].severity,"critical")
+    end},
     {name="retirement failure alerts but does not freeze startup",run=function()
         local notices=alerts()
         local transfer={recover=function() return {state="DISCARD_SAFE",moved=0} end,
