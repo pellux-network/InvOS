@@ -136,10 +136,12 @@ function M.query(index, rawQuery, aliases, limit)
             if left.last_requested ~= right.last_requested then
                 return left.last_requested > right.last_requested
             end
-        elseif left.score ~= right.score then
-            return left.score > right.score
+            -- Once usage stats tie (often 0/0, never requested), alphabetical is a more
+            -- useful default than quantity: it makes the list scannable and stable.
+        else
+            if left.score ~= right.score then return left.score > right.score end
+            if left.quantity ~= right.quantity then return left.quantity > right.quantity end
         end
-        if left.quantity ~= right.quantity then return left.quantity > right.quantity end
         local leftName, rightName = normalize(left.display_name), normalize(right.display_name)
         if leftName ~= rightName then return leftName < rightName end
         return left.name < right.name

@@ -50,6 +50,17 @@ return {
         T.equal(results[2].name, "mod:b")
         T.equal(results[3].name, "mod:a")
     end },
+    { name = "empty search falls back to alphabetical order after usage stats, not quantity", run = function()
+        local items = {
+            {key="z",name="mod:zebra",display_name="Zebra",quantity=999},
+            {key="a",name="mod:apple",display_name="Apple",quantity=1},
+            {key="m",name="mod:mango",display_name="Mango",quantity=50},
+        }
+        local results = Search.query(index(items), "", {}, 8)
+        T.equal(results[1].name, "mod:apple")
+        T.equal(results[2].name, "mod:mango")
+        T.equal(results[3].name, "mod:zebra")
+    end },
     { name = "search groups NBT identities and exposes exact variants", run = function()
         local potions = {
             {key="heal",name="minecraft:potion",nbt="healing",display_name="Potion of Healing",quantity=3},
