@@ -185,7 +185,7 @@ function Coordinator:_scanStep()
         end
         local node = id and self.nodeById[id]
         if not node then return false end
-        node.state = "SCANNING"
+        if not self.snapshots[node.id] then node.state = "SCANNING" end
         local ok, scan = pcall(self.scanner.begin, self.scanner, node)
         if not ok then self:_recordError("scanner", scan, node); return true end
         self.activeScan = {state=scan,node=node}

@@ -39,6 +39,9 @@ local defaultModules = {
     "tests.test_import_freshness",
     "tests.test_acceptance",
     "tests.test_deployment",
+    "tests.test_status_refresh",
+    "tests.test_transfer_generation",
+    "tests.test_pickup_recovery",
 }
 
 local modules = {}

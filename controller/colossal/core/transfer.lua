@@ -72,8 +72,8 @@ end
 function Transfer:_preflight(step)
     local source, sourceReason = self:_inspect(step.source_name, step.source_slot)
     if not source then return nil, reason("SOURCE_UNAVAILABLE", sourceReason, false) end
-    if source.generation ~= step.source_epoch or source.identity_key ~= step.identity_key or
-        source.count ~= step.source_pre_count or source.count < step.limit then
+    if source.identity_key ~= step.identity_key or source.count ~= step.source_pre_count or
+        source.count < step.limit then
         return nil, reason("SOURCE_CHANGED", "source changed: generation "..tostring(source.generation)..
             "/"..tostring(step.source_epoch)..", identity "..tostring(source.identity_key)..
             "/"..tostring(step.identity_key)..", count "..tostring(source.count)..
@@ -88,8 +88,7 @@ function Transfer:_preflight(step)
     local identityMatches = step.destination_pre_count == 0 and
         (destination.identity_key == nil or destination.count == 0) or
         destination.identity_key == step.identity_key
-    if destination.generation ~= step.destination_epoch or not identityMatches or
-        destination.count ~= step.destination_pre_count then
+    if not identityMatches or destination.count ~= step.destination_pre_count then
         return nil, reason("DESTINATION_CHANGED",
             "destination no longer matches the planned snapshot", false)
     end
@@ -169,19 +168,21 @@ function Transfer:execute(operation, step)
     }
 end
 
-local function observedMatches(step, observed)
+local function observedMatches(journal, observed)
     if type(observed) ~= "table" or type(observed.source) ~= "table" or
         type(observed.destination) ~= "table" then return false end
+    local step=journal.step
     local sourceExpected = step.source_pre_count - step.actual_moved
     local destinationExpected = step.destination_pre_count + step.actual_moved
     local sourceIdentityOk = sourceExpected == 0 and
         (observed.source.identity_key == nil or observed.source.count == 0) or
         observed.source.identity_key == step.identity_key
+    local sourceMatches=sourceIdentityOk and observed.source.count == sourceExpected
+    if journal.operation.kind=="request" then return sourceMatches end
     local destinationIdentityOk = destinationExpected == 0 and
         (observed.destination.identity_key == nil or observed.destination.count == 0) or
         observed.destination.identity_key == step.identity_key
-    return sourceIdentityOk and destinationIdentityOk and
-        observed.source.count == sourceExpected and
+    return sourceMatches and destinationIdentityOk and
         observed.destination.count == destinationExpected
 end
 
@@ -192,7 +193,7 @@ function Transfer:verify(journal, observed)
         return failed("INVALID_VERIFY_PHASE", "journal step is not awaiting verification", false,
             journal.step)
     end
-    if not observedMatches(journal.step, observed) then
+    if not observedMatches(journal, observed) then
         local failedJournal = copy(journal)
         failedJournal.step.phase = "FAILED"
         failedJournal.step.observed = copy(observed)
@@ -230,6 +231,10 @@ function Transfer:recover(journal, observed)
     if phase == "CALLED" then return self:verify(journal, observed) end
     if phase == "VERIFIED" then
         return { state="COMPLETE", moved=journal.step.actual_moved, journal=copy(journal) }
+    end
+    if phase == "FAILED" and journal.operation.kind == "request" then
+        local retry=copy(journal);retry.step.phase="CALLED"
+        return self:verify(retry,observed)
     end
     return failed("JOURNALED_FAILURE", "journal records a failed transfer step", false,
         journal.step)
