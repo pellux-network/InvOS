@@ -10,6 +10,7 @@ local defaultModules = {
     "tests.test_registry",
     "tests.test_lifecycle",
     "tests.test_scanner",
+    "tests.test_index",
 }
 
 local modules = {}
