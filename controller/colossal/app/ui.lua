@@ -144,6 +144,9 @@ function UI:reduce(current, command)
         state.recovery_confirm_armed = false
         state.notice = nil
     elseif kind == "CONFIRM_RECOVERY_RELEASE" then
+        -- Releasing recovery abandons proof of what an interrupted transfer moved, so the
+        -- reducer enforces the arm itself rather than trusting whoever dispatched this.
+        if not state.recovery_confirm_armed then return state end
         state.recovery_confirm_armed = false
         state.notice = "Recovery released"
         return state, {type="RESOLVE_RECOVERY"}

@@ -96,7 +96,23 @@ return {
         local coordinator = Coordinator.new(d)
         coordinator.uiState.page, coordinator.uiState.mode = "alerts", "page"
         coordinator:command({type="CONFIRM_RECOVERY_RELEASE"})
+        T.equal(recovery.calls.resolve, 0, "an unarmed confirm must not release recovery")
+        coordinator:command({type="ARM_RECOVERY_RELEASE"})
+        coordinator:command({type="CONFIRM_RECOVERY_RELEASE"})
         T.equal(recovery.calls.resolve, 1)
+    end},
+    {name="an unarmed recovery release is refused by the reducer itself",run=function()
+        local UI=require("app.ui")
+        local ui=UI.new(T.recordingSurface(51,19))
+        local state=UI.initialState()
+        state.page,state.mode="alerts","page"
+        local reduced,effect=ui:reduce(state,{type="CONFIRM_RECOVERY_RELEASE"})
+        T.equal(effect,nil,"releasing recovery must require an explicit arm first")
+        T.equal(reduced.recovery_confirm_armed,false)
+        local armed=ui:reduce(state,{type="ARM_RECOVERY_RELEASE"})
+        T.equal(armed.recovery_confirm_armed,true)
+        local _,confirmed=ui:reduce(armed,{type="CONFIRM_RECOVERY_RELEASE"})
+        T.equal(confirmed and confirmed.type,"RESOLVE_RECOVERY")
     end},
     {name="toggling pause flips the coordinator pause state", run=function()
         local coordinator = Coordinator.new(baseDeps())
