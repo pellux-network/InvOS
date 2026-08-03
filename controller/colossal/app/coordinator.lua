@@ -140,8 +140,12 @@ function Coordinator:_refreshLifecycle(now)
     local derive = self.deps.lifecycle and self.deps.lifecycle.derive
     if derive then
         local ok, state, reason = pcall(derive, self:_statusContext(now or self.clock()))
+        local previous, previousReason = self.lifecycle, self.lifecycleReason
         if ok then self.lifecycle, self.lifecycleReason = state, reason
         else self.lifecycle, self.lifecycleReason = "ERROR", clean(state) end
+        if self.lifecycle ~= previous or self.lifecycleReason ~= previousReason then
+            self.dirty = true
+        end
     else
         self.lifecycle = self.configured and "INDEXING" or "SETUP_REQUIRED"
     end
@@ -237,8 +241,11 @@ function Coordinator:_scanStep()
             self.generation = self.generation + 1
             self:_rebuildIndex()
         else self:_recordError("scanner", reason and reason.message or reason, active.node) end
+        -- Only a finished scan changes anything on screen. Marking dirty on every partial
+        -- step repainted the terminal and the monitor at the full work-loop rate forever,
+        -- rebuilding the whole item list each time.
+        self.dirty = true
     end
-    self.dirty = true
     return true
 end
 
@@ -248,7 +255,14 @@ function Coordinator:_enrichStep()
         self.metadataBudget, self.enrichment)
     if not ok then self:_recordError("metadata", state); return end
     self.enrichment = state
-    if state and state.metadata then self.metadata = copy(state.metadata) end
+    -- Enrichment owns this table and mutates it in place, so hold the reference rather than
+    -- rebuilding a copy of it on every tick. Index.build already deep-copies whatever it is
+    -- handed, and newEnrichmentState copies back out of the index, so no caller can reach in
+    -- and corrupt enrichment through it.
+    if state and state.metadata and self.metadata ~= state.metadata then
+        self.metadata = state.metadata
+        self.dirty = true
+    end
 end
 
 local function serviceState(name,service)
@@ -349,6 +363,8 @@ function Coordinator:_automationStep(now)
     end
     if not selected or not selected[2] or type(selected[2].tick)~="function" then return end
     local ok,result=pcall(selected[2].tick,selected[2],self:_context(now))
+    -- Automation advancing is user-visible: request progress, node states, alerts.
+    self.dirty=true
     if not ok then self:_recordError(selected[1],result)
     elseif type(result)=="table" and (result.state=="VERIFYING" or result.state=="BLOCKED") and result.rescan then
         self:_setVerificationGate(selected[1],result.rescan)
