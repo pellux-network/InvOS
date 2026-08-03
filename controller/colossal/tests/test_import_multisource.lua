@@ -89,6 +89,24 @@ return {
         end
     end},
 
+    {name="two item types never plan into the same empty storage slot", run=function()
+        -- Each source is planned against the same storage snapshot, so without reserving
+        -- slots between plans both would claim the first empty slot.
+        local imports, transfer = service({slotLimit=8})
+        local ctx = context({[1]={"minecraft:stone",64}, [2]={"minecraft:coal",64},
+            [3]={"minecraft:dirt",64}})
+        imports:tick(ctx); imports:tick(ctx); imports:tick(ctx)
+        T.equal(imports:status().state, "VERIFYING",
+            "a mixed Drop-off must plan without colliding")
+        local claimed = {}
+        for _, step in ipairs(transfer.submitted) do
+            local slotKey = step.destination_name .. ":" .. tostring(step.destination_slot)
+            T.equal(claimed[slotKey], nil,
+                "two steps both claimed " .. slotKey)
+            claimed[slotKey] = true
+        end
+    end},
+
     {name="sources are chosen in ascending slot order", run=function()
         local imports = service({slotLimit=3})
         local ctx = context({[17]={"minecraft:stone",1}, [2]={"minecraft:coal",1},

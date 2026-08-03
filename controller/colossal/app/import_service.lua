@@ -163,6 +163,17 @@ function ImportService:tick(context)
         -- One gate cycle per batch instead of per step, and one batch across several
         -- Drop-off slots. Capped so a single ambiguous window can never span an unbounded
         -- number of issued calls.
+        -- Every source is planned against the same storage snapshot, so a slot one source
+        -- claims must be reserved before the next source is planned. Without this, two item
+        -- types both pick the first empty slot. owned_slots is the planner's existing
+        -- reservation hook.
+        local byName = {}
+        for _, snapshot in ipairs(context.storage or {}) do
+            snapshot.owned_slots = {}
+            if type(snapshot.peripheral_name) == "string" then
+                byName[snapshot.peripheral_name] = snapshot
+            end
+        end
         local steps, remainder, planReason = {}, 0, nil
         for _, source in ipairs(active.sources) do
             if #steps >= self.batchLimit then break end
@@ -173,6 +184,10 @@ function ImportService:tick(context)
             for _, planned in ipairs(plan) do
                 if #steps >= self.batchLimit then break end
                 steps[#steps + 1] = copy(planned)
+                local snapshot = planned.destination_name and byName[planned.destination_name]
+                if snapshot and planned.destination_slot then
+                    snapshot.owned_slots[planned.destination_slot] = true
+                end
             end
         end
         active.plan_remainder = remainder
