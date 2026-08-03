@@ -107,6 +107,22 @@ return {
         end
     end},
 
+    {name="un-plannable low slots cannot hide importable ones behind them", run=function()
+        -- Storage has room for cobblestone only. The two lower Drop-off slots hold a type
+        -- that cannot be placed, and selection must still reach the slot that can.
+        local imports, transfer = service({slotLimit=2})
+        local ctx = context({[1]={"minecraft:stone",10}, [2]={"minecraft:stone",10},
+            [3]={"minecraft:cobblestone",10}})
+        ctx.storage = {{node_id="store", peripheral_name="store", health="READY", epoch=20,
+            size=1, slots={[1]={identity_key=key("minecraft:cobblestone"), count=1}}}}
+        for _ = 1, 12 do imports:tick(ctx) end
+        T.truthy(transfer.submitted, "the importable slot must eventually be planned")
+        for _, step in ipairs(transfer.submitted) do
+            T.equal(step.identity_key, key("minecraft:cobblestone"),
+                "only the placeable type can be planned")
+        end
+    end},
+
     {name="sources are chosen in ascending slot order", run=function()
         local imports = service({slotLimit=3})
         local ctx = context({[17]={"minecraft:stone",1}, [2]={"minecraft:coal",1},

@@ -30,7 +30,7 @@ function ImportService.new(deps)
         clock=assert(deps.clock, "import clock is required"),
         batchLimit=deps.batch_limit or 8,
         slotBatchLimit=deps.slot_batch_limit or 1,
-        counter=0,
+        counter=0, deferred={},
     }, ImportService)
 end
 
@@ -69,12 +69,41 @@ local function bindSources(active, sources)
     return total
 end
 
+-- An item type that currently cannot be placed is set aside for a while rather than kept at
+-- the front of the queue. Selection takes the lowest occupied slots, so without this a few
+-- unplaceable stacks low in the Drop-off hide every importable slot behind them.
+function ImportService:_defer(source, context, reason)
+    local entry = self.deferred[source.identity_key] or {attempts=0}
+    entry.attempts = entry.attempts + 1
+    entry.until_at = (context.now or self.clock()) +
+        math.min(60000, 1000 * (2 ^ math.min(entry.attempts - 1, 6)))
+    self.deferred[source.identity_key] = entry
+    local cause = reason or {code="BLOCKED", message="Import is blocked"}
+    self.alerts:set("import_blocked:" .. source.identity_key, "warning",
+        cause.message, {code=cause.code})
+end
+
+function ImportService:_deferred(identityKey, context)
+    local entry = self.deferred[identityKey]
+    if not entry then return false end
+    if (context.now or self.clock()) >= entry.until_at then return false end
+    return true
+end
+
+function ImportService:_clearDeferral(identityKey)
+    if not self.deferred[identityKey] then return end
+    self.deferred[identityKey] = nil
+    self.alerts:resolve("import_blocked:" .. identityKey)
+end
+
 function ImportService:_discover(context)
     if type(context.dropoff) ~= "table" or context.dropoff.health ~= "READY" then return nil end
     local sources = {}
     for _, slot in ipairs(orderedSlots(context.dropoff.slots)) do
         if #sources >= self.slotBatchLimit then break end
         local item = context.dropoff.slots[slot]
+        if self:_deferred(item.identity_key, context) then item = nil end
+        if item then
         sources[#sources + 1] = {
             peripheral_name=context.dropoff.peripheral_name,
             slot=slot,
@@ -85,6 +114,7 @@ function ImportService:_discover(context)
             identity_key=item.identity_key,
             max_count=item.max_count,
         }
+        end
     end
     if #sources == 0 then return nil end
     self.counter = self.counter + 1
@@ -130,7 +160,8 @@ function ImportService:_abandon(code, message)
     self.abandoned = {code=code, message=message,
         moved=previous and previous.moved or 0,
         identity_key=previous and previous.source and previous.source.identity_key}
-    if previous and previous.source then
+    -- A deferred type keeps its alert: it explains why those items are sitting untouched.
+    if previous and previous.source and not self.deferred[previous.source.identity_key] then
         self.alerts:resolve("import_blocked:" .. previous.source.identity_key)
     end
 end
@@ -192,7 +223,15 @@ function ImportService:tick(context)
         end
         active.plan_remainder = remainder
         if #steps == 0 then
-            self:_block(context, planReason)
+            -- Nothing in this batch can be placed. Blocking here would replan the very same
+            -- sources forever, so set their types aside and rediscover instead, which lets
+            -- selection reach slots sitting behind them.
+            for _, source in ipairs(active.sources) do
+                self:_defer(source, context, planReason)
+            end
+            self:_abandon("NO_PLAN",
+                planReason and planReason.message or "No storage can accept these items")
+            return self:_event()
         else
             active.steps = steps
             active.step = steps[1]
@@ -256,6 +295,10 @@ function ImportService:tick(context)
                 "Completed transfer journal could not be retired: "..tostring(retireReason),
                 {code="JOURNAL_RETIRE",import_id=active.id}) end
             active.reason=nil
+            -- Anything that just moved is placeable again, so stop setting it aside.
+            for _, source in ipairs(active.sources or {}) do
+                self:_clearDeferral(source.identity_key)
+            end
             self.alerts:resolve("import_blocked:" .. active.source.identity_key)
             self.alerts:resolve("import_reconciliation:" .. active.id)
             if result.moved<=0 then
