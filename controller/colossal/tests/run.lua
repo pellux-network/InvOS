@@ -6,6 +6,9 @@ local defaultModules = {
     "tests.test_store",
     "tests.test_store_failures",
     "tests.test_backup",
+    "tests.test_identity",
+    "tests.test_registry",
+    "tests.test_lifecycle",
 }
 
 local modules = {}
