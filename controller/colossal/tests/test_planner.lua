@@ -28,19 +28,23 @@ local function indexFrom(nodes)
 end
 
 return {
-    { name = "retrieval spans source slots and exact pickup capacity", run = function()
+    { name = "retrieval spans source slots without reserving Pickup slots", run = function()
         local key = Identity.key("minecraft:stone", nil)
         local index = indexFrom({
             storage("a", 1, 3, { [4] = item("minecraft:stone", nil, 64) }),
             storage("b", 2, 3, { [7] = item("minecraft:stone", nil, 50) }),
         })
-        local plan, remainder = Planner.planRetrieval(key, 90, index, pickup(4, {}))
+        local fullPickup = pickup(1, { [1] = item("minecraft:dirt", nil, 64) })
+        local plan, remainder = Planner.planRetrieval(key, 90, index, fullPickup)
         T.equal(remainder, 0)
         T.equal(plan[1].source_slot, 4)
-        T.equal(plan[1].destination_slot, 1)
+        T.equal(plan[1].destination_name, "pickup")
+        T.equal(plan[1].destination_slot, nil)
+        T.equal(plan[1].destination_epoch, nil)
+        T.equal(plan[1].destination_pre_count, nil)
         T.equal(plan[1].limit, 64)
         T.equal(plan[2].source_slot, 7)
-        T.equal(plan[2].destination_slot, 2)
+        T.equal(plan[2].destination_slot, nil)
         T.equal(plan[2].limit, 26)
     end },
     { name = "import fills exact matching stacks before empty priority capacity", run = function()
@@ -66,7 +70,7 @@ return {
         T.equal(plan[3].destination_slot, 1)
         T.equal(plan[3].limit, 2)
     end },
-    { name = "retrieval respects incompatible pickup slots and per-slot limits", run = function()
+    { name = "retrieval ignores mutable Pickup layout and slot limits", run = function()
         local key = Identity.key("minecraft:ender_pearl", nil)
         local index = indexFrom({ storage("a", 1, 2,
             { [1] = item("minecraft:ender_pearl", nil, 32) }) })
@@ -76,20 +80,20 @@ return {
         }, { slot_limits = { [2]=16, [3]=16 }, default_limit=16 })
         local plan, remainder = Planner.planRetrieval(key, 20, index, target)
         T.equal(remainder, 0)
-        T.equal(plan[1].destination_slot, 2)
-        T.equal(plan[1].limit, 4)
-        T.equal(plan[2].destination_slot, 3)
-        T.equal(plan[2].limit, 16)
+        T.equal(#plan, 1)
+        T.equal(plan[1].destination_slot, nil)
+        T.equal(plan[1].limit, 20)
     end },
-    { name = "retrieval reports full pickup without planning movement", run = function()
+    { name = "retrieval requires an available Pickup binding", run = function()
         local key = Identity.key("minecraft:stone", nil)
         local index = indexFrom({ storage("a", 1, 1,
             { [1] = item("minecraft:stone", nil, 64) }) })
-        local plan, remainder, reason = Planner.planRetrieval(key, 1, index,
-            pickup(1, { [1] = item("minecraft:dirt", nil, 64) }))
+        local target = pickup(1, {})
+        target.health = "OFFLINE"
+        local plan, remainder, reason = Planner.planRetrieval(key, 1, index, target)
         T.equal(#plan, 0)
         T.equal(remainder, 1)
-        T.equal(reason.code, "PICKUP_FULL")
+        T.equal(reason.code, "PICKUP_UNAVAILABLE")
         T.equal(reason.retryable, true)
     end },
     { name = "retrieval reports unavailable stock after planning only what exists", run = function()

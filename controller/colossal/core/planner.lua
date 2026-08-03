@@ -86,27 +86,6 @@ function M.planImport(source, storageSnapshots)
         reason("STORAGE_FULL", "Healthy storage capacity is full for this item", true)
 end
 
-local function pickupCapacities(pickup, identityKey, itemMaximum)
-    local matching, empty = {}, {}
-    for slot = 1, pickup.size do
-        if not (pickup.owned_slots and pickup.owned_slots[slot]) then
-            local item = pickup.slots and pickup.slots[slot] or nil
-            if exact(item, identityKey) then
-                local capacity = slotLimit(pickup, slot, itemMaximum) - item.count
-                if capacity > 0 then
-                    matching[#matching + 1] = { slot=slot, capacity=capacity, pre_count=item.count }
-                end
-            elseif item == nil then
-                empty[#empty + 1] = {
-                    slot=slot, capacity=slotLimit(pickup, slot, itemMaximum), pre_count=0,
-                }
-            end
-        end
-    end
-    for _, value in ipairs(empty) do matching[#matching + 1] = value end
-    return matching
-end
-
 function M.planRetrieval(identityKey, requested, index, pickup)
     if type(identityKey) ~= "string" or type(requested) ~= "number" or requested < 1 or
         requested % 1 ~= 0 then
@@ -116,64 +95,25 @@ function M.planRetrieval(identityKey, requested, index, pickup)
         return {}, requested, reason("PICKUP_UNAVAILABLE", "Pickup is not ready", true)
     end
 
-    local itemMaximum
-    for _, item in ipairs(index:items()) do
-        if item.key == identityKey then itemMaximum = item.max_count; break end
-    end
-    local capacities = pickupCapacities(pickup, identityKey, itemMaximum)
-    local totalCapacity = 0
-    for _, value in ipairs(capacities) do totalCapacity = totalCapacity + value.capacity end
-    if totalCapacity <= 0 then
-        return {}, requested, reason("PICKUP_FULL", "Pickup has no compatible capacity", true)
-    end
-
-    local sources, usableSources, available = index:sources(identityKey), {}, 0
-    for _, source in ipairs(sources) do
-        if not source.owned then
-            usableSources[#usableSources + 1] = source
-            available = available + source.count
+    local remaining, plan = requested, {}
+    for _, source in ipairs(index:sources(identityKey)) do
+        if not source.owned and remaining > 0 then
+            local amount = math.min(remaining, source.count)
+            plan[#plan + 1] = {
+                source_name = source.peripheral_name,
+                source_slot = source.slot,
+                source_epoch = source.epoch,
+                source_pre_count = source.count,
+                destination_name = pickup.peripheral_name,
+                identity_key = identityKey,
+                limit = amount,
+            }
+            remaining = remaining - amount
         end
     end
-    local target = math.min(requested, available, totalCapacity)
-    local remainingToPlan, plan = target, {}
-    local sourceIndex, destinationIndex = 1, 1
-    local sourceRemaining = usableSources[1] and usableSources[1].count or 0
 
-    while remainingToPlan > 0 do
-        local source = usableSources[sourceIndex]
-        local destination = capacities[destinationIndex]
-        if not source or not destination then break end
-        local amount = math.min(remainingToPlan, sourceRemaining, destination.capacity)
-        plan[#plan + 1] = {
-            source_name = source.peripheral_name,
-            source_slot = source.slot,
-            source_epoch = source.epoch,
-            source_pre_count = sourceRemaining,
-            destination_name = pickup.peripheral_name,
-            destination_slot = destination.slot,
-            destination_epoch = pickup.epoch,
-            destination_pre_count = destination.pre_count,
-            identity_key = identityKey,
-            limit = amount,
-        }
-        remainingToPlan = remainingToPlan - amount
-        sourceRemaining = sourceRemaining - amount
-        destination.capacity = destination.capacity - amount
-        destination.pre_count = destination.pre_count + amount
-        if sourceRemaining == 0 then
-            sourceIndex = sourceIndex + 1
-            sourceRemaining = usableSources[sourceIndex] and usableSources[sourceIndex].count or 0
-        end
-        if destination.capacity == 0 then destinationIndex = destinationIndex + 1 end
-    end
-
-    local planned = target - remainingToPlan
-    local remainder = requested - planned
-    if remainder == 0 then return plan, 0 end
-    if totalCapacity < math.min(requested, available) then
-        return plan, remainder, reason("PICKUP_FULL", "Pickup cannot fit the full request", true)
-    end
-    return plan, remainder,
+    if remaining == 0 then return plan, 0 end
+    return plan, remaining,
         reason("INSUFFICIENT_STOCK", "Live storage has less than the requested quantity", true)
 end
 
