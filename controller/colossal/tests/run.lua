@@ -43,6 +43,7 @@ local defaultModules = {
     "tests.test_transfer_generation",
     "tests.test_pickup_recovery",
     "tests.test_transfer_rescan_race",
+    "tests.test_node_capacity_view",
 }
 
 local modules = {}

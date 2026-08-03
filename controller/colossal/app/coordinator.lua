@@ -393,7 +393,12 @@ function Coordinator:_model()
     local total=0; for _, item in ipairs(items) do total=total+(item.quantity or 0) end
     local alerts = self.deps.alerts and self.deps.alerts.active and self.deps.alerts:active() or {}
     local requests = self.deps.requests and self.deps.requests.list and self.deps.requests:list() or {}
-    return {lifecycle=self.lifecycle,lifecycle_reason=self.lifecycleReason,nodes=copy(self.nodes),
+    local nodes=copy(self.nodes)
+    for _,node in ipairs(nodes) do
+        local snapshot=self.snapshots[node.id]
+        if snapshot then node.size,node.occupied=snapshot.size,snapshot.occupied end
+    end
+    return {lifecycle=self.lifecycle,lifecycle_reason=self.lifecycleReason,nodes=nodes,
         total_items=total,total_types=#items,alerts=copy(alerts),requests=copy(requests),
         highest_alert=alerts[1],active_request=requests[1],
         dropoff=self:_nodeForRole("dropoff"),pickup=self:_nodeForRole("pickup"),
