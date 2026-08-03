@@ -9,6 +9,7 @@ local defaultModules = {
     "tests.test_identity",
     "tests.test_registry",
     "tests.test_lifecycle",
+    "tests.test_scanner",
 }
 
 local modules = {}
