@@ -44,6 +44,23 @@ return {
         T.equal(surface.allText():find("minecraft:stone",1,true),nil)
         T.equal(surface.writesOutsideBounds(),0)
     end },
+    { name = "the Selected summary stays readable after scrolling the list to its last row", run = function()
+        -- ui.lua's fallback palette (no `colors` global in tests): cyan=512, black=32768.
+        local surface=T.recordingSurface(51,19)
+        local ui=UI.new(surface)
+        local items={}
+        for i=1,20 do
+            items[i]={identity_key="item"..i,name="minecraft:item"..i,display_name="Item "..i,
+                quantity=i,max_count=64,
+                variants={{identity_key="item"..i,display_name="Item "..i,quantity=i,max_count=64}}}
+        end
+        local state=UI.initialState()
+        state.results=items; state.result_count=#items; state.selection=#items
+        local model=view(); model.search_results=items
+        ui:render(state,model)
+        T.contains(surface.allText(),"Selected: Item 20")
+        T.equal(surface.backgroundAt(2,15), 32768)
+    end },
     { name = "wide search retains a separate identity detail panel", run = function()
         local surface=T.recordingSurface(72,19)
         local ui=UI.new(surface)
@@ -51,6 +68,22 @@ return {
         ui:render(state,view())
         T.contains(surface.allText(),"minecraft:stone")
         T.equal(surface.writesOutsideBounds(),0)
+    end },
+    { name = "the wide detail panel stays readable after scrolling the list to its last row", run = function()
+        local surface=T.recordingSurface(80,19)
+        local ui=UI.new(surface)
+        local items={}
+        for i=1,20 do
+            items[i]={identity_key="item"..i,name="minecraft:item"..i,display_name="Item "..i,
+                quantity=i,max_count=64,
+                variants={{identity_key="item"..i,display_name="Item "..i,quantity=i,max_count=64}}}
+        end
+        local state=UI.initialState()
+        state.results=items; state.result_count=#items; state.selection=#items
+        local model=view(); model.search_results=items
+        ui:render(state,model)
+        T.contains(surface.allText(),"Item 20")
+        T.equal(surface.backgroundAt(51,5), 32768)
     end },
     { name = "quantity overlay states the item availability and controls", run = function()
         local surface=T.recordingSurface(51,19)

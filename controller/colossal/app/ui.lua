@@ -291,6 +291,10 @@ function UI:_search(state, model, hitRegions)
                     command={type="ACTIVATE",index=index}}
             end
         end
+        -- The list loop's last fill() may have left the background on the highlighted
+        -- row's cyan, which bleeds into whatever gets written next since background is
+        -- ambient terminal state, not per-row. Reset it before the detail panel/summary.
+        surface.setBackgroundColor(palette.black)
         local selected = results[state.selection]
         if wide and selected then
             surface.setTextColor(palette.cyan)
