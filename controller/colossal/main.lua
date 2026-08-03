@@ -197,11 +197,18 @@ function Main.build(environment)
                 report=setup:validate()
                 syncSetup(active,setup,report.ok and 6 or 5,report.issues)
             elseif step==6 and report and report.ok then
-                local saved,reason=setup:commit(report)
-                if saved then
-                    config=setup:draft(); active:completeSetup(config)
-                    active:command({type="CANCEL_SETUP"}); active:redraw()
-                else alerts:set("setup_save","critical","Setup could not be saved: "..tostring(reason)) end
+                local topologyOk,topologyReason=active:topologyChangeSafe()
+                if not topologyOk then
+                    alerts:set("setup_save","warning",topologyReason)
+                    syncSetup(active,setup,6,{topologyReason})
+                else
+                    local saved,reason=setup:commit(report)
+                    if saved then
+                        config=setup:draft(); active:completeSetup(config)
+                        alerts:resolve("setup_save")
+                        active:command({type="CANCEL_SETUP"}); active:redraw()
+                    else alerts:set("setup_save","critical","Setup could not be saved: "..tostring(reason)) end
+                end
             end
         end
     end

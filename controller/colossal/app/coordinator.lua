@@ -217,6 +217,22 @@ local function serviceState(name,service)
     return "IDLE"
 end
 
+function Coordinator:topologyChangeSafe()
+    local entries={{"recovery",self.deps.recovery},{"imports",self.deps.imports},
+        {"requests",self.deps.requests}}
+    for _,entry in ipairs(entries) do
+        local state=serviceState(entry[1],entry[2])
+        if state=="TRANSFERRING" or state=="VERIFYING" or
+            entry[1]=="recovery" and state=="BLOCKED" then
+            return nil,"Finish or resolve the active "..entry[1].." reconciliation before saving topology"
+        end
+    end
+    if self.verificationGate and self.verificationGate.phase=="verification" then
+        return nil,"Finish the active transfer reconciliation before saving topology"
+    end
+    return true
+end
+
 function Coordinator:_gateReady()
     for id,required in pairs(self.verificationGate.required) do
         if (self.scanRevision[id] or 0)<required then return false end
@@ -377,6 +393,8 @@ function Coordinator:notifyTransfer(result)
 end
 
 function Coordinator:completeSetup(config)
+    local safe,reason=self:topologyChangeSafe()
+    if not safe then return nil,reason end
     self.configured = type(config)=="table" and config.configured ~= false
     if type(config)=="table" and (config.dropoff or config.pickup) then
         local nodes={}
@@ -388,6 +406,7 @@ function Coordinator:completeSetup(config)
         self:_replaceNodes(nodes)
     else self:requestRescan((function() local r={} for _,n in ipairs(self.nodes) do r[#r+1]=n.id end return r end)()) end
     self:_refreshLifecycle(); self.dirty=true
+    return true
 end
 
 function Coordinator:pause() self.paused=true; self:_refreshLifecycle(); self.dirty=true end

@@ -1,13 +1,13 @@
 local Coordinator=require("app.coordinator")
 local T=require("tests.mock_cc")
 
-local function base(nodes,scanner,imports,requests)
+local function base(nodes,scanner,imports,requests,recovery)
     local ui={reduce=function(_,state) return state end,render=function() end}
     return Coordinator.new({clock=function() return 1 end,scanner=scanner,nodes=nodes,
         ui=ui,keymap={command=function() end},initial_ui={query="",results={}},
         build_index=function() return {items=function() return {} end} end,
         search=function() return {} end,lifecycle={derive=function() return "READY","" end},
-        imports=imports,requests=requests})
+        imports=imports,requests=requests,recovery=recovery})
 end
 
 return {
@@ -88,6 +88,24 @@ return {
             T.equal(calls,1);T.equal(unrelated,0)
         end
         run("requests");run("imports")
+    end},
+    {name="topology commit is refused while transfer or recovery reconciliation is unresolved",run=function()
+        local scanner={begin=function(_,node) return {node=node} end,
+            step=function(_,scan) return true,{node_id=scan.node.id,
+                peripheral_name=scan.node.peripheral_name,epoch=1,size=27,occupied=0,
+                slots={},health="READY"} end}
+        local function assertBlocked(requests,recovery)
+            local coordinator=base({{id="store",role="storage",peripheral_name="old"}},scanner,
+                {status=function() return {state="IDLE"} end},requests,recovery)
+            local ok,reason=coordinator:completeSetup({configured=true,
+                dropoff={peripheral_name="drop"},pickup={peripheral_name="pickup"},
+                storage={{id="store",peripheral_name="new"}}})
+            T.equal(ok,nil);T.truthy(reason)
+            T.equal(coordinator:viewModel().nodes[1].peripheral_name,"old")
+        end
+        assertBlocked({list=function() return {{state="VERIFYING"}} end})
+        assertBlocked({list=function() return {} end},
+            {status=function() return {state="VERIFYING"} end})
     end},
     {name="retrieval reconciliation receives storage snapshots without slot observations",run=function()
         local requestCalls,sourceBegins,pickupBegins=0,0,0;local observedField="unset";local storageCount=0
