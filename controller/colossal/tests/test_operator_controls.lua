@@ -145,6 +145,33 @@ return {
         T.equal(active[1].occurrences, 2)
         T.equal(active[1].severity, "critical")
     end},
+    {name="a tall terminal derives a search result limit far above the old fixed cap", run=function()
+        local d = baseDeps()
+        d.ui = UI.new(T.recordingSurface(51, 40))
+        local seenLimit
+        d.search = function(_, _, _, limit) seenLimit = limit; return {} end
+        local coordinator = Coordinator.new(d)
+        coordinator:tick(1000)
+        T.truthy(seenLimit ~= nil)
+        T.truthy(seenLimit > 10)
+    end},
+    {name="a short terminal still derives a limit that covers its own visible rows", run=function()
+        local d = baseDeps()
+        d.ui = UI.new(T.recordingSurface(51, 13))
+        local seenLimit
+        d.search = function(_, _, _, limit) seenLimit = limit; return {} end
+        local coordinator = Coordinator.new(d)
+        coordinator:tick(1000)
+        T.truthy(seenLimit >= 13)
+    end},
+    {name="without a terminal surface the default limit is still far above 10", run=function()
+        local d = baseDeps()
+        local seenLimit
+        d.search = function(_, _, _, limit) seenLimit = limit; return {} end
+        local coordinator = Coordinator.new(d)
+        coordinator:tick(1000)
+        T.truthy(seenLimit >= 50)
+    end},
     {name="the notices list is capped so it cannot grow without bound", run=function()
         local d = baseDeps()
         local scanner = {}

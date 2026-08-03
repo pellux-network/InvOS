@@ -147,6 +147,20 @@ function Coordinator:_refreshLifecycle(now)
     end
 end
 
+-- A tall terminal has room for far more than 10 rows once the results list scrolls, and a
+-- fixed cap left nothing to scroll to. Derive a generous bound from the live surface height
+-- when one is available, and otherwise fall back to a bound well above the old default.
+function Coordinator:_defaultSearchLimit()
+    local surface = self.ui and self.ui.surface
+    if surface and type(surface.getSize) == "function" then
+        local ok, _, height = pcall(surface.getSize)
+        if ok and type(height) == "number" and height > 0 then
+            return math.max(50, height * 4)
+        end
+    end
+    return 50
+end
+
 function Coordinator:_rebuildIndex()
     local snapshots = {}
     for _, node in ipairs(self.nodes) do
@@ -159,7 +173,7 @@ function Coordinator:_rebuildIndex()
     if ok then
         self.index, self.enrichment = result, nil
         local queryOk, results = pcall(self.deps.search, result, self.uiState.query or "",
-            self.deps.aliases or {}, self.deps.search_limit or 10)
+            self.deps.aliases or {}, self.deps.search_limit or self:_defaultSearchLimit())
         if queryOk then
             local reduced, effect = self.ui:reduce(self.uiState,
                 {type="SYNC_RESULTS",results=results or {}})
