@@ -226,15 +226,25 @@ function UI:_header(state, model)
     writeClipped(surface, 2, 2, "1 SEARCH  2 NODES  3 REQUESTS  4 ALERTS  5 SETUP", width - 2)
 end
 
+local function footerHelp(state)
+    if state.page == "search" then return "Type search  Up/Down select  Enter retrieve" end
+    if state.page == "requests" then
+        return "Up/Down select  R retry  C cancel  P pause  F10 back"
+    end
+    if state.page == "alerts" then
+        return "Up/Down  A acknowledge  X+Enter release recovery"
+    end
+    if state.page == "storage" then return "Up/Down scroll  P pause  F10 back" end
+    return "1 Search  P pause  F10 back"
+end
+
 function UI:_footer(state, model)
     local surface = self.surface
     local width, height = surface.getSize()
     if height < 2 then return end
     fill(surface, height - 1, palette.gray)
     surface.setTextColor(palette.white)
-    local help = state.page == "search" and
-        "Type search  Up/Down select  Enter retrieve" or "1 Search  F10 back"
-    writeClipped(surface, 2, height - 1, help, width - 2)
+    writeClipped(surface, 2, height - 1, footerHelp(state), width - 2)
     fill(surface, height, palette.black)
     surface.setTextColor(state.notice and palette.cyan or palette.lightGray)
     writeClipped(surface, 2, height, state.notice or model.lifecycle_reason or "", width - 2)
@@ -305,7 +315,14 @@ function UI:_search(state, model, hitRegions)
     end
 end
 
-function UI:_storage(model)
+-- Nodes, requests and alerts share one fixed content band (row 5 through height-2).
+-- Keeping the geometry in one place keeps their scrolling consistent with each other.
+local function listBand(height)
+    local bodyTop, bodyBottom = 5, height - 2
+    return bodyTop, math.max(0, bodyBottom - bodyTop + 1)
+end
+
+function UI:_storage(state, model)
     local surface = self.surface
     local width, height = surface.getSize()
     surface.setTextColor(palette.cyan); writeClipped(surface, 2, 3, "STORAGE NODES", width - 2)
@@ -316,24 +333,29 @@ function UI:_storage(model)
         writeClipped(surface, 2, 6, "Open Setup to add a Colossal Chest", width - 3)
         return
     end
-    for index, node in ipairs(nodes) do
-        local y = 4 + index
-        if y >= height - 1 then break end
-        surface.setTextColor(stateColor(node.state))
-        writeClipped(surface, 2, y, "o", 1)
-        surface.setTextColor(palette.white)
-        writeClipped(surface, 4, y, node.label or node.id, math.max(1, width - 30))
-        surface.setTextColor(palette.lightGray)
-        local capacity = formatNumber(node.occupied or 0) .. " / " ..
-            formatNumber(node.size or 0) .. " slots"
-        writeClipped(surface, math.max(4, width - #capacity - 10), y, capacity, #capacity)
-        surface.setTextColor(stateColor(node.state))
-        writeClipped(surface, math.max(4, width - #(node.state or "") - 1), y,
-            node.state or "", #(node.state or ""))
+    local bodyTop, visible = listBand(height)
+    local scroll = math.max(1, math.min((state or {}).storage_scroll or 1,
+        math.max(1, #nodes - visible + 1)))
+    for row = 0, visible - 1 do
+        local node = nodes[scroll + row]
+        if node then
+            local y = bodyTop + row
+            surface.setTextColor(stateColor(node.state))
+            writeClipped(surface, 2, y, "o", 1)
+            surface.setTextColor(palette.white)
+            writeClipped(surface, 4, y, node.label or node.id, math.max(1, width - 30))
+            surface.setTextColor(palette.lightGray)
+            local capacity = formatNumber(node.occupied or 0) .. " / " ..
+                formatNumber(node.size or 0) .. " slots"
+            writeClipped(surface, math.max(4, width - #capacity - 10), y, capacity, #capacity)
+            surface.setTextColor(stateColor(node.state))
+            writeClipped(surface, math.max(4, width - #(node.state or "") - 1), y,
+                node.state or "", #(node.state or ""))
+        end
     end
 end
 
-function UI:_requests(model)
+function UI:_requests(state, model)
     local surface = self.surface
     local width, height = surface.getSize()
     surface.setTextColor(palette.cyan); writeClipped(surface, 2, 3, "REQUESTS", width - 2)
@@ -344,21 +366,30 @@ function UI:_requests(model)
         writeClipped(surface, 2, 6, "Press 1 and search for an item to retrieve", width - 3)
         return
     end
-    for index, request in ipairs(requests) do
-        local y = 4 + index
-        if y >= height - 1 then break end
-        surface.setTextColor(stateColor(request.state))
-        writeClipped(surface, 2, y, request.state or "", 12)
-        surface.setTextColor(palette.white)
-        writeClipped(surface, 15, y, request.display_name or request.id, width - 29)
-        local progress = formatNumber(request.delivered or 0) .. " / " ..
-            formatNumber(request.requested or 0)
-        surface.setTextColor(palette.lightGray)
-        writeClipped(surface, math.max(16, width - #progress - 1), y, progress, #progress)
+    local bodyTop, visible = listBand(height)
+    local selection = math.max(1, math.min(#requests, (state or {}).request_selection or 1))
+    local scroll = 1
+    if selection >= scroll + visible then scroll = selection - visible + 1 end
+    for row = 0, visible - 1 do
+        local index = scroll + row
+        local request = requests[index]
+        if request then
+            local y = bodyTop + row
+            local selected = index == selection
+            if selected then fill(surface, y, palette.cyan) end
+            surface.setTextColor(selected and palette.black or stateColor(request.state))
+            writeClipped(surface, 2, y, request.state or "", 12)
+            surface.setTextColor(selected and palette.black or palette.white)
+            writeClipped(surface, 15, y, request.display_name or request.id, width - 29)
+            local progress = formatNumber(request.delivered or 0) .. " / " ..
+                formatNumber(request.requested or 0)
+            surface.setTextColor(selected and palette.black or palette.lightGray)
+            writeClipped(surface, math.max(16, width - #progress - 1), y, progress, #progress)
+        end
     end
 end
 
-function UI:_alerts(model)
+function UI:_alerts(state, model)
     local surface = self.surface
     local width, height = surface.getSize()
     surface.setTextColor(palette.cyan); writeClipped(surface, 2, 3, "ALERTS", width - 2)
@@ -370,13 +401,23 @@ function UI:_alerts(model)
         writeClipped(surface, 2, 6, "Storage conditions are healthy", width - 3)
         return
     end
-    for index, alert in ipairs(alerts) do
-        local y = 4 + index
-        if y >= height - 1 then break end
-        surface.setTextColor(alert.severity == "critical" and palette.red or palette.yellow)
-        writeClipped(surface, 2, y, alert.acknowledged and "-" or "!", 1)
-        surface.setTextColor(palette.white)
-        writeClipped(surface, 4, y, alert.message, width - 5)
+    local bodyTop, visible = listBand(height)
+    local selection = math.max(1, math.min(#alerts, (state or {}).alert_selection or 1))
+    local scroll = 1
+    if selection >= scroll + visible then scroll = selection - visible + 1 end
+    for row = 0, visible - 1 do
+        local index = scroll + row
+        local alert = alerts[index]
+        if alert then
+            local y = bodyTop + row
+            local selected = index == selection
+            if selected then fill(surface, y, palette.cyan) end
+            surface.setTextColor(selected and palette.black or
+                (alert.severity == "critical" and palette.red or palette.yellow))
+            writeClipped(surface, 2, y, alert.acknowledged and "-" or "!", 1)
+            surface.setTextColor(selected and palette.black or palette.white)
+            writeClipped(surface, 4, y, alert.message, width - 5)
+        end
     end
 end
 
@@ -487,9 +528,9 @@ function UI:render(state, model)
     self:_header(state, model)
     local hitRegions = {}
     if state.page == "search" then self:_search(state, model, hitRegions)
-    elseif state.page == "storage" then self:_storage(model)
-    elseif state.page == "requests" then self:_requests(model)
-    elseif state.page == "alerts" then self:_alerts(model)
+    elseif state.page == "storage" then self:_storage(state, model)
+    elseif state.page == "requests" then self:_requests(state, model)
+    elseif state.page == "alerts" then self:_alerts(state, model)
     else self:_setup(model) end
     self:_footer(state, model)
     if state.mode == "quantity" or state.mode == "variant" then self:_overlay(state) end
