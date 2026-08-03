@@ -89,6 +89,19 @@ return {
         T.equal(value, nil)
         T.equal(reason, "unsafe journal unavailable")
     end },
+    { name = "journal retirement removes only journal variants", run = function()
+        local fsApi=T.memoryFs()
+        fsApi.files["colossal/data/journal.lua"]="active"
+        fsApi.files["colossal/data/journal.previous.lua"]="previous"
+        fsApi.files["colossal/data/journal.staged.lua"]="staged"
+        fsApi.files["colossal/data/config.lua"]="config"
+        local store=Store.new(fsApi,tokenCodec(),"colossal/data")
+        T.truthy(store:delete("journal"))
+        T.equal(fsApi.exists("colossal/data/journal.lua"),false)
+        T.equal(fsApi.exists("colossal/data/journal.previous.lua"),false)
+        T.equal(fsApi.exists("colossal/data/journal.staged.lua"),false)
+        T.equal(fsApi.exists("colossal/data/config.lua"),true)
+    end },
     { name = "store can create a scoped writer without changing the original", run = function()
         local fsApi = T.memoryFs()
         local store = Store.new(fsApi, tokenCodec(), "colossal/data")

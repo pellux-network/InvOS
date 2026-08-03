@@ -1,145 +1,98 @@
-local Store = require("shared.store")
-local Transfer = require("core.transfer")
-local T = require("tests.mock_cc")
+local Reconciliation=require("core.reconciliation")
+local Store=require("shared.store")
+local Transfer=require("core.transfer")
+local T=require("tests.mock_cc")
 
-local stone = "minecraft:stone\0-"
+local echo="the_vault:gem_echo\0-"
+local wutodie="the_vault:gem_wutodie\0-"
 
-local function tokenCodec()
-    local values, nextId = {}, 0
-    return {
-        encode = function(value) nextId=nextId+1; local key="j"..nextId; values[key]=value; return key end,
-        decode = function(key) if not values[key] then error("bad journal token") end; return values[key] end,
-    }
+local function codec()
+    local values,id={},0
+    return {encode=function(value) id=id+1;local key="j"..id;values[key]=value;return key end,
+        decode=function(key) return assert(values[key],"bad token") end}
 end
-
+local function snapshot(id,slots,health)
+    return {node_id=id,peripheral_name="store_"..id,health=health or "READY",slots=slots or {}}
+end
 local function requestStep(limit)
-    return {
-        source_name="store_a", source_slot=4, source_epoch=10, source_pre_count=64,
-        destination_name="pickup", identity_key=stone, limit=limit or 64,
-    }
+    return {source_name="store_a",source_slot=7,source_epoch=10,source_pre_count=3,
+        destination_name="pickup",identity_key=echo,limit=limit or 2}
 end
-
 local function importStep(limit)
-    local value=requestStep(limit)
-    value.destination_slot=1
-    value.destination_epoch=20
-    value.destination_pre_count=0
-    return value
+    return {source_name="drop",source_slot=1,source_epoch=10,source_pre_count=5,
+        destination_name="store_a",destination_slot=8,destination_epoch=20,
+        destination_pre_count=0,identity_key=echo,limit=limit or 5}
 end
-
 local function operation(kind)
-    return { id=(kind or "request").."-1", kind=kind or "request", state="TRANSFERRING", moved=0 }
+    return {id=(kind or "request").."-1",kind=kind or "request",state="TRANSFERRING",moved=0}
 end
-
-local function adapter(moved)
-    local value = { calls = { inspect=0, push=0 }, pushed = nil }
-    value.observed = {
-        ["store_a:4"] = { identity_key=stone, count=64, generation=10 },
-        ["pickup:1"] = { identity_key=nil, count=0, generation=20 },
-    }
-    function value:inspect(name, slot)
-        self.calls.inspect = self.calls.inspect + 1
-        return true, self.observed[name .. ":" .. slot]
-    end
-    function value:push(source, destination, sourceSlot, transferLimit, destinationSlot)
-        self.calls.push = self.calls.push + 1
-        self.pushed = { source=source,destination=destination,source_slot=sourceSlot,
-            limit=transferLimit,destination_slot=destinationSlot }
-        return true, moved
-    end
-    return value
-end
-
-local function makeTransfer(moved, fsApi)
-    fsApi = fsApi or T.memoryFs()
-    local store = Store.new(fsApi, tokenCodec(), "colossal/data")
-    local inventory = adapter(moved)
-    return Transfer.new({ store=store, adapter=inventory, clock=function() return 1234 end }),
-        store, inventory, fsApi
+local function makeTransfer(reported)
+    local fs=T.memoryFs();local store=Store.new(fs,codec(),"colossal/data")
+    local adapter={push_calls=0,observed={
+        ["store_a:7"]={identity_key=echo,count=3,generation=10},
+        ["drop:1"]={identity_key=echo,count=5,generation=10},
+        ["store_a:8"]={identity_key=nil,count=0,generation=20}}}
+    function adapter:inspect(name,slot) return true,self.observed[name..":"..slot] end
+    function adapter:push() self.push_calls=self.push_calls+1;return true,reported end
+    local transfer=Transfer.new({store=store,adapter=adapter,clock=function() return 100 end,
+        reconciliation=Reconciliation})
+    return transfer,store,adapter,fs
 end
 
 return {
-    { name = "retrieval journals an unslotted push and rescans only storage", run = function()
-        local transfer, store, inventory = makeTransfer(17)
-        local result = transfer:execute(operation("request"), requestStep(64))
-        T.equal(result.state, "VERIFYING")
-        T.equal(result.moved, 17)
-        T.equal(inventory.calls.inspect,1)
-        T.equal(inventory.pushed.destination_slot,nil)
-        T.arrayEqual(result.rescan,{"store_a"})
-        local journal = store:recover("journal", Transfer.validateJournal)
-        T.equal(journal.step.phase, "CALLED")
-        T.equal(journal.step.actual_moved, 17)
-        T.equal(journal.step.destination_slot,nil)
-    end },
-    { name = "retrieval verification needs only the observed source", run = function()
-        local transfer, store = makeTransfer(17)
-        local result = transfer:execute(operation("request"), requestStep(64))
-        local verified = transfer:verify(result.journal, {
-            source = { identity_key=stone, count=47 },
-        })
-        T.equal(verified.state, "COMPLETE")
-        T.equal(verified.moved, 17)
-        T.equal(store:recover("journal", Transfer.validateJournal).step.phase, "VERIFIED")
-    end },
-    { name = "import retains exact destination preflight and two-node rescans", run = function()
-        local transfer, _, inventory = makeTransfer(17)
-        local result=transfer:execute(operation("import"),importStep(64))
-        T.equal(result.state,"VERIFYING")
-        T.equal(inventory.calls.inspect,2)
-        T.equal(inventory.pushed.destination_slot,1)
-        T.arrayEqual(result.rescan,{"store_a","pickup"})
-    end },
-    { name = "journal activation failure prevents any inventory movement", run = function()
-        local fsApi = T.memoryFs()
-        fsApi.failMoveTo = "colossal/data/journal.lua"
-        local transfer, _, inventory = makeTransfer(64, fsApi)
-        local result = transfer:execute(operation("request"), requestStep(64))
-        T.equal(result.state, "FAILED")
-        T.equal(result.reason.code, "JOURNAL_WRITE")
-        T.equal(inventory.calls.push, 0)
-    end },
-    { name = "changed source identity fails preflight before journaling movement", run = function()
-        local transfer, _, inventory = makeTransfer(64)
-        inventory.observed["store_a:4"] = {
-            identity_key="minecraft:dirt\0-", count=64, generation=10,
-        }
-        local result = transfer:execute(operation("request"), requestStep(64))
-        T.equal(result.state, "FAILED")
-        T.equal(result.reason.code, "SOURCE_CHANGED")
-        T.equal(inventory.calls.push, 0)
-    end },
-    { name = "changed import destination contents fail preflight", run = function()
-        local transfer, _, inventory = makeTransfer(64)
-        inventory.observed["pickup:1"] = { identity_key="minecraft:dirt\0-", count=3, generation=20 }
-        local result = transfer:execute(operation("import"), importStep(64))
-        T.equal(result.state, "FAILED")
-        T.equal(result.reason.code, "DESTINATION_CHANGED")
-        T.equal(inventory.calls.push, 0)
-    end },
-    { name = "retrieval transfer exception is ambiguous and rescans only storage", run = function()
-        local transfer, store, inventory = makeTransfer(64)
-        function inventory:push() self.calls.push=self.calls.push+1; error("network vanished") end
-        local result = transfer:execute(operation("request"), requestStep(64))
-        T.equal(result.state, "FAILED")
-        T.equal(result.reason.code, "TRANSFER_EXCEPTION")
-        T.equal(result.reason.ambiguous, true)
-        T.arrayEqual(result.rescan, { "store_a" })
-        T.equal(store:recover("journal", Transfer.validateJournal).step.phase, "CALLING")
-    end },
-    { name = "invalid returned quantities never become verified movement", run = function()
-        for _, moved in ipairs({ -1, 65, "many" }) do
-            local transfer = makeTransfer(moved)
-            local result = transfer:execute(operation("request"), requestStep(64))
-            T.equal(result.state, "FAILED")
-            T.equal(result.reason.code, "INVALID_MOVED_COUNT")
-            T.equal(result.reason.ambiguous, true)
-        end
-    end },
-    { name = "zero is an authoritative short transfer", run = function()
-        local transfer = makeTransfer(0)
-        local result = transfer:execute(operation("request"), requestStep(64))
-        T.equal(result.state, "VERIFYING")
-        T.equal(result.moved, 0)
-    end },
+    {name="compacted retrieval reconciles aggregate movement instead of reported count",run=function()
+        local transfer,store,adapter=makeTransfer(1)
+        local before={snapshot("a",{[7]={identity_key=echo,count=3}})}
+        local called=transfer:execute(operation("request"),requestStep(2),before)
+        T.equal(called.state,"VERIFYING");T.equal(adapter.push_calls,1)
+        T.equal(called.journal.schema,2);T.equal(called.journal.step.phase,"CALLED")
+        T.equal(called.journal.step.storage_pre_count,3)
+        T.equal(called.journal.step.reported_moved,1)
+        local complete=transfer:verify(called.journal,{
+            snapshot("a",{[7]={identity_key=wutodie,count=29}})})
+        T.equal(complete.state,"COMPLETE");T.equal(complete.moved,3)
+        T.equal(complete.reported_moved,1)
+        T.equal(store:recover("journal",Transfer.validateJournal).step.phase,"RECONCILED")
+    end},
+    {name="incomplete storage scope waits without another inventory call",run=function()
+        local transfer,_,adapter=makeTransfer(2)
+        local called=transfer:execute(operation("request"),requestStep(2),{
+            snapshot("a",{[7]={identity_key=echo,count=3}}),snapshot("b",{})})
+        local waiting=transfer:verify(called.journal,{snapshot("a",{})})
+        T.equal(waiting.state,"WAITING");T.equal(waiting.reason.code,"STORAGE_SCOPE_INCOMPLETE")
+        T.arrayEqual(waiting.rescan,{"a","b"});T.equal(adapter.push_calls,1)
+    end},
+    {name="import reconciles aggregate storage increase",run=function()
+        local transfer,_,adapter=makeTransfer(2)
+        local called=transfer:execute(operation("import"),importStep(5),{snapshot("a",{})})
+        local complete=transfer:verify(called.journal,{
+            snapshot("a",{[9]={identity_key=echo,count=5}})})
+        T.equal(complete.state,"COMPLETE");T.equal(complete.moved,5)
+        T.equal(complete.reported_moved,2);T.equal(adapter.push_calls,1)
+    end},
+    {name="changed source fails before journal or inventory mutation",run=function()
+        local transfer,_,adapter=makeTransfer(2)
+        adapter.observed["store_a:7"]={identity_key=wutodie,count=29}
+        local result=transfer:execute(operation("request"),requestStep(2),{snapshot("a",{})})
+        T.equal(result.state,"FAILED");T.equal(result.reason.code,"SOURCE_CHANGED")
+        T.equal(adapter.push_calls,0)
+    end},
+    {name="transfer exception leaves a calling journal for scan recovery",run=function()
+        local transfer,store,adapter=makeTransfer(2)
+        function adapter:push() self.push_calls=self.push_calls+1;error("network vanished") end
+        local result=transfer:execute(operation("request"),requestStep(2),{
+            snapshot("a",{[7]={identity_key=echo,count=3}})})
+        T.equal(result.state,"FAILED");T.equal(result.reason.ambiguous,true)
+        T.equal(adapter.push_calls,1)
+        T.equal(store:recover("journal",Transfer.validateJournal).step.phase,"CALLING")
+    end},
+    {name="retirement removes every journal variant",run=function()
+        local transfer,store=makeTransfer(2)
+        local called=transfer:execute(operation("request"),requestStep(2),{
+            snapshot("a",{[7]={identity_key=echo,count=3}})})
+        transfer:verify(called.journal,{snapshot("a",{[7]={identity_key=echo,count=1}})})
+        T.truthy(transfer:retire())
+        local value=store:recover("journal",Transfer.validateJournal)
+        T.equal(value,nil)
+    end},
 }

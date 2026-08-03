@@ -60,6 +60,20 @@ function Store:_writeStaged(path, encoded)
     return true
 end
 
+function Store:delete(name)
+    if type(name)~="string" or name=="" or name:find("[/\\]") or name:find("..",1,true) then
+        return nil,"invalid store name"
+    end
+    for _,suffix in ipairs({".staged",".previous",""}) do
+        local path=combine(self.fs,self.root,name..suffix)
+        if self.fs.exists(path) then
+            local ok,deleteReason=pcall(self.fs.delete,path)
+            if not ok then return nil,"delete "..path..": "..tostring(deleteReason) end
+        end
+    end
+    return true
+end
+
 function Store:write(name, value, validator)
     local validateOk, valid, reason = pcall(validator, value)
     if not validateOk then return nil, "validate " .. name .. ": " .. tostring(valid) end

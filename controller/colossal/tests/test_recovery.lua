@@ -1,83 +1,52 @@
-local Store = require("shared.store")
-local Transfer = require("core.transfer")
-local T = require("tests.mock_cc")
+local Reconciliation=require("core.reconciliation")
+local Transfer=require("core.transfer")
+local T=require("tests.mock_cc")
 
-local stone = "minecraft:stone\0-"
-
-local function tokenCodec()
-    local values, nextId = {}, 0
-    return {
-        encode=function(value) nextId=nextId+1; local key="r"..nextId; values[key]=value; return key end,
-        decode=function(key) return assert(values[key], "bad token") end,
-    }
+local echo="the_vault:gem_echo\0-"
+local function snapshot(count)
+    return {node_id="a",health="READY",slots=count>0 and {[1]={identity_key=echo,count=count}} or {}}
 end
-
-local function journal(phase, moved)
-    return {
-        schema=1,
-        operation={ id="request-1", kind="request", state="TRANSFERRING", moved=0 },
-        step={
-            id="request-1:1", phase=phase, source_name="store_a", source_slot=4,
-            source_epoch=10, source_pre_count=64, destination_name="pickup",
-            identity_key=stone, limit=64, actual_moved=moved or 0,
-        },
-        updated_at=100,
-    }
+local function journal(schema,phase)
+    if schema==1 then
+        return {schema=1,operation={id="old",kind="request",state="VERIFYING",moved=0},
+            step={id="old:1",phase="FAILED",source_name="store_a",source_slot=7,
+                source_epoch=1,source_pre_count=3,destination_name="pickup",
+                destination_slot=2,destination_epoch=1,destination_pre_count=0,
+                identity_key=echo,limit=2,actual_moved=1},updated_at=1}
+    end
+    return {schema=2,operation={id="new",kind="request",state="VERIFYING",moved=0},
+        step={id="new:1",phase=phase,source_name="store_a",source_slot=7,
+            source_epoch=1,source_pre_count=3,destination_name="pickup",identity_key=echo,
+            limit=2,storage_pre_count=3,storage_node_ids={"a"},reported_moved=1,
+            actual_moved=phase=="RECONCILED" and 3 or nil},updated_at=1}
 end
-
 local function transfer()
-    local calls = 0
-    local inventory = {
-        inspect=function() return true, {} end,
-        push=function() calls=calls+1; return true, 64 end,
-    }
-    local store = Store.new(T.memoryFs(), tokenCodec(), "colossal/data")
-    return Transfer.new({store=store,adapter=inventory,clock=function() return 200 end}),
-        store, function() return calls end
+    local pushes=0
+    local value=Transfer.new({store={write=function() return true end,delete=function() return true end},
+        adapter={push=function() pushes=pushes+1 end},clock=function() return 2 end,
+        reconciliation=Reconciliation})
+    return value,function() return pushes end
 end
 
 return {
-    { name = "prepared recovery returns to planning without moving items", run = function()
-        local value, _, pushCalls = transfer()
-        local resolution = value:recover(journal("PREPARED"), {})
-        T.equal(resolution.state, "PLANNING")
-        T.equal(resolution.replay_safe, true)
-        T.equal(pushCalls(), 0)
-    end },
-    { name = "calling recovery is always failed and never replayed", run = function()
-        local value, _, pushCalls = transfer()
-        local resolution = value:recover(journal("CALLING"), {
-            source={ identity_key=stone, count=57 },
-        })
-        T.equal(resolution.state, "FAILED")
-        T.equal(resolution.reason.code, "AMBIGUOUS_IN_FLIGHT")
-        T.equal(resolution.observed.source.count, 57)
-        T.equal(pushCalls(), 0)
-    end },
-    { name = "called recovery verifies exact recorded source movement", run = function()
-        local value, store, pushCalls = transfer()
-        local resolution = value:recover(journal("CALLED", 17), {
-            source={ identity_key=stone, count=47 },
-        })
-        T.equal(resolution.state, "COMPLETE")
-        T.equal(resolution.moved, 17)
-        T.equal(store:recover("journal", Transfer.validateJournal).step.phase, "VERIFIED")
-        T.equal(pushCalls(), 0)
-    end },
-    { name = "called recovery rejects mismatched observed source counts", run = function()
-        local value, _, pushCalls = transfer()
-        local resolution = value:recover(journal("CALLED", 17), {
-            source={ identity_key=stone, count=48 },
-        })
-        T.equal(resolution.state, "FAILED")
-        T.equal(resolution.reason.code, "VERIFY_MISMATCH")
-        T.equal(pushCalls(), 0)
-    end },
-    { name = "verified recovery completes without duplicate movement", run = function()
-        local value, _, pushCalls = transfer()
-        local resolution = value:recover(journal("VERIFIED", 17), {})
-        T.equal(resolution.state, "COMPLETE")
-        T.equal(resolution.moved, 17)
-        T.equal(pushCalls(), 0)
-    end },
+    {name="legacy slot journal is identified without replay",run=function()
+        local value,pushes=transfer();local result=value:recover(journal(1,"FAILED"),{})
+        T.equal(result.state,"LEGACY");T.equal(pushes(),0)
+    end},
+    {name="intent before call is safe to discard",run=function()
+        local value,pushes=transfer();local result=value:recover(journal(2,"INTENT"),{})
+        T.equal(result.state,"DISCARD_SAFE");T.equal(pushes(),0)
+    end},
+    {name="calling restart reconciles aggregate delta without replay",run=function()
+        local value,pushes=transfer();local result=value:recover(journal(2,"CALLING"),{snapshot(0)})
+        T.equal(result.state,"COMPLETE");T.equal(result.moved,3);T.equal(pushes(),0)
+    end},
+    {name="called restart reconciles aggregate delta without replay",run=function()
+        local value,pushes=transfer();local result=value:recover(journal(2,"CALLED"),{snapshot(1)})
+        T.equal(result.state,"COMPLETE");T.equal(result.moved,2);T.equal(pushes(),0)
+    end},
+    {name="reconciled restart returns recorded result without replay",run=function()
+        local value,pushes=transfer();local result=value:recover(journal(2,"RECONCILED"),{})
+        T.equal(result.state,"COMPLETE");T.equal(result.moved,3);T.equal(pushes(),0)
+    end},
 }
