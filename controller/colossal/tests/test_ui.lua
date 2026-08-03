@@ -22,6 +22,16 @@ return {
         T.equal(state.mode,"search")
         T.equal(state.query,"sto")
     end },
+    { name = "CANCEL from a secondary page returns to the Search page", run = function()
+        local ui=UI.new(T.recordingSurface(51,19))
+        local state=UI.initialState()
+        state=ui:reduce(state,{type="OPEN_PAGE",page="requests"})
+        T.equal(state.page,"requests")
+        T.equal(state.mode,"page")
+        state=ui:reduce(state,{type="CANCEL"})
+        T.equal(state.mode,"search")
+        T.equal(state.page,"search")
+    end },
     { name = "UI reducer converts quantity shortcuts into exact request effects", run = function()
         local ui=UI.new(T.recordingSurface(51,19))
         local state=UI.initialState()

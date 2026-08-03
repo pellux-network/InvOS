@@ -206,7 +206,7 @@ function UI:reduce(current, command)
         state.mode, state.page = "page", "setup"
         return state, {type="CANCEL_SETUP"}
     elseif kind == "CANCEL" then
-        state.mode, state.quantity_text, state.variants = "search", "", nil
+        state.mode, state.page, state.quantity_text, state.variants = "search", "search", "", nil
     elseif kind == "OPEN_PAGE" then
         state.page = command.page
         state.mode = command.page == "search" and "search" or "page"
