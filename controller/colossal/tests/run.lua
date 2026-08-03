@@ -49,6 +49,7 @@ local defaultModules = {
     "tests.test_pickup_preflight",
     "tests.test_request_replan",
     "tests.test_hot_paths",
+    "tests.test_transfer_batch",
 }
 
 local modules = {}
