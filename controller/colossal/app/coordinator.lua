@@ -152,7 +152,8 @@ function Coordinator:_scanStep()
             local value=service:status();state=value and value.state
         elseif name=="requests" and service and type(service.list)=="function" then
             for _,value in ipairs(service:list()) do
-                if value.state~="COMPLETE" and value.state~="CANCELLED" then state=value.state;break end
+                if value.state~="COMPLETE" and value.state~="CANCELLED" and
+                    value.state~="FAILED" then state=value.state;break end
             end
         end
         if state=="TRANSFERRING" then return false end
@@ -211,7 +212,8 @@ local function serviceState(name,service)
     end
     if name=="requests" and type(service.list)=="function" then
         for _,value in ipairs(service:list()) do
-            if value.state~="COMPLETE" and value.state~="CANCELLED" then return value.state end
+            if value.state~="COMPLETE" and value.state~="CANCELLED" and
+                value.state~="FAILED" then return value.state end
         end
     end
     return "IDLE"

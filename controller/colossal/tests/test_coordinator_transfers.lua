@@ -104,8 +104,18 @@ return {
             T.equal(coordinator:viewModel().nodes[1].peripheral_name,"old")
         end
         assertBlocked({list=function() return {{state="VERIFYING"}} end})
+        assertBlocked({list=function() return {{state="FAILED"},{state="VERIFYING"}} end})
         assertBlocked({list=function() return {} end},
             {status=function() return {state="VERIFYING"} end})
+    end},
+    {name="failed request cannot hide a later in-flight request from scan gating",run=function()
+        local scans=0;local scanner={begin=function(_,node) return {node=node} end,
+            step=function() scans=scans+1;return false end}
+        local requests={list=function() return {{state="FAILED"},{state="TRANSFERRING"}} end,
+            tick=function() end}
+        local coordinator=base({{id="store",role="storage",peripheral_name="store"}},scanner,
+            {status=function() return {state="IDLE"} end},requests)
+        coordinator:tick(1);T.equal(scans,0)
     end},
     {name="retrieval reconciliation receives storage snapshots without slot observations",run=function()
         local requestCalls,sourceBegins,pickupBegins=0,0,0;local observedField="unset";local storageCount=0
