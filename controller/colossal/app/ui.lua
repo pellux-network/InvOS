@@ -143,6 +143,26 @@ function UI:reduce(current, command)
             return state, {type="CREATE_REQUEST",identity=copy(state.identity),quantity=quantity}
         end
         state.notice = "No available quantity to request"
+    elseif kind == "OPEN_SETUP" then
+        state.page, state.mode, state.setup_step = "setup", "setup", 1
+        state.selection, state.setup_choices, state.setup_choice_count = 1, {}, 0
+    elseif kind == "SYNC_SETUP" then
+        state.setup_step = command.step or state.setup_step or 1
+        state.setup_choices = copy(command.choices or {})
+        state.setup_choice_count = #state.setup_choices
+        state.setup_issues = copy(command.issues or {})
+        state.selection = math.max(1, math.min(state.selection,
+            math.max(1, state.setup_choice_count)))
+    elseif kind == "SETUP_MOVE" then
+        state.selection = math.max(1, math.min(math.max(1, state.setup_choice_count or 0),
+            state.selection + command.delta))
+    elseif kind == "SETUP_SELECT" then
+        return state, {type="SETUP_SELECT",step=state.setup_step,index=state.selection}
+    elseif kind == "SETUP_NEXT" or kind == "SETUP_BACK" then
+        return state, {type=kind,step=state.setup_step}
+    elseif kind == "CANCEL_SETUP" then
+        state.mode, state.page = "page", "setup"
+        return state, {type="CANCEL_SETUP"}
     elseif kind == "CANCEL" then
         state.mode, state.quantity_text, state.variants = "search", "", nil
     elseif kind == "OPEN_PAGE" then
@@ -361,12 +381,62 @@ function UI:_overlay(state)
     end
 end
 
+function UI:_setupWizard(state, model)
+    local surface = self.surface
+    local width, height = surface.getSize()
+    local names = {
+        "Discover inventories", "Assign Drop-off", "Assign Pickup",
+        "Storage nodes", "Validate layout", "Review and enable",
+    }
+    fill(surface, 1, palette.gray)
+    surface.setTextColor(palette.white)
+    writeClipped(surface, 2, 1, "SETUP WIZARD", 20)
+    local progress = tostring(state.setup_step or 1) .. " / " .. #names
+    surface.setTextColor(palette.cyan)
+    writeClipped(surface, math.max(2, width - #progress - 1), 1, progress, #progress)
+    surface.setTextColor(palette.cyan)
+    writeClipped(surface, 2, 3, names[state.setup_step or 1] or "Setup", width - 3)
+    surface.setTextColor(palette.lightGray)
+    writeClipped(surface, 2, 4, "Select the exact wired inventory for this role.", width - 3)
+    local choices = state.setup_choices or {}
+    if #choices == 0 then
+        writeClipped(surface, 2, 6, "No choices on this step", width - 3)
+    else
+        for index, choice in ipairs(choices) do
+            local y = 5 + index
+            if y >= height - 3 then break end
+            local selected = index == state.selection
+            fill(surface, y, selected and palette.cyan or palette.black)
+            surface.setTextColor(selected and palette.black or palette.white)
+            writeClipped(surface, 2, y, (selected and "> " or "  ") ..
+                tostring(choice.label or choice.name), math.max(1, width - 18))
+            surface.setTextColor(selected and palette.black or palette.lightGray)
+            writeClipped(surface, math.max(3, width - #(choice.detail or "") - 1), y,
+                choice.detail or "", #(choice.detail or ""))
+        end
+    end
+    local issues = state.setup_issues or (model.setup and model.setup.issues) or {}
+    if #issues > 0 then
+        surface.setTextColor(palette.yellow)
+        writeClipped(surface, 2, height - 4, "! " .. tostring(issues[1].message), width - 3)
+    end
+    fill(surface, height - 1, palette.gray)
+    surface.setTextColor(palette.white)
+    writeClipped(surface, 2, height - 1,
+        "Up/Down  Enter select  Left back  Right next", width - 3)
+    fill(surface, height, palette.black)
+    surface.setTextColor(palette.lightGray)
+    writeClipped(surface, 2, height, "F10 cancel", width - 3)
+    surface.setCursorBlink(false)
+    return {hit_regions={}}
+end
 function UI:render(state, model)
     model = model or {}
     local surface = self.surface
     surface.setBackgroundColor(palette.black)
     surface.setTextColor(palette.white)
     surface.clear()
+    if state.mode == "setup" then return self:_setupWizard(state, model) end
     self:_header(state, model)
     local hitRegions = {}
     if state.page == "search" then self:_search(state, model, hitRegions)

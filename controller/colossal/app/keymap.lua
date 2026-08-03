@@ -37,14 +37,28 @@ function M.command(event, state)
 
     local key = event[2]
     if key == keys.escape then return nil end
+    if state.mode == "setup" then
+        if key == keys.f10 then return {type="CANCEL_SETUP"} end
+        if key == keys.up then return {type="SETUP_MOVE",delta=-1} end
+        if key == keys.down then return {type="SETUP_MOVE",delta=1} end
+        if key == keys.enter then return {type="SETUP_SELECT"} end
+        if key == keys.left or key == keys.backspace then return {type="SETUP_BACK"} end
+        if key == keys.right then return {type="SETUP_NEXT"} end
+        return nil
+    end
     if key == keys.f10 and state.mode ~= "search" then return {type="CANCEL"} end
 
     if state.mode ~= "quantity" and state.mode ~= "variant" then
-        local pages = {
-            [keys.one]="search", [keys.two]="storage", [keys.three]="requests",
-            [keys.four]="alerts", [keys.five]="setup",
-        }
+        local pages = {}
+        if keys.one then pages[keys.one]="search" end
+        if keys.two then pages[keys.two]="storage" end
+        if keys.three then pages[keys.three]="requests" end
+        if keys.four then pages[keys.four]="alerts" end
+        if keys.five then pages[keys.five]="setup" end
         if pages[key] then return {type="OPEN_PAGE",page=pages[key]} end
+    end
+    if state.mode == "page" and state.page == "setup" and key == keys.enter then
+        return {type="OPEN_SETUP"}
     end
 
     if state.mode == "search" then

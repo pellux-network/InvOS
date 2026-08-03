@@ -24,6 +24,11 @@ local defaultModules = {
     "tests.test_ui_layout",
     "tests.test_ui_purity",
     "tests.test_monitor",
+    "tests.test_setup",
+    "tests.test_setup_validation",
+    "tests.test_setup_recovery",
+    "tests.test_setup_duplicates",
+    "tests.test_setup_ui",
 }
 
 local modules = {}
