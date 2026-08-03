@@ -98,8 +98,10 @@ function M.command(event, state)
         if key == keys.down then return {type="MOVE",delta=1} end
         if key == keys.enter then return {type="OPEN_QUANTITY"} end
     elseif state.mode == "quantity" then
-        if key == keys.s then return {type="REQUEST",quantity="stack"} end
-        if key == keys.a then return {type="REQUEST",quantity="all"} end
+        -- A REQUEST here drops mode back to "search" before the char event that
+        -- shares this keypress arrives, so name it for suppression there.
+        if key == keys.s then return {type="REQUEST",quantity="stack",char="s"} end
+        if key == keys.a then return {type="REQUEST",quantity="all",char="a"} end
         if key == keys.backspace then return {type="QUANTITY_BACKSPACE"} end
         if key == keys.enter then
             local text = state.quantity_text or ""

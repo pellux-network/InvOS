@@ -180,6 +180,7 @@ function UI:reduce(current, command)
         elseif quantity == "all" then quantity = available end
         if type(quantity) == "number" and quantity >= 1 and quantity % 1 == 0 then
             state.mode, state.quantity_text = "search", ""
+            state.suppress_char = command.char
             state.notice = "Queued " .. formatNumber(quantity) .. " " ..
                 tostring(state.identity.display_name or state.identity.name or "item")
             return state, {type="CREATE_REQUEST",identity=copy(state.identity),quantity=quantity}

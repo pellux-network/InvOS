@@ -146,6 +146,22 @@ return {
         coordinator:handle({"mouse_click", 1, region.x1, region.y1})
         T.equal(coordinator:viewModel().ui.mode, "quantity")
     end},
+    {name="pressing the stack quantity hotkey does not leak the character into the search query", run=function()
+        local d = baseDeps()
+        d.search = function() return {{identity_key="stone", name="minecraft:stone",
+            display_name="Stone", quantity=10, max_count=64,
+            variants={{identity_key="stone", display_name="Stone", quantity=10, max_count=64}}}} end
+        local coordinator = Coordinator.new(d)
+        coordinator:tick(1000)
+        local region = coordinator:viewModel().ui.hit_regions[1]
+        coordinator:handle({"mouse_click", 1, region.x1, region.y1})
+        T.equal(coordinator:viewModel().ui.mode, "quantity")
+        -- CC:Tweaked fires a "key" event, then a "char" event, for the same physical keypress.
+        coordinator:handle({"key", keys.s})
+        T.equal(coordinator:viewModel().ui.mode, "search")
+        coordinator:handle({"char", "s"})
+        T.equal(coordinator:viewModel().ui.query, "")
+    end},
     {name="a coordinator without alerts still exposes hit regions", run=function()
         local d = baseDeps()
         local coordinator = Coordinator.new(d)

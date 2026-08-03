@@ -44,6 +44,18 @@ return {
         T.equal(nextState.mode,"search")
         T.contains(nextState.notice,"20")
     end },
+    { name = "REQUEST from a quantity hotkey suppresses the matching char event", run = function()
+        local ui=UI.new(T.recordingSurface(51,19))
+        local state=UI.initialState()
+        state.results={result("stone","Stone",20)}; state.result_count=1
+        state=ui:reduce(state,{type="OPEN_QUANTITY"})
+        state=ui:reduce(state,{type="REQUEST",quantity="stack",char="s"})
+        T.equal(state.mode,"search")
+        T.equal(state.suppress_char,"s")
+        state=ui:reduce(state,{type="CONSUME_CHAR",text="s"})
+        T.equal(state.query,"")
+        T.equal(state.suppress_char,nil)
+    end },
     { name = "UI reducer supports exact typed quantities", run = function()
         local ui=UI.new(T.recordingSurface(51,19))
         local state=UI.initialState()

@@ -18,8 +18,10 @@ return {
     end },
     { name = "quantity shortcuts support one stack all and exact digits", run = function()
         T.equal(Keymap.command({"key",keys.enter},{mode="quantity",quantity_text=""}).quantity,"one")
-        T.equal(Keymap.command({"key",keys.s},{mode="quantity"}).quantity,"stack")
-        T.equal(Keymap.command({"key",keys.a},{mode="quantity"}).quantity,"all")
+        local stack=Keymap.command({"key",keys.s},{mode="quantity"})
+        T.equal(stack.quantity,"stack"); T.equal(stack.char,"s")
+        local all=Keymap.command({"key",keys.a},{mode="quantity"})
+        T.equal(all.quantity,"all"); T.equal(all.char,"a")
         local digit=Keymap.command({"char","7"},{mode="quantity"})
         T.equal(digit.type,"SET_QUANTITY")
         T.equal(digit.digit,"7")
