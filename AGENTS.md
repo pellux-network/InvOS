@@ -16,7 +16,7 @@ Operators drive recovery from the terminal: retry and cancel on the Requests pag
 - `controller/colossal/tests/` contains the host-runnable Lua suite and must never be deployed.
 - `controller/colossal/deployment_manifest.lua` is the exact runtime deployment allow-list.
 - `docs/operations.md` describes topology, setup, recovery, upgrades, and deployment safety.
-- `docs/superpowers/specs/` holds design specs; `2026-08-03-multi-identity-batching-design.md` is specified and not yet implemented.
+- `docs/superpowers/specs/` holds design specs; `2026-08-03-multi-identity-batching-design.md` is implemented and shipped.
 
 ## Live-server safety
 
@@ -37,8 +37,10 @@ Operators drive recovery from the terminal: retry and cancel on the Requests pag
 - Keep exactly one coordinator work loop capable of scanning or advancing automation. Peripheral calls may yield, so concurrent work loops can duplicate transfers.
 - Journal transfer intent before the inventory call. Never replay an uncertain or already-called transfer.
 - For reconciliation, aggregate exact-identity storage deltas are authoritative. A `pushItems` return value is diagnostic and must not override measured storage truth.
-- Because reconciliation measures an aggregate delta per identity, one baseline can cover several pushes of that identity. `Transfer:executeBatch` relies on this: preflight every source and destination before issuing anything, stop on an unknown call outcome and leave the journal at `CALLING`, and never replay the remaining steps. Distinct item identities are independent conserved quantities, which is what would make multi-identity batching sound.
-- Journal schemas 1, 2 and 3 must all keep validating, verifying and recovering. An upgrade must never orphan a journal that was in flight when the controller stopped.
+- Because reconciliation measures an aggregate delta per identity, one baseline can cover several pushes of that identity, and distinct identities are independent conserved quantities so one scan can serve a baseline for each. `Transfer:executeBatch` and `Transfer:executeMultiBatch` rely on this: preflight every source and destination before issuing anything, stop on an unknown call outcome and leave the journal at `CALLING`, and never replay the remaining steps. A negative delta for any identity blocks the whole batch rather than partially accepting it.
+- Every source in a batch is planned against the **same** storage snapshot, so a slot one plan claims must be reserved before the next source is planned, via the planner's `owned_slots` hook. Otherwise two item types both select the first empty slot. Keep the `DESTINATION_COLLISION` check as well: it is what caught this on the first live mixed drop-off, before anything was issued.
+- Journal schemas 1, 2, 3 and 4 must all keep validating, verifying and recovering. An upgrade must never orphan a journal that was in flight when the controller stopped.
+- Batching is bounded by two limits with different jobs: `slot_batch_limit` caps how many Drop-off slots join one cycle, `batch_limit` caps the moves issued in it and therefore how much a single ambiguous window can span. Raise either only with a live measurement, and ship a behaviour-preserving value first when the code path underneath is new.
 - A zero-movement or ambiguous operation must settle into an explicit blocked or recovery state rather than retrying from unrelated background scan generations. `SHORT_TRANSFER` and `PICKUP_FULL` therefore wait for explicit operator retry: `generation` increments on every completed node scan, so it is never evidence that the relevant inventory changed.
 - A change observed before any inventory call is not ambiguous, because nothing was issued. Abandon the stale attempt and rediscover rather than entering a terminal state.
 - Learned item metadata is a re-learnable cache. Persist display names and stack limits only; never persist quantities, slots, or node contents, and always boot successfully when the cache is missing or invalid.
@@ -58,6 +60,8 @@ Operators drive recovery from the terminal: retry and cancel on the Requests pag
 - Host Lua is 5.4; CC:Tweaked runs Lua 5.2. A green host suite does not prove CC compatibility, so avoid host-only syntax and treat version-sensitive semantics with suspicion.
 - Before committing or merging runtime changes, run the complete suite with `lua colossal/tests/run.lua` and run `git diff --check`. Check the interpreter's exit code; piping the run through `grep` masks a failing suite.
 - Size any performance work against the live installation before optimising. A benchmark built on assumed scale, or on fakes where peripheral calls return instantly, will point at the wrong bottleneck.
+- A gate cycle costs roughly the same whether it carries one item or hundreds, so throughput work belongs in reducing the number of cycles, not the cost of each. Compare time per unit of work moved, never seconds per cycle: a change that amortises fixed overhead correctly makes each cycle slower.
+- When a design argues that some bad state cannot arise, still assert it. The claim that batched plans could never target the same slot was wrong, and the guard written against it turned a silent double-fill into a clean named failure before anything was issued.
 - When several independent changes are parallelised across agents, assign strict per-file ownership so the branches merge cleanly, and review returned work against the code rather than trusting the report.
 - Test changes must cover conservation of items, one-call transfer behavior, restart recovery, responsive input, renderer bounds, and live failure reproductions when relevant.
 - Host tests and repository development must not read from or write to live Minecraft inventories.
