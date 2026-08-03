@@ -42,6 +42,7 @@ local defaultModules = {
     "tests.test_status_refresh",
     "tests.test_transfer_generation",
     "tests.test_pickup_recovery",
+    "tests.test_transfer_rescan_race",
 }
 
 local modules = {}

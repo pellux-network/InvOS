@@ -361,6 +361,7 @@ function Coordinator:requestRescan(names)
             end
         end
     end
+    if self.activeScan and wanted[self.activeScan.node.id] then self.activeScan=nil end
     self.scanQueue = removeQueued(self.scanQueue, wanted)
     for index=#promoted,1,-1 do table.insert(self.scanQueue,1,promoted[index]) end
 end
