@@ -1,3 +1,4 @@
+local Alerts = require("app.alerts")
 local Coordinator = require("app.coordinator")
 local Keymap = require("app.keymap")
 local UI = require("app.ui")
@@ -129,5 +130,30 @@ return {
         local coordinator = Coordinator.new(d)
         coordinator:redraw()
         T.truthy(coordinator:viewModel().ui.hit_regions ~= nil)
+    end},
+    {name="repeated component failures coalesce into a single rising alert", run=function()
+        local d = baseDeps()
+        local scanner = {}
+        function scanner:begin(node) return {node=node} end
+        function scanner:step() error("chest disconnected") end
+        d.scanner = scanner
+        d.alerts = Alerts.new(function() return 100 end)
+        local coordinator = Coordinator.new(d)
+        coordinator:tick(1000); coordinator:tick(1001)
+        local active = coordinator:viewModel().alerts
+        T.equal(#active, 1)
+        T.equal(active[1].occurrences, 2)
+        T.equal(active[1].severity, "critical")
+    end},
+    {name="the notices list is capped so it cannot grow without bound", run=function()
+        local d = baseDeps()
+        local scanner = {}
+        function scanner:begin(node) return {node=node} end
+        function scanner:step() error("chest disconnected") end
+        d.scanner = scanner
+        local coordinator = Coordinator.new(d)
+        for tick = 1, 60 do coordinator:tick(1000 + tick) end
+        local notices = coordinator:viewModel().notices
+        T.truthy(#notices <= 50)
     end},
 }
