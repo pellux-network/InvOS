@@ -18,6 +18,8 @@ local defaultModules = {
     "tests.test_import_service",
     "tests.test_requests",
     "tests.test_service_recovery",
+    "tests.test_search",
+    "tests.test_keymap",
 }
 
 local modules = {}
