@@ -69,7 +69,7 @@ function Transfer:_inspect(name, slot)
     return observed
 end
 
-function Transfer:_preflight(step)
+function Transfer:_preflight(operation, step)
     local source, sourceReason = self:_inspect(step.source_name, step.source_slot)
     if not source then return nil, reason("SOURCE_UNAVAILABLE", sourceReason, false) end
     if source.identity_key ~= step.identity_key or source.count ~= step.source_pre_count or
@@ -88,7 +88,10 @@ function Transfer:_preflight(step)
     local identityMatches = step.destination_pre_count == 0 and
         (destination.identity_key == nil or destination.count == 0) or
         destination.identity_key == step.identity_key
-    if not identityMatches or destination.count ~= step.destination_pre_count then
+    local requestDestinationOk=operation.kind=="request" and
+        (destination.count==0 or destination.identity_key==step.identity_key)
+    if not requestDestinationOk and
+        (not identityMatches or destination.count ~= step.destination_pre_count) then
         return nil, reason("DESTINATION_CHANGED",
             "destination no longer matches the planned snapshot", false)
     end
@@ -129,7 +132,7 @@ function Transfer:execute(operation, step)
         type(step) ~= "table" then
         return failed("INVALID_OPERATION", "operation and transfer step are required", false)
     end
-    local ready, preflightReason = self:_preflight(step)
+    local ready, preflightReason = self:_preflight(operation, step)
     if not ready then
         return { state="FAILED", moved=0, reason=preflightReason,
             rescan={ step.source_name, step.destination_name } }

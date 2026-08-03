@@ -94,7 +94,7 @@ return {
     end },
     { name = "changed destination contents fail preflight", run = function()
         local transfer, _, inventory = makeTransfer(64)
-        inventory.observed["pickup:1"] = { identity_key=stone, count=3, generation=20 }
+        inventory.observed["pickup:1"] = { identity_key="minecraft:dirt\0-", count=3, generation=20 }
         local result = transfer:execute(operation(), step(64))
         T.equal(result.state, "FAILED")
         T.equal(result.reason.code, "DESTINATION_CHANGED")

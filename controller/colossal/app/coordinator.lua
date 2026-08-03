@@ -280,7 +280,7 @@ function Coordinator:_automationStep(now)
     if not selected or not selected[2] or type(selected[2].tick)~="function" then return end
     local ok,result=pcall(selected[2].tick,selected[2],self:_context(now))
     if not ok then self:_recordError(selected[1],result)
-    elseif type(result)=="table" and result.state=="VERIFYING" and result.rescan then
+    elseif type(result)=="table" and (result.state=="VERIFYING" or result.state=="BLOCKED") and result.rescan then
         self:_setVerificationGate(selected[1],result.rescan)
     end
 end

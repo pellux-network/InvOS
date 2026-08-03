@@ -123,6 +123,10 @@ function Requests:tick(context)
             request.pending_moved = result.moved
             request.rescan = copy(result.rescan)
             self:_state(request, "VERIFYING")
+        elseif result.reason and (result.reason.code=="SOURCE_CHANGED" or
+            result.reason.code=="DESTINATION_CHANGED") then
+            request.rescan=copy(result.rescan)
+            self:_block(request,context,result.reason)
         else
             request.reason = copy(result.reason)
             self:_state(request, "FAILED")
@@ -139,8 +143,9 @@ function Requests:tick(context)
         else
             request.delivered = request.delivered + result.moved
             request.moved = request.delivered
-            request.step, request.journal, request.pending_moved = nil, nil, nil
+            request.step, request.journal, request.pending_moved, request.rescan = nil, nil, nil, nil
             self.alerts:resolve("request_blocked:" .. request.id)
+            self.alerts:resolve("request_failed:" .. request.id)
             if request.cancel_requested then
                 self:_state(request, "PARTIAL")
                 self:_state(request, "CANCELLED")
