@@ -39,7 +39,7 @@ Operators drive recovery from the terminal: retry and cancel on the Requests pag
 - For reconciliation, aggregate exact-identity storage deltas are authoritative. A `pushItems` return value is diagnostic and must not override measured storage truth.
 - Because reconciliation measures an aggregate delta per identity, one baseline can cover several pushes of that identity. `Transfer:executeBatch` relies on this: preflight every source and destination before issuing anything, stop on an unknown call outcome and leave the journal at `CALLING`, and never replay the remaining steps. Distinct item identities are independent conserved quantities, which is what would make multi-identity batching sound.
 - Journal schemas 1, 2 and 3 must all keep validating, verifying and recovering. An upgrade must never orphan a journal that was in flight when the controller stopped.
-- A zero-movement result (`SHORT_TRANSFER`, `PICKUP_FULL`) waits for explicit operator retry by design and must not resume from background scan generations. `generation` increments on every completed node scan, so it is not evidence that the relevant inventory changed.
+- A zero-movement or ambiguous operation must settle into an explicit blocked or recovery state rather than retrying from unrelated background scan generations. `SHORT_TRANSFER` and `PICKUP_FULL` therefore wait for explicit operator retry: `generation` increments on every completed node scan, so it is never evidence that the relevant inventory changed.
 - A change observed before any inventory call is not ambiguous, because nothing was issued. Abandon the stale attempt and rediscover rather than entering a terminal state.
 - Learned item metadata is a re-learnable cache. Persist display names and stack limits only; never persist quantities, slots, or node contents, and always boot successfully when the cache is missing or invalid.
 - Retrieval verification depends on controlled Storage state, not mutable Pickup contents.
@@ -48,7 +48,6 @@ Operators drive recovery from the terminal: retry and cancel on the Requests pag
 - `inventory.list()` does not provide item stack limits. Drop-off scans must obtain and validate `getItemDetail(slot).maxCount` for the slot the importer will consume, which is the lowest occupied slot; detailing any other slot buys nothing. Large Storage scans must not add per-item detail calls.
 - `inventory.list()` returns only occupied slots, so scan cost is proportional to occupied slots, not inventory size. A mostly empty Colossal Chest scans quickly regardless of its slot count.
 - Every peripheral call yields for roughly one server tick, while pure Lua between yields is comparatively free. Optimise the number of peripheral calls and the number of work-loop ticks, not Lua loop bodies. Budget scan work by role: per-slot detail calls stay bounded, pure slot bookkeeping can absorb a bulk budget.
-- A zero-movement or ambiguous operation must settle into an explicit blocked/recovery state instead of retrying from unrelated background scan generations.
 - Keep input handling responsive: scans, transfers, rendering, and metadata enrichment must remain bounded cooperative work.
 
 ## Development and testing
