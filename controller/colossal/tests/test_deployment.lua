@@ -14,6 +14,8 @@ return {
         T.equal(seen["startup.lua"],true)
         T.equal(seen["colossal/main.lua"],true)
         T.equal(seen["colossal/deployment_manifest.lua"],true)
+        T.equal(seen["colossal/app/recovery.lua"],true)
+        T.equal(seen["colossal/core/reconciliation.lua"],true)
     end},
     {name="deployment policy rejects development artifacts",run=function()
         for _,path in ipairs({"README.md",".git/config","colossal/tests/run.lua",

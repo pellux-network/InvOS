@@ -138,9 +138,9 @@ end
 
 function Coordinator:_scanStep()
     if not self.configured then return false end
-    for name,service in pairs({imports=self.deps.imports,requests=self.deps.requests}) do
+    for name,service in pairs({recovery=self.deps.recovery,imports=self.deps.imports,requests=self.deps.requests}) do
         local state
-        if name=="imports" and service and type(service.status)=="function" then
+        if name~="requests" and service and type(service.status)=="function" then
             local value=service:status();state=value and value.state
         elseif name=="requests" and service and type(service.list)=="function" then
             for _,value in ipairs(service:list()) do
@@ -198,7 +198,7 @@ end
 
 local function serviceState(name,service)
     if not service then return "IDLE" end
-    if name=="imports" and type(service.status)=="function" then
+    if name~="requests" and type(service.status)=="function" then
         local value=service:status(); return value and value.state or "IDLE"
     end
     if name=="requests" and type(service.list)=="function" then
@@ -230,8 +230,11 @@ function Coordinator:_setVerificationGate(serviceName,names)
 end
 
 function Coordinator:_automationStep(now)
-    if self.paused or self.recovering or not self.configured then return end
-    local entries={{"imports",self.deps.imports},{"requests",self.deps.requests}}
+    if self.paused or self.recovering then return end
+    local recoveryState=serviceState("recovery",self.deps.recovery)
+    if not self.configured and (recoveryState=="IDLE" or recoveryState=="COMPLETE") then return end
+    local entries={{"recovery",self.deps.recovery},{"imports",self.deps.imports},
+        {"requests",self.deps.requests}}
     local selected
     if self.verificationGate then
         if not self:_gateReady() then return end
@@ -245,7 +248,10 @@ function Coordinator:_automationStep(now)
         if not selected then
             for offset=0,#entries-1 do
                 local index=((self.automationCursor+offset-1)%#entries)+1
-                if entries[index][2] and type(entries[index][2].tick)=="function" then
+                local name,service=entries[index][1],entries[index][2]
+                local state=serviceState(name,service)
+                if service and type(service.tick)=="function" and
+                    (name~="recovery" or state~="COMPLETE" and state~="IDLE") then
                     selected=entries[index];self.automationCursor=index%#entries+1;break
                 end
             end

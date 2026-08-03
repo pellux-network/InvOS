@@ -15,6 +15,7 @@ local defaultModules = {
     "tests.test_reconciliation",
     "tests.test_transfer",
     "tests.test_recovery",
+    "tests.test_recovery_service",
     "tests.test_alerts",
     "tests.test_import_service",
     "tests.test_requests",

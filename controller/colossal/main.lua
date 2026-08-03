@@ -8,12 +8,14 @@ local Keymap = require("app.keymap")
 local Lifecycle = require("app.lifecycle")
 local Monitor = require("app.monitor")
 local Requests = require("app.requests")
+local Recovery = require("app.recovery")
 local Search = require("app.search")
 local Setup = require("app.setup")
 local UI = require("app.ui")
 local Index = require("core.index")
 local InventoryAdapter = require("core.inventory_adapter")
 local Planner = require("core.planner")
+local Reconciliation = require("core.reconciliation")
 local Scanner = require("core.scanner")
 local Transfer = require("core.transfer")
 local Codec = require("shared.codec")
@@ -66,20 +68,6 @@ local function firstMonitor(peripheralApi)
     if ok and type(result)=="table" then return result end
 end
 
-local function observedFor(adapter,journal)
-    local step=journal and journal.step
-    if not step then return {} end
-    local function inspect(name,slot)
-        local ok,value=adapter:inspect(name,slot)
-        if ok then return value end
-        return {}
-    end
-    local observed={source=inspect(step.source_name,step.source_slot)}
-    if journal.operation.kind~="request" then
-        observed.destination=inspect(step.destination_name,step.destination_slot)
-    end
-    return observed
-end
 
 local function setupChoices(service,step)
     local discovered=service:discover()
@@ -128,6 +116,10 @@ function Main.build(environment)
     local store=Store.new(fsApi,Codec.new(env.textutils or textutils),root)
     local config,configReason=load(store,fsApi,root,"config",Setup.validateConfig,configDefault())
     local aliases,aliasReason=load(store,fsApi,root,"aliases",Setup.validateAliases,aliasesDefault())
+    local journal,journalReason
+    if existsEither(fsApi,root,"journal") then
+        journal,journalReason=store:recover("journal",Transfer.validateJournal)
+    end
 
     local alerts=Alerts.new(now)
     if configReason and config.configured==false then
@@ -153,7 +145,18 @@ function Main.build(environment)
         end
         return 0
     end)
-    local transfer=Transfer.new({store=store,adapter=adapter,clock=now})
+    local transfer=Transfer.new({store=store,adapter=adapter,clock=now,
+        reconciliation=Reconciliation})
+    local recovery
+    if journal then
+        recovery=Recovery.new({journal=journal,transfer=transfer,alerts=alerts})
+    elseif journalReason then
+        local retired,retireReason=transfer:retire()
+        alerts:set("journal_recovery","warning",
+            "Unreadable transfer journal was retired without replay: "..tostring(journalReason)..
+            (retired and "" or "; removal failed: "..tostring(retireReason)),
+            {code=retired and "INVALID_JOURNAL_RETIRED" or "JOURNAL_RETIRE_FAILED"})
+    end
     local imports=ImportService.new({planner=Planner,transfer=transfer,alerts=alerts,
         transition=Lifecycle.transition,clock=now})
     local requests=Requests.new({planner=Planner,transfer=transfer,alerts=alerts,
@@ -207,27 +210,13 @@ function Main.build(environment)
         configured=config.configured,ui=ui,keymap=Keymap,initial_ui=uiState,
         build_index=Index.build,search=Search.query,aliases=aliases.items,
         enrich_step=Index.enrichStep,registry=adapter,metadata_budget=1,scan_budget=32,
-        lifecycle=Lifecycle,imports=imports,requests=requests,alerts=alerts,
+        lifecycle=Lifecycle,recovery=recovery,imports=imports,requests=requests,alerts=alerts,
         monitor=Monitor,monitor_surface=monitorSurface,on_effect=onEffect,
         intervals={heartbeat=0.25}})
 
-    if existsEither(fsApi,root,"journal") then
-        local journal,reason=store:recover("journal",Transfer.validateJournal)
-        if not journal then
-            coordinator:setRecovering(true)
-            alerts:set("journal_recovery","critical","Transfer journal is unsafe: "..tostring(reason))
-        else
-            local result=transfer:recover(journal,observedFor(adapter,journal))
-            if result.state=="FAILED" then
-                coordinator:setRecovering(true)
-                alerts:set("journal_recovery","critical",result.reason.message,
-                    {code=result.reason.code,ambiguous=result.reason.ambiguous})
-            end
-        end
-    end
     if not config.configured then syncSetup(coordinator,setup,1) end
-    return coordinator,{store=store,setup=setup,transfer=transfer,imports=imports,
-        requests=requests,alerts=alerts,adapter=adapter}
+    return coordinator,{store=store,setup=setup,transfer=transfer,recovery=recovery,
+        imports=imports,requests=requests,alerts=alerts,adapter=adapter}
 end
 
 function Main.run(environment)

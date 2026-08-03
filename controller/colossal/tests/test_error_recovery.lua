@@ -40,14 +40,20 @@ return {
         coordinator:tick(2)
         T.equal(coordinator:viewModel().nodes[1].state,"READY")
     end},
-    {name="journal recovery blocks import and request automation",run=function()
-        local d=dependencies(); d.recovering=true
-        local coordinator=Coordinator.new(d); coordinator:tick(1)
+    {name="journal reconciliation runs first without freezing controller lifecycle",run=function()
+        local d=dependencies();local recoveryTicks=0
+        d.recovery={status=function()
+            return {state=recoveryTicks==0 and "VERIFYING" or "COMPLETE"}
+        end,tick=function()
+            recoveryTicks=recoveryTicks+1;return {state="COMPLETE"}
+        end}
+        local coordinator=Coordinator.new(d);coordinator:tick(1)
         local _,imports,requests=d.counts()
-        T.equal(imports,0); T.equal(requests,0)
-        T.equal(coordinator:viewModel().lifecycle,"RECOVERING")
-        coordinator:setRecovering(false); coordinator:tick(2); coordinator:tick(3)
-        _,imports,requests=d.counts(); T.equal(imports,1); T.equal(requests,1)
+        T.equal(recoveryTicks,1);T.equal(imports,0);T.equal(requests,0)
+        T.equal(coordinator:viewModel().recovering,false)
+        T.equal(coordinator:viewModel().lifecycle,"READY")
+        coordinator:tick(2);coordinator:tick(3)
+        _,imports,requests=d.counts();T.equal(imports,1);T.equal(requests,1)
     end},
     {name="metadata enrichment respects its per-step budget",run=function()
         local d=dependencies(); local coordinator=Coordinator.new(d)
