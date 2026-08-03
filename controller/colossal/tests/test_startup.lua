@@ -33,6 +33,20 @@ return {
         T.contains(printed[1], "error")
         T.contains(printed[1], "restarting")
     end },
+    { name = "backoff resets after a run that lasted a long time", run = function()
+        -- crash, crash, then a long healthy run, then crash again: the next wait must be
+        -- the fresh 1s rather than carrying the escalated delay from a month ago.
+        local elapsed = { 0, 0, 600, 0 }
+        local at = 0
+        local previousClock = os.clock
+        os.clock = function() return at end
+        local ok, calls, printed, slept = pcall(runStartup, {
+            run = function(n) at = at + (elapsed[n] or 0); return n > 4 end,
+        })
+        os.clock = previousClock
+        if not ok then error(calls, 0) end
+        T.arrayEqual(slept, { 1, 2, 1, 2 })
+    end },
     { name = "backoff escalates and caps at 30 seconds", run = function()
         local failures = 8
         local calls, printed, slept = runStartup({
