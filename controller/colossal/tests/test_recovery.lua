@@ -19,7 +19,6 @@ local function journal(phase, moved)
         step={
             id="request-1:1", phase=phase, source_name="store_a", source_slot=4,
             source_epoch=10, source_pre_count=64, destination_name="pickup",
-            destination_slot=1, destination_epoch=20, destination_pre_count=0,
             identity_key=stone, limit=64, actual_moved=moved or 0,
         },
         updated_at=100,
@@ -49,29 +48,26 @@ return {
         local value, _, pushCalls = transfer()
         local resolution = value:recover(journal("CALLING"), {
             source={ identity_key=stone, count=57 },
-            destination={ identity_key=stone, count=7 },
         })
         T.equal(resolution.state, "FAILED")
         T.equal(resolution.reason.code, "AMBIGUOUS_IN_FLIGHT")
         T.equal(resolution.observed.source.count, 57)
         T.equal(pushCalls(), 0)
     end },
-    { name = "called recovery verifies exact recorded movement", run = function()
+    { name = "called recovery verifies exact recorded source movement", run = function()
         local value, store, pushCalls = transfer()
         local resolution = value:recover(journal("CALLED", 17), {
             source={ identity_key=stone, count=47 },
-            destination={ identity_key=stone, count=17 },
         })
         T.equal(resolution.state, "COMPLETE")
         T.equal(resolution.moved, 17)
         T.equal(store:recover("journal", Transfer.validateJournal).step.phase, "VERIFIED")
         T.equal(pushCalls(), 0)
     end },
-    { name = "called recovery rejects mismatched observed counts", run = function()
+    { name = "called recovery rejects mismatched observed source counts", run = function()
         local value, _, pushCalls = transfer()
         local resolution = value:recover(journal("CALLED", 17), {
             source={ identity_key=stone, count=48 },
-            destination={ identity_key=stone, count=17 },
         })
         T.equal(resolution.state, "FAILED")
         T.equal(resolution.reason.code, "VERIFY_MISMATCH")

@@ -17,9 +17,15 @@ local function reason(code, message, ambiguous)
     return { code=code, message=tostring(message), ambiguous=ambiguous == true }
 end
 
-local function failed(code, message, ambiguous, step)
+local function rescanFor(operation, step)
+    if not step then return nil end
+    if operation and operation.kind == "request" then return { step.source_name } end
+    return { step.source_name, step.destination_name }
+end
+
+local function failed(code, message, ambiguous, operation, step)
     local result = { state="FAILED", moved=0, reason=reason(code, message, ambiguous) }
-    if step then result.rescan = { step.source_name, step.destination_name } end
+    result.rescan = rescanFor(operation, step)
     return result
 end
 
@@ -38,9 +44,13 @@ function Transfer.validateJournal(value)
         if type(step[field]) ~= "string" then return nil, "journal step " .. field .. " is invalid" end
     end
     local requiredNumbers = {
-        "source_slot", "source_epoch", "source_pre_count", "destination_slot",
-        "destination_epoch", "destination_pre_count", "limit", "actual_moved",
+        "source_slot", "source_epoch", "source_pre_count", "limit", "actual_moved",
     }
+    if value.operation.kind ~= "request" then
+        requiredNumbers[#requiredNumbers + 1] = "destination_slot"
+        requiredNumbers[#requiredNumbers + 1] = "destination_epoch"
+        requiredNumbers[#requiredNumbers + 1] = "destination_pre_count"
+    end
     for _, field in ipairs(requiredNumbers) do
         if type(step[field]) ~= "number" then return nil, "journal step " .. field .. " is invalid" end
     end
@@ -79,6 +89,7 @@ function Transfer:_preflight(operation, step)
             "/"..tostring(step.identity_key)..", count "..tostring(source.count)..
             "/"..tostring(step.source_pre_count), false)
     end
+    if operation.kind == "request" then return true end
 
     local destination, destinationReason = self:_inspect(
         step.destination_name, step.destination_slot)
@@ -88,10 +99,7 @@ function Transfer:_preflight(operation, step)
     local identityMatches = step.destination_pre_count == 0 and
         (destination.identity_key == nil or destination.count == 0) or
         destination.identity_key == step.identity_key
-    local requestDestinationOk=operation.kind=="request" and
-        (destination.count==0 or destination.identity_key==step.identity_key)
-    if not requestDestinationOk and
-        (not identityMatches or destination.count ~= step.destination_pre_count) then
+    if not identityMatches or destination.count ~= step.destination_pre_count then
         return nil, reason("DESTINATION_CHANGED",
             "destination no longer matches the planned snapshot", false)
     end
@@ -135,25 +143,27 @@ function Transfer:execute(operation, step)
     local ready, preflightReason = self:_preflight(operation, step)
     if not ready then
         return { state="FAILED", moved=0, reason=preflightReason,
-            rescan={ step.source_name, step.destination_name } }
+            rescan=rescanFor(operation, step) }
     end
 
     local journal = makeJournal(operation, step, self.clock())
     local saved, saveReason = self.store:write("journal", journal, Transfer.validateJournal)
-    if not saved then return failed("JOURNAL_WRITE", saveReason, false, step) end
+    if not saved then return failed("JOURNAL_WRITE", saveReason, false, operation, step) end
 
     journal.step.phase = "CALLING"
     journal.updated_at = self.clock()
     saved, saveReason = self.store:write("journal", journal, Transfer.validateJournal)
-    if not saved then return failed("JOURNAL_WRITE", saveReason, false, step) end
+    if not saved then return failed("JOURNAL_WRITE", saveReason, false, operation, step) end
 
+    local destinationSlot=operation.kind == "request" and nil or step.destination_slot
     local callOk, ok, moved = pcall(self.adapter.push, self.adapter,
         step.source_name, step.destination_name, step.source_slot, step.limit,
-        step.destination_slot)
-    if not callOk then return failed("TRANSFER_EXCEPTION", ok, true, step) end
-    if not ok then return failed("TRANSFER_EXCEPTION", moved, true, step) end
+        destinationSlot)
+    if not callOk then return failed("TRANSFER_EXCEPTION", ok, true, operation, step) end
+    if not ok then return failed("TRANSFER_EXCEPTION", moved, true, operation, step) end
     if type(moved) ~= "number" or moved % 1 ~= 0 or moved < 0 or moved > step.limit then
-        return failed("INVALID_MOVED_COUNT", "inventory returned " .. tostring(moved), true, step)
+        return failed("INVALID_MOVED_COUNT", "inventory returned " .. tostring(moved), true,
+            operation, step)
     end
 
     journal.step.phase = "CALLED"
@@ -161,27 +171,27 @@ function Transfer:execute(operation, step)
     journal.updated_at = self.clock()
     saved, saveReason = self.store:write("journal", journal, Transfer.validateJournal)
     if not saved then
-        return failed("JOURNAL_WRITE_AFTER_CALL", saveReason, true, step)
+        return failed("JOURNAL_WRITE_AFTER_CALL", saveReason, true, operation, step)
     end
     return {
         state = "VERIFYING",
         moved = moved,
         journal = copy(journal),
-        rescan = { step.source_name, step.destination_name },
+        rescan = rescanFor(operation, step),
     }
 end
 
 local function observedMatches(journal, observed)
-    if type(observed) ~= "table" or type(observed.source) ~= "table" or
-        type(observed.destination) ~= "table" then return false end
+    if type(observed) ~= "table" or type(observed.source) ~= "table" then return false end
     local step=journal.step
     local sourceExpected = step.source_pre_count - step.actual_moved
-    local destinationExpected = step.destination_pre_count + step.actual_moved
     local sourceIdentityOk = sourceExpected == 0 and
         (observed.source.identity_key == nil or observed.source.count == 0) or
         observed.source.identity_key == step.identity_key
     local sourceMatches=sourceIdentityOk and observed.source.count == sourceExpected
     if journal.operation.kind=="request" then return sourceMatches end
+    if type(observed.destination) ~= "table" then return false end
+    local destinationExpected = step.destination_pre_count + step.actual_moved
     local destinationIdentityOk = destinationExpected == 0 and
         (observed.destination.identity_key == nil or observed.destination.count == 0) or
         observed.destination.identity_key == step.identity_key
@@ -194,7 +204,7 @@ function Transfer:verify(journal, observed)
     if not valid then return failed("INVALID_JOURNAL", validationReason, false) end
     if journal.step.phase ~= "CALLED" then
         return failed("INVALID_VERIFY_PHASE", "journal step is not awaiting verification", false,
-            journal.step)
+            journal.operation, journal.step)
     end
     if not observedMatches(journal, observed) then
         local failedJournal = copy(journal)
@@ -202,9 +212,11 @@ function Transfer:verify(journal, observed)
         failedJournal.step.observed = copy(observed)
         failedJournal.updated_at = self.clock()
         self.store:write("journal", failedJournal, Transfer.validateJournal)
-        local result = failed("VERIFY_MISMATCH",
-            "observed source and destination counts do not conserve the recorded move",
-            false, journal.step)
+        local message=journal.operation.kind=="request" and
+            "observed source count does not match the recorded move" or
+            "observed source and destination counts do not conserve the recorded move"
+        local result = failed("VERIFY_MISMATCH", message, false,
+            journal.operation, journal.step)
         result.observed = copy(observed)
         return result
     end
@@ -213,7 +225,9 @@ function Transfer:verify(journal, observed)
     verified.step.phase = "VERIFIED"
     verified.updated_at = self.clock()
     local saved, saveReason = self.store:write("journal", verified, Transfer.validateJournal)
-    if not saved then return failed("JOURNAL_WRITE", saveReason, false, journal.step) end
+    if not saved then
+        return failed("JOURNAL_WRITE", saveReason, false, journal.operation, journal.step)
+    end
     return { state="COMPLETE", moved=verified.step.actual_moved, journal=verified }
 end
 
@@ -227,7 +241,7 @@ function Transfer:recover(journal, observed)
     if phase == "CALLING" then
         local result = failed("AMBIGUOUS_IN_FLIGHT",
             "the controller restarted while an inventory call may have been active",
-            true, journal.step)
+            true, journal.operation, journal.step)
         result.observed = copy(observed or {})
         return result
     end
@@ -240,7 +254,7 @@ function Transfer:recover(journal, observed)
         return self:verify(retry,observed)
     end
     return failed("JOURNALED_FAILURE", "journal records a failed transfer step", false,
-        journal.step)
+        journal.operation, journal.step)
 end
 
 return Transfer

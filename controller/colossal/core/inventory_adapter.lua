@@ -45,7 +45,12 @@ function Adapter:push(sourceName,destinationName,fromSlot,limit,toSlot)
     if type(source.pushItems)~="function" then
         return nil,"inventory "..tostring(sourceName).." cannot push items"
     end
-    local ok,moved=pcall(source.pushItems,destinationName,fromSlot,limit,toSlot)
+    local ok,moved
+    if toSlot==nil then
+        ok,moved=pcall(source.pushItems,destinationName,fromSlot,limit)
+    else
+        ok,moved=pcall(source.pushItems,destinationName,fromSlot,limit,toSlot)
+    end
     if not ok then return nil,clean(moved) end
     if type(moved)~="number" then return nil,"pushItems returned "..type(moved) end
     return true,moved
