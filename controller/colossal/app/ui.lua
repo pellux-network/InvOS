@@ -96,7 +96,9 @@ function UI:reduce(current, command)
         state.scroll = math.min(state.scroll, state.selection)
     elseif kind == "QUERY_APPEND" then
         state.query = state.query .. tostring(command.text or "")
-        state.selection, state.scroll, state.notice = 1, 1, nil
+        state.selection, state.scroll, state.notice, state.suppress_char = 1, 1, nil, nil
+    elseif kind == "CONSUME_CHAR" then
+        state.suppress_char = nil
     elseif kind == "QUERY_BACKSPACE" then
         state.query = state.query:sub(1, math.max(0, #state.query - 1))
         state.selection, state.scroll, state.notice = 1, 1, nil
@@ -168,7 +170,7 @@ function UI:reduce(current, command)
     elseif kind == "OPEN_PAGE" then
         state.page = command.page
         state.mode = command.page == "search" and "search" or "page"
-        state.notice = nil
+        state.notice, state.suppress_char = nil, command.suppress_char
     end
     return state
 end
@@ -207,8 +209,11 @@ function UI:_search(state, model, hitRegions)
     fill(surface, 3, palette.black)
     surface.setTextColor(palette.cyan)
     writeClipped(surface, 2, 3, "> " .. state.query .. (state.mode == "search" and "_" or ""), width - 2)
-    local bodyTop, bodyBottom = 5, height - 3
-    local split = width >= 45 and math.floor(width * 0.62) or width
+    local bodyTop = 5
+    local wide = width >= 72
+    local summaryTop = height - 4
+    local bodyBottom = wide and height - 3 or summaryTop - 2
+    local split = wide and math.floor(width * 0.62) or width
     local visible = math.max(0, bodyBottom - bodyTop + 1)
     local results = model.search_results or state.results or {}
     if #results == 0 then
@@ -235,25 +240,30 @@ function UI:_search(state, model, hitRegions)
                     command={type="ACTIVATE",index=index}}
             end
         end
-        if split < width then
-            local selected = results[state.selection]
-            if selected then
-                surface.setTextColor(palette.cyan)
-                writeClipped(surface, split + 2, bodyTop,
-                    selected.display_name or selected.name, width - split - 2)
-                surface.setTextColor(palette.lightGray)
-                writeClipped(surface, split + 2, bodyTop + 2, selected.name, width - split - 2)
-                writeClipped(surface, split + 2, bodyTop + 4,
-                    formatNumber(selected.quantity) .. " available", width - split - 2)
-                local variantCount = #(selected.variants or {})
-                if variantCount > 1 then
-                    writeClipped(surface, split + 2, bodyTop + 5,
-                        variantCount .. " exact variants", width - split - 2)
-                end
-                surface.setTextColor(palette.white)
-                writeClipped(surface, split + 2, math.min(bodyBottom, bodyTop + 7),
-                    "Enter to retrieve", width - split - 2)
+        local selected = results[state.selection]
+        if wide and selected then
+            surface.setTextColor(palette.cyan)
+            writeClipped(surface, split + 2, bodyTop,
+                selected.display_name or selected.name, width - split - 2)
+            surface.setTextColor(palette.lightGray)
+            writeClipped(surface, split + 2, bodyTop + 2, selected.name, width - split - 2)
+            writeClipped(surface, split + 2, bodyTop + 4,
+                formatNumber(selected.quantity) .. " available", width - split - 2)
+            local variantCount = #(selected.variants or {})
+            if variantCount > 1 then
+                writeClipped(surface, split + 2, bodyTop + 5,
+                    variantCount .. " exact variants", width - split - 2)
             end
+            surface.setTextColor(palette.white)
+            writeClipped(surface, split + 2, math.min(bodyBottom, bodyTop + 7),
+                "Enter to retrieve", width - split - 2)
+        elseif selected and summaryTop > bodyTop then
+            surface.setTextColor(palette.cyan)
+            local summary="Selected: "..tostring(selected.display_name or selected.name)..
+                "  |  "..formatNumber(selected.quantity).." available"
+            writeClipped(surface,2,summaryTop,summary,width-3)
+            surface.setTextColor(palette.white)
+            writeClipped(surface,2,summaryTop+1,"Enter to retrieve",width-3)
         end
     end
 end

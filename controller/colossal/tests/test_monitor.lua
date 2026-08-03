@@ -55,4 +55,18 @@ return {
         T.contains(surface.allText(),"Pickup is full")
         T.equal(surface.writesOutsideBounds(),0)
     end },
+    { name = "large monitor has clean columns and physical chest markers", run = function()
+        local model=view(); model.active_request=nil
+        model.nodes={{label=string.rep("X",48),state="READY"}}
+        local surface=T.recordingSurface(58,18)
+        Monitor.render(surface,model)
+        T.contains(surface.line(17),"DROP-OFF")
+        T.contains(surface.line(17),"PICKUP")
+        T.truthy(surface.line(18):match("v.*v"))
+        T.equal(surface.backgroundAt(2,3),32768)
+        local activityX=math.max(30,math.floor(58*0.56))
+        T.equal(surface.line(8):sub(activityX):find("READY",1,true),nil)
+        T.contains(surface.line(8):sub(activityX),"No active request")
+        T.equal(surface.writesOutsideBounds(),0)
+    end },
 }

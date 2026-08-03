@@ -51,4 +51,14 @@ return {
         T.equal(Keymap.command({"key",keys.enter},{mode="variant"}).type,"ACTIVATE")
         T.equal(Keymap.command({"key",keys.f10},{mode="variant"}).type,"CANCEL")
     end },
+    { name = "number tab shortcuts suppress only their paired character", run = function()
+        local open=Keymap.command({"key",keys.one},{mode="search",query=""})
+        T.equal(open.type,"OPEN_PAGE")
+        T.equal(open.suppress_char,"1")
+        local consume=Keymap.command({"char","1"},{mode="search",query="",suppress_char="1"})
+        T.equal(consume.type,"CONSUME_CHAR")
+        local tab=Keymap.command({"key",keys.two},{mode="search",query="mod"})
+        T.equal(tab and tab.page,"storage")
+        T.equal(Keymap.command({"char","1"},{mode="search",query="mod"}).text,"1")
+    end },
 }

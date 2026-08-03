@@ -89,13 +89,13 @@ function M.memoryFs(initial)
 end
 
 function M.recordingSurface(width, height)
-    local cells, cursorX, cursorY = {}, 1, 1
-    local outside = 0
-    for y = 1, height do cells[y] = {} end
+    local cells, backgrounds, cursorX, cursorY = {}, {}, 1, 1
+    local outside, background = 0, 32768
+    for y = 1, height do cells[y], backgrounds[y] = {}, {} end
     local surface = {}
     function surface.getSize() return width, height end
     function surface.clear()
-        for y = 1, height do cells[y] = {} end
+        for y = 1, height do cells[y], backgrounds[y] = {}, {} end
         cursorX, cursorY = 1, 1
     end
     function surface.setCursorPos(x, y)
@@ -105,7 +105,7 @@ function M.recordingSurface(width, height)
     function surface.getCursorPos() return cursorX, cursorY end
     function surface.setCursorBlink(_) end
     function surface.setTextColor(_) end
-    function surface.setBackgroundColor(_) end
+    function surface.setBackgroundColor(value) background=value end
     function surface.setTextScale(_) end
     function surface.write(value)
         value = tostring(value)
@@ -113,7 +113,10 @@ function M.recordingSurface(width, height)
             outside = outside + 1
             return
         end
-        for index = 1, #value do cells[cursorY][cursorX + index - 1] = value:sub(index, index) end
+        for index = 1, #value do
+            cells[cursorY][cursorX + index - 1] = value:sub(index, index)
+            backgrounds[cursorY][cursorX + index - 1] = background
+        end
         cursorX = cursorX + #value
     end
     function surface.line(y)
@@ -126,6 +129,7 @@ function M.recordingSurface(width, height)
         for y = 1, height do lines[y] = surface.line(y) end
         return table.concat(lines, "\n")
     end
+    function surface.backgroundAt(x,y) return backgrounds[y] and backgrounds[y][x] end
     function surface.writesOutsideBounds() return outside end
     return surface
 end

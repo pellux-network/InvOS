@@ -27,6 +27,9 @@ function M.command(event, state)
     end
     if name == "char" then
         local character = tostring(event[2] or "")
+        if state.suppress_char == character then
+            return {type="CONSUME_CHAR",text=character}
+        end
         if state.mode == "search" then return {type="QUERY_APPEND",text=character} end
         if state.mode == "quantity" and character:match("^%d$") then
             return {type="SET_QUANTITY",digit=character}
@@ -49,13 +52,15 @@ function M.command(event, state)
     if key == keys.f10 and state.mode ~= "search" then return {type="CANCEL"} end
 
     if state.mode ~= "quantity" and state.mode ~= "variant" then
-        local pages = {}
-        if keys.one then pages[keys.one]="search" end
-        if keys.two then pages[keys.two]="storage" end
-        if keys.three then pages[keys.three]="requests" end
-        if keys.four then pages[keys.four]="alerts" end
-        if keys.five then pages[keys.five]="setup" end
-        if pages[key] then return {type="OPEN_PAGE",page=pages[key]} end
+        local pages, digits = {}, {}
+        if keys.one then pages[keys.one],digits[keys.one]="search","1" end
+        if keys.two then pages[keys.two],digits[keys.two]="storage","2" end
+        if keys.three then pages[keys.three],digits[keys.three]="requests","3" end
+        if keys.four then pages[keys.four],digits[keys.four]="alerts","4" end
+        if keys.five then pages[keys.five],digits[keys.five]="setup","5" end
+        if pages[key] then
+            return {type="OPEN_PAGE",page=pages[key],suppress_char=digits[key]}
+        end
     end
     if state.mode == "page" and state.page == "setup" and key == keys.enter then
         return {type="OPEN_SETUP"}

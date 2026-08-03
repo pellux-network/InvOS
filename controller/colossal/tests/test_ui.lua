@@ -67,4 +67,15 @@ return {
         state=ui:reduce(state,{type="SYNC_RESULTS",results={result("a","A",1),result("b","B",1)}})
         T.equal(state.selection,2)
     end },
+    { name = "UI consumes a page shortcut character exactly once", run = function()
+        local ui=UI.new(T.recordingSurface(51,19))
+        local state=UI.initialState()
+        state=ui:reduce(state,{type="OPEN_PAGE",page="search",suppress_char="1"})
+        T.equal(state.suppress_char,"1")
+        state=ui:reduce(state,{type="CONSUME_CHAR",text="1"})
+        T.equal(state.query,"")
+        T.equal(state.suppress_char,nil)
+        state=ui:reduce(state,{type="QUERY_APPEND",text="1"})
+        T.equal(state.query,"1")
+    end },
 }

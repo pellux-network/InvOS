@@ -32,6 +32,26 @@ return {
         T.truthy(#layout.hit_regions >= 2)
         T.equal(surface.writesOutsideBounds(),0)
     end },
+    { name = "compact search uses a full-width list and selected summary", run = function()
+        local surface=T.recordingSurface(51,19)
+        local ui=UI.new(surface)
+        local state=UI.initialState(); state.results=results(); state.result_count=2
+        ui:render(state,view())
+        T.contains(surface.line(5),"Stone")
+        T.contains(surface.line(5),"1,248")
+        T.contains(surface.allText(),"Selected: Stone")
+        T.contains(surface.allText(),"Enter to retrieve")
+        T.equal(surface.allText():find("minecraft:stone",1,true),nil)
+        T.equal(surface.writesOutsideBounds(),0)
+    end },
+    { name = "wide search retains a separate identity detail panel", run = function()
+        local surface=T.recordingSurface(72,19)
+        local ui=UI.new(surface)
+        local state=UI.initialState(); state.results=results(); state.result_count=2
+        ui:render(state,view())
+        T.contains(surface.allText(),"minecraft:stone")
+        T.equal(surface.writesOutsideBounds(),0)
+    end },
     { name = "quantity overlay states the item availability and controls", run = function()
         local surface=T.recordingSurface(51,19)
         local ui=UI.new(surface)
