@@ -1,3 +1,5 @@
+local Identity = require("core.identity")
+local Index = require("core.index")
 local Search = require("app.search")
 local T = require("tests.mock_cc")
 
@@ -66,5 +68,20 @@ return {
         local result = Search.query(index(raw), "source_gem", {}, 8)[1]
         T.equal(result.name,"ars_nouveau:source_gem")
         T.equal(result.quantity,12)
+    end },
+    { name = "search reuses the index's precomputed groups instead of regrouping per query", run = function()
+        local built = Index.build({
+            { node_id="a", peripheral_name="inventory_a", epoch=1, health="READY", priority=1, slots={
+                [1] = {name="minecraft:stone", nbt=nil, count=64, identity_key=Identity.key("minecraft:stone", nil)},
+                [2] = {name="minecraft:dirt", nbt=nil, count=32, identity_key=Identity.key("minecraft:dirt", nil)},
+            } },
+        }, {})
+        local calls = 0
+        local original = built.items
+        built.items = function(...) calls = calls + 1; return original(...) end
+        Search.query(built, "stone", {}, 8)
+        Search.query(built, "sto", {}, 8)
+        Search.query(built, "", {}, 8)
+        T.equal(calls, 0, "search must not rebuild groups from items() when a cache is available")
     end },
 }

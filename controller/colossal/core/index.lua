@@ -27,6 +27,35 @@ local function itemLess(left, right)
     return left.key < right.key
 end
 
+-- Search groups items by registry name to collapse NBT variants under one entry.
+-- Computed once here, at build time, instead of once per keystroke in app/search.lua.
+local function buildGroups(ordered)
+    local byName, groupList = {}, {}
+    for _, aggregate in ipairs(ordered) do
+        local group = byName[aggregate.name]
+        if not group then
+            group = {
+                name = aggregate.name, display_name = aggregate.display_name or aggregate.name,
+                quantity = 0, variants = {}, request_count = 0, last_requested = 0,
+            }
+            byName[aggregate.name] = group
+            groupList[#groupList + 1] = group
+        end
+        local variant = {
+            identity_key = aggregate.key, name = aggregate.name, nbt = aggregate.nbt,
+            display_name = aggregate.display_name or aggregate.name, quantity = aggregate.quantity,
+            max_count = aggregate.max_count, aliases = copy(aggregate.aliases or {}),
+            request_count = 0, last_requested = 0,
+        }
+        group.variants[#group.variants + 1] = variant
+        group.quantity = group.quantity + (aggregate.quantity or 0)
+    end
+    for _, group in ipairs(groupList) do
+        if #group.variants == 1 then group.identity_key = group.variants[1].identity_key end
+    end
+    return groupList
+end
+
 function M.build(snapshots, metadata)
     local byIdentity = {}
     local metadataCopy = copy(metadata or {})
@@ -70,7 +99,7 @@ function M.build(snapshots, metadata)
     end
     table.sort(ordered, itemLess)
     return setmetatable({ _byIdentity = byIdentity, _ordered = ordered,
-        _metadata = metadataCopy }, Index)
+        _metadata = metadataCopy, _groups = buildGroups(ordered) }, Index)
 end
 
 function Index:quantity(identityKey)
@@ -81,6 +110,10 @@ end
 function Index:sources(identityKey)
     local aggregate = self._byIdentity[identityKey]
     return aggregate and copy(aggregate.sources) or {}
+end
+
+function Index:groups()
+    return copy(self._groups)
 end
 
 function Index:items()
@@ -154,6 +187,36 @@ function M.enrichStep(index, registry, budget, state)
         if state.cursor > #state.keys then state.done = true; break end
     end
     return state
+end
+
+-- The scanned inventory index is derived state and must never be persisted as
+-- authoritative stock truth (AGENTS.md). This validator guards the on-disk metadata
+-- cache so it can only ever hold learned display names and stack limits, never counts.
+local forbiddenFields = { "quantity", "count", "slot", "slots", "sources" }
+
+function M.validateMetadata(value)
+    if type(value) ~= "table" or value.schema ~= 1 or type(value.items) ~= "table" then
+        return nil, "metadata schema is invalid"
+    end
+    for key, details in pairs(value.items) do
+        if type(key) ~= "string" then return nil, "metadata keys must be identity strings" end
+        if type(details) ~= "table" then return nil, "metadata entry for " .. key .. " must be a table" end
+        for _, field in ipairs(forbiddenFields) do
+            if details[field] ~= nil then
+                return nil, "metadata entry for " .. key .. " must not carry " .. field
+            end
+        end
+        if type(details.display_name) ~= "string" or details.display_name == "" then
+            return nil, "metadata entry for " .. key .. " requires a display_name"
+        end
+        if type(details.max_count) ~= "number" or details.max_count < 1 or details.max_count % 1 ~= 0 then
+            return nil, "metadata entry for " .. key .. " requires a valid max_count"
+        end
+        if details.aliases ~= nil and type(details.aliases) ~= "table" then
+            return nil, "metadata entry for " .. key .. " aliases must be a table"
+        end
+    end
+    return true
 end
 
 return M

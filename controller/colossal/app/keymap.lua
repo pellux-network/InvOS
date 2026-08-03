@@ -49,7 +49,20 @@ function M.command(event, state)
         if key == keys.right then return {type="SETUP_NEXT"} end
         return nil
     end
+    -- A recovery release abandons proof of what an interrupted transfer moved, so once
+    -- armed, every key either confirms, re-arms, or cancels: nothing falls through to
+    -- ordinary page navigation while the destructive action is primed.
+    if state.mode == "page" and state.page == "alerts" and state.recovery_confirm_armed then
+        if key == keys.enter then return {type="CONFIRM_RECOVERY_RELEASE"} end
+        if key == keys.x then return {type="ARM_RECOVERY_RELEASE"} end
+        return {type="CANCEL_RECOVERY_RELEASE"}
+    end
+
     if key == keys.f10 and state.mode ~= "search" then return {type="CANCEL"} end
+
+    -- Pause is available everywhere except the search text box, where letter keys are
+    -- ordinary query characters.
+    if state.mode ~= "search" and key == keys.p then return {type="TOGGLE_PAUSE"} end
 
     if state.mode ~= "quantity" and state.mode ~= "variant" then
         local pages, digits = {}, {}
@@ -64,6 +77,19 @@ function M.command(event, state)
     end
     if state.mode == "page" and state.page == "setup" and key == keys.enter then
         return {type="OPEN_SETUP"}
+    end
+    if state.mode == "page" and (state.page == "storage" or state.page == "requests" or
+        state.page == "alerts") then
+        if key == keys.up then return {type="MOVE",delta=-1} end
+        if key == keys.down then return {type="MOVE",delta=1} end
+    end
+    if state.mode == "page" and state.page == "requests" then
+        if key == keys.r then return {type="RETRY_REQUEST"} end
+        if key == keys.c then return {type="CANCEL_REQUEST"} end
+    end
+    if state.mode == "page" and state.page == "alerts" then
+        if key == keys.a then return {type="ACKNOWLEDGE_ALERT"} end
+        if key == keys.x then return {type="ARM_RECOVERY_RELEASE"} end
     end
 
     if state.mode == "search" then

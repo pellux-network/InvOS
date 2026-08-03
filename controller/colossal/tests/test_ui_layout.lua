@@ -99,4 +99,75 @@ return {
         T.contains(surface.allText(),"Stone")
         T.equal(surface.writesOutsideBounds(),0)
     end },
+    { name = "storage page scrolls to reach nodes past the fold", run = function()
+        local surface=T.recordingSurface(51,19)
+        local ui=UI.new(surface)
+        local nodes={}
+        for index=1,20 do nodes[index]={label="Vault"..string.char(64+index),state="READY",
+            occupied=0,size=10} end
+        local model=view(); model.nodes=nodes
+        local state=UI.initialState(); state.page="storage"
+        ui:render(state,model)
+        T.equal(surface.allText():find("VaultT",1,true),nil)
+        T.equal(surface.writesOutsideBounds(),0)
+        state.storage_scroll=10
+        ui:render(state,model)
+        T.contains(surface.allText(),"VaultT")
+        T.equal(surface.writesOutsideBounds(),0)
+    end },
+    { name = "requests page highlights the selected request and scrolls past the fold", run = function()
+        local surface=T.recordingSurface(51,19)
+        local ui=UI.new(surface)
+        local requests={}
+        for index=1,20 do requests[index]={id="request-"..index,display_name="Item"..string.char(64+index),
+            state="QUEUED",delivered=0,requested=1} end
+        local model=view(); model.requests=requests
+        local state=UI.initialState(); state.page="requests"; state.request_selection=1
+        ui:render(state,model)
+        T.equal(surface.allText():find("ItemT",1,true),nil)
+        state.request_selection=20
+        ui:render(state,model)
+        T.contains(surface.allText(),"ItemT")
+        T.equal(surface.writesOutsideBounds(),0)
+    end },
+    { name = "alerts page highlights the selected alert and scrolls past the fold", run = function()
+        local surface=T.recordingSurface(51,19)
+        local ui=UI.new(surface)
+        local alerts={}
+        for index=1,20 do alerts[index]={key="alert-"..index,severity="warning",
+            message="Warning"..string.char(64+index),acknowledged=false} end
+        local model=view(); model.alerts=alerts
+        local state=UI.initialState(); state.page="alerts"; state.alert_selection=1
+        ui:render(state,model)
+        T.equal(surface.allText():find("WarningT",1,true),nil)
+        state.alert_selection=20
+        ui:render(state,model)
+        T.contains(surface.allText(),"WarningT")
+        T.equal(surface.writesOutsideBounds(),0)
+    end },
+    { name = "footer shows page specific operator control hints", run = function()
+        local surface=T.recordingSurface(51,19)
+        local ui=UI.new(surface)
+        local state=UI.initialState(); state.page,state.mode="requests","page"
+        ui:render(state,view())
+        T.contains(surface.line(18),"retry")
+        T.contains(surface.line(18),"cancel")
+        state=UI.initialState(); state.page,state.mode="alerts","page"
+        ui:render(state,view())
+        T.contains(surface.line(18),"acknowledge")
+        T.contains(surface.line(18),"release recovery")
+        state=UI.initialState(); state.page,state.mode="storage","page"
+        ui:render(state,view())
+        T.contains(surface.line(18),"scroll")
+        T.equal(surface.writesOutsideBounds(),0)
+    end },
+    { name = "arming recovery release states what proof is given up in the notice line", run = function()
+        local surface=T.recordingSurface(51,19)
+        local ui=UI.new(surface)
+        local state=UI.initialState(); state.page,state.mode="alerts","page"
+        state=ui:reduce(state,{type="ARM_RECOVERY_RELEASE"})
+        ui:render(state,view())
+        T.contains(surface.allText(),"proof")
+        T.equal(surface.writesOutsideBounds(),0)
+    end },
 }

@@ -10,7 +10,7 @@ local function planned(limit)
 end
 local function worker(outcomes)
     local value={execute_calls=0,verify_calls=0,retire_calls=0,cursor=1}
-    function value:execute(_,step,storage)
+    function value:executeBatch(_,step,storage)
         self.execute_calls=self.execute_calls+1;T.truthy(storage)
         return {state="VERIFYING",journal={step=step},rescan={"storage"},moved=99}
     end
@@ -42,6 +42,16 @@ local function advance(requests,ctx)
 end
 
 return {
+    {name="request display name prefers identity display_name over the raw name",run=function()
+        local requests=select(1,service({{plan={planned(1)},remainder=0}},{}))
+        local request=requests:create({key=stone,name="minecraft:stone",display_name="Stone"},1)
+        T.equal(request.display_name,"Stone")
+    end},
+    {name="request display name falls back to the identity name when no display name is set",run=function()
+        local requests=select(1,service({{plan={planned(1)},remainder=0}},{}))
+        local request=requests:create({key=stone,name="minecraft:stone"},1)
+        T.equal(request.display_name,"minecraft:stone")
+    end},
     {name="over-delivery credits measured stock delta once and never retries",run=function()
         local requests,transfer,alerts=service({{plan={planned(2)},remainder=0}},
             {{state="COMPLETE",moved=3,reported_moved=1}})

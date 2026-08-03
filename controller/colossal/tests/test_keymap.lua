@@ -1,6 +1,7 @@
 keys = {
     backspace=14, up=200, down=208, enter=28, s=31, a=30, f10=68,
     escape=1, one=2, two=3, three=4, four=5, five=6,
+    r=19, c=46, p=25, x=45,
 }
 
 local Keymap = require("app.keymap")
@@ -50,6 +51,42 @@ return {
         T.equal(Keymap.command({"key",keys.down},{mode="variant"}).delta,1)
         T.equal(Keymap.command({"key",keys.enter},{mode="variant"}).type,"ACTIVATE")
         T.equal(Keymap.command({"key",keys.f10},{mode="variant"}).type,"CANCEL")
+    end },
+    { name = "requests page supports selection movement, retry and cancel", run = function()
+        local state={mode="page",page="requests"}
+        T.equal(Keymap.command({"key",keys.up},state).delta,-1)
+        T.equal(Keymap.command({"key",keys.down},state).delta,1)
+        T.equal(Keymap.command({"key",keys.r},state).type,"RETRY_REQUEST")
+        T.equal(Keymap.command({"key",keys.c},state).type,"CANCEL_REQUEST")
+    end },
+    { name = "alerts page supports selection movement and acknowledgement", run = function()
+        local state={mode="page",page="alerts"}
+        T.equal(Keymap.command({"key",keys.up},state).delta,-1)
+        T.equal(Keymap.command({"key",keys.down},state).delta,1)
+        T.equal(Keymap.command({"key",keys.a},state).type,"ACKNOWLEDGE_ALERT")
+    end },
+    { name = "storage page scrolls but has no retry or acknowledge shortcuts", run = function()
+        local state={mode="page",page="storage"}
+        T.equal(Keymap.command({"key",keys.up},state).delta,-1)
+        T.equal(Keymap.command({"key",keys.down},state).delta,1)
+        T.equal(Keymap.command({"key",keys.r},state),nil)
+        T.equal(Keymap.command({"key",keys.a},state),nil)
+    end },
+    { name = "recovery release on the alerts page requires a deliberate two key confirm", run = function()
+        local state={mode="page",page="alerts"}
+        local armed=Keymap.command({"key",keys.x},state)
+        T.equal(armed.type,"ARM_RECOVERY_RELEASE")
+        local armedState={mode="page",page="alerts",recovery_confirm_armed=true}
+        T.equal(Keymap.command({"key",keys.x},armedState).type,"ARM_RECOVERY_RELEASE")
+        T.equal(Keymap.command({"key",keys.enter},armedState).type,"CONFIRM_RECOVERY_RELEASE")
+        T.equal(Keymap.command({"key",keys.up},armedState).type,"CANCEL_RECOVERY_RELEASE")
+        T.equal(Keymap.command({"key",keys.f10},armedState).type,"CANCEL_RECOVERY_RELEASE")
+        T.equal(Keymap.command({"key",keys.a},armedState).type,"CANCEL_RECOVERY_RELEASE")
+    end },
+    { name = "P toggles pause outside the search text box but never while typing", run = function()
+        T.equal(Keymap.command({"key",keys.p},{mode="page",page="requests"}).type,"TOGGLE_PAUSE")
+        T.equal(Keymap.command({"key",keys.p},{mode="quantity"}).type,"TOGGLE_PAUSE")
+        T.equal(Keymap.command({"key",keys.p},{mode="search"}),nil)
     end },
     { name = "number tab shortcuts suppress only their paired character", run = function()
         local open=Keymap.command({"key",keys.one},{mode="search",query=""})

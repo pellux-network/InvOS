@@ -76,6 +76,9 @@ local function variantScore(variant, group, query, aliases)
 end
 
 local function groups(index)
+    -- core/index.lua precomputes and caches this grouping once per index build.
+    -- Fall back to computing it here only for test doubles that lack the accessor.
+    if type(index.groups) == "function" then return index:groups() end
     local byName, ordered = {}, {}
     for _, item in ipairs(index:items()) do
         local group = byName[item.name]

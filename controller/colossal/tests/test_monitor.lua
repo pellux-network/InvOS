@@ -5,8 +5,15 @@ local function view()
     return {lifecycle="READY",total_items=98765,total_types=412,
         highest_alert=nil,dropoff={state="READY",occupied=2},pickup={state="READY",occupied=0},
         nodes={{label="Main Vault",state="READY"},{label="Archive",state="DEGRADED"}},
-        active_request={display_name="Stone",delivered=32,requested=64,state="TRANSFERRING"},
-        recent_transfers={{label="64 Stone to Pickup"},{label="12 Dirt imported"}}}
+        active_request={display_name="Stone",delivered=32,requested=64,state="TRANSFERRING"}}
+end
+
+local function countedSurface(width,height)
+    local surface=T.recordingSurface(width,height)
+    local calls=0
+    local original=surface.getSize
+    surface.getSize=function() calls=calls+1; return original() end
+    return surface,function() return calls end
 end
 
 return {
@@ -34,8 +41,7 @@ return {
         T.contains(surface.allText(),"> STORAGE >")
         T.contains(surface.allText(),"Main Vault")
         T.contains(surface.allText(),"Archive")
-        T.contains(surface.allText(),"RECENT MOVEMENT")
-        T.contains(surface.allText(),"64 Stone to Pickup")
+        T.equal(surface.allText():find("RECENT MOVEMENT",1,true),nil)
         T.equal(surface.writesOutsideBounds(),0)
     end },
     { name = "monitor redraw reads new dimensions after resize", run = function()
@@ -43,7 +49,7 @@ return {
         local large=T.recordingSurface(58,18)
         Monitor.render(small,view())
         Monitor.render(large,view())
-        T.contains(large.allText(),"RECENT MOVEMENT")
+        T.contains(large.allText(),"> STORAGE >")
         T.equal(small.writesOutsideBounds(),0)
         T.equal(large.writesOutsideBounds(),0)
     end },
@@ -68,5 +74,20 @@ return {
         T.equal(surface.line(8):sub(activityX):find("READY",1,true),nil)
         T.contains(surface.line(8):sub(activityX),"No active request")
         T.equal(surface.writesOutsideBounds(),0)
+    end },
+    { name = "large monitor frame looks up the surface size exactly once", run = function()
+        local surface,calls=countedSurface(58,18)
+        Monitor.render(surface,view())
+        T.equal(calls(),1)
+    end },
+    { name = "medium monitor frame looks up the surface size exactly once", run = function()
+        local surface,calls=countedSurface(34,11)
+        Monitor.render(surface,view())
+        T.equal(calls(),1)
+    end },
+    { name = "small monitor frame looks up the surface size exactly once", run = function()
+        local surface,calls=countedSurface(18,6)
+        Monitor.render(surface,view())
+        T.equal(calls(),1)
     end },
 }

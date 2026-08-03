@@ -105,4 +105,73 @@ return {
         T.equal(state.failures[1].retryable, true)
         T.equal(index:quantity(Identity.key("minecraft:dirt", nil)), 32)
     end },
+    { name = "index precomputes name groups once at build time", run = function()
+        local index = Index.build({ snapshot("a", "READY", 1, {
+            [1] = item("minecraft:potion", "healing", 3),
+            [2] = item("minecraft:potion", "strength", 5),
+            [3] = item("minecraft:stone", nil, 10),
+        }) }, {})
+        local groups = index:groups()
+        T.equal(#groups, 2)
+        local potionGroup
+        for _, group in ipairs(groups) do
+            if group.name == "minecraft:potion" then potionGroup = group end
+        end
+        T.truthy(potionGroup, "potion group must exist")
+        T.equal(potionGroup.quantity, 8)
+        T.equal(#potionGroup.variants, 2)
+        T.equal(potionGroup.identity_key, nil)
+    end },
+    { name = "index group accessor does not expose mutable cached truth", run = function()
+        local index = Index.build({ snapshot("a", "READY", 1,
+            { [1] = item("minecraft:stone", nil, 64) }) }, {})
+        local groups = index:groups()
+        groups[1].quantity = 999
+        groups[1].variants[1].quantity = 999
+        T.equal(index:groups()[1].quantity, 64)
+        T.equal(index:groups()[1].variants[1].quantity, 64)
+    end },
+    { name = "metadata validator accepts a well-formed cache payload", run = function()
+        local ok = Index.validateMetadata({schema=1, items={
+            ["minecraft:stone\0-"] = {display_name="Stone", max_count=64, aliases={"rock"}},
+        }})
+        T.equal(ok, true)
+    end },
+    { name = "metadata validator accepts an empty cache", run = function()
+        T.equal(Index.validateMetadata({schema=1, items={}}), true)
+    end },
+    { name = "metadata validator rejects the wrong schema shape", run = function()
+        T.fails(function()
+            local ok, reason = Index.validateMetadata({schema=2, items={}})
+            if not ok then error(reason) end
+        end)
+        T.fails(function()
+            local ok, reason = Index.validateMetadata({schema=1})
+            if not ok then error(reason) end
+        end)
+        T.fails(function()
+            local ok, reason = Index.validateMetadata("not a table")
+            if not ok then error(reason) end
+        end)
+    end },
+    { name = "metadata validator rejects entries missing display metadata", run = function()
+        local ok = Index.validateMetadata({schema=1, items={
+            ["minecraft:stone\0-"] = {max_count=64},
+        }})
+        T.equal(ok, nil)
+        local ok2 = Index.validateMetadata({schema=1, items={
+            ["minecraft:stone\0-"] = {display_name="Stone"},
+        }})
+        T.equal(ok2, nil)
+    end },
+    { name = "metadata validator rejects any payload carrying stock quantities", run = function()
+        local fields = {"quantity", "count", "slot", "slots", "sources"}
+        for _, field in ipairs(fields) do
+            local entry = {display_name="Stone", max_count=64}
+            entry[field] = 1
+            local ok, reason = Index.validateMetadata({schema=1, items={["minecraft:stone\0-"]=entry}})
+            T.equal(ok, nil, "must reject a " .. field .. " field")
+            T.truthy(reason, "must explain rejection of " .. field)
+        end
+    end },
 }

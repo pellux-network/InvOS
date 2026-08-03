@@ -23,6 +23,16 @@ local Store = require("shared.store")
 
 local Main = {}
 
+local function copy(value, seen)
+    if type(value) ~= "table" then return value end
+    seen = seen or {}
+    if seen[value] then return seen[value] end
+    local result = {}
+    seen[value] = result
+    for key, item in pairs(value) do result[copy(key, seen)] = copy(item, seen) end
+    return result
+end
+
 local function clock(osApi)
     return function()
         if type(osApi.epoch)=="function" then return osApi.epoch("utc") end
@@ -35,6 +45,26 @@ local function configDefault()
 end
 
 local function aliasesDefault() return {schema=1,items={}} end
+
+local function metadataDefault() return {schema=1,items={}} end
+
+-- Learned display names and stack limits are a re-learnable cache, never authoritative
+-- stock truth, so a missing or invalid cache must fall back quietly and re-learn.
+-- Writes are budgeted: only when the learned set actually grows, and coalesced so a
+-- burst of learning at boot does not hammer disk once per item every tick.
+local function metadataPersister(persistStore, validator, now)
+    local lastWrittenCount, lastWriteAt, minIntervalMs = 0, -math.huge, 5000
+    return function(state)
+        if type(state) ~= "table" or type(state.metadata) ~= "table" then return end
+        local count = 0
+        for _ in pairs(state.metadata) do count = count + 1 end
+        if count <= lastWrittenCount then return end
+        local nowMs = now()
+        if not state.done and (nowMs - lastWriteAt) < minIntervalMs then return end
+        local saved = persistStore:write("metadata", {schema=1, items=copy(state.metadata)}, validator)
+        if saved then lastWrittenCount, lastWriteAt = count, nowMs end
+    end
+end
 
 local function existsEither(fsApi,root,name)
     return fsApi.exists(fsApi.combine(root,name..".lua")) or
@@ -116,6 +146,9 @@ function Main.build(environment)
     local store=Store.new(fsApi,Codec.new(env.textutils or textutils),root)
     local config,configReason=load(store,fsApi,root,"config",Setup.validateConfig,configDefault())
     local aliases,aliasReason=load(store,fsApi,root,"aliases",Setup.validateAliases,aliasesDefault())
+    -- A missing or invalid metadata cache is never fatal: it just means every item
+    -- gets re-learned via getItemDetail as before, so no alert is raised for it.
+    local metadata=load(store,fsApi,root,"metadata",Index.validateMetadata,metadataDefault())
     local journal,journalReason
     if existsEither(fsApi,root,"journal") then
         journal,journalReason=store:recover("journal",Transfer.validateJournal)
@@ -140,10 +173,7 @@ function Main.build(environment)
     local coordinator
     local adapter=InventoryAdapter.new(peripheralApi,function(name)
         if not coordinator then return 0 end
-        for _,snapshot in pairs(coordinator:viewModel().snapshots or {}) do
-            if snapshot.peripheral_name==name then return snapshot.epoch end
-        end
-        return 0
+        return coordinator:epochFor(name)
     end)
     local transfer=Transfer.new({store=store,adapter=adapter,clock=now,
         reconciliation=Reconciliation})
@@ -213,10 +243,18 @@ function Main.build(environment)
         end
     end
 
+    local persistMetadata=metadataPersister(store,Index.validateMetadata,now)
+    local function enrichStep(index,registry,budget,state)
+        local nextState=Index.enrichStep(index,registry,budget,state)
+        persistMetadata(nextState)
+        return nextState
+    end
+
     coordinator=Coordinator.new({clock=now,scanner=scanner,nodes=nodesFrom(config),
         configured=config.configured,ui=ui,keymap=Keymap,initial_ui=uiState,
         build_index=Index.build,search=Search.query,aliases=aliases.items,
-        enrich_step=Index.enrichStep,registry=adapter,metadata_budget=1,scan_budget=32,
+        enrich_step=enrichStep,registry=adapter,metadata_budget=1,metadata=metadata.items,
+        scan_budget=512,dropoff_scan_budget=32,
         lifecycle=Lifecycle,recovery=recovery,imports=imports,requests=requests,alerts=alerts,
         monitor=Monitor,monitor_surface=monitorSurface,on_effect=onEffect,
         intervals={heartbeat=0.25}})

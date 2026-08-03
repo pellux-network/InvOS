@@ -34,6 +34,7 @@ local defaultModules = {
     "tests.test_inventory_adapter",
     "tests.test_coordinator",
     "tests.test_coordinator_transfers",
+    "tests.test_operator_controls",
     "tests.test_responsiveness",
     "tests.test_error_recovery",
     "tests.test_main",
@@ -48,6 +49,8 @@ local defaultModules = {
     "tests.test_node_capacity_view",
     "tests.test_pickup_preflight",
     "tests.test_request_replan",
+    "tests.test_hot_paths",
+    "tests.test_transfer_batch",
 }
 
 local modules = {}

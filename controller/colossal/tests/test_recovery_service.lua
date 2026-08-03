@@ -75,6 +75,35 @@ return {
         T.equal(result.state,"BLOCKED");T.equal(service:status().state,"BLOCKED")
         T.equal(retired,0);T.equal(notices.values[1].severity,"critical")
     end},
+    {name="operator can release a blocked recovery that cannot be proven",run=function()
+        local retired=0;local notices=alerts()
+        local transfer={recover=function() return {state="FAILED",moved=0,
+            reason={code="INVALID_JOURNAL",message="cannot prove"}} end,
+            retire=function() retired=retired+1;return true end}
+        local service=Recovery.new({journal={id="journal"},transfer=transfer,alerts=notices})
+        T.equal(service:tick({storage={}}).state,"BLOCKED")
+        T.equal(retired,0,"a blocked recovery keeps its journal for review")
+        local ok=service:resolve()
+        T.truthy(ok,"an operator must be able to release the block")
+        T.equal(retired,1,"releasing retires the unprovable journal")
+        T.equal(service:status().state,"COMPLETE")
+        T.equal(service:tick({storage={}}).state,"COMPLETE","automation stays released")
+        local last=notices.values[#notices.values]
+        T.equal(last.severity,"warning")
+        T.equal(last.details.code,"RECOVERY_RELEASED")
+    end},
+    {name="resolving an unblocked recovery is refused",run=function()
+        local notices=alerts()
+        local transfer={recover=function() return {state="WAITING",rescan={},
+            reason={code="STORAGE_SCOPE_INCOMPLETE",message="waiting"}} end,
+            retire=function() return true end}
+        local service=Recovery.new({journal={id="journal"},transfer=transfer,alerts=notices})
+        T.equal(service:tick({storage={}}).state,"VERIFYING")
+        local ok,reason=service:resolve()
+        T.equal(ok,nil,"only a blocked recovery may be released")
+        T.contains(reason,"not blocked")
+        T.equal(service:status().state,"VERIFYING")
+    end},
     {name="retirement failure alerts but does not freeze startup",run=function()
         local notices=alerts()
         local transfer={recover=function() return {state="DISCARD_SAFE",moved=0} end,

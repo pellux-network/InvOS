@@ -22,6 +22,7 @@ function Requests.new(deps)
         transition=assert(deps.transition, "transition function is required"),
         clock=assert(deps.clock, "request clock is required"),
         idGenerator=assert(deps.idGenerator, "request ID generator is required"),
+        batchLimit=deps.batch_limit or 8,
         counter=0, ordered={}, byId={},
     }, Requests)
 end
@@ -42,6 +43,7 @@ function Requests:create(identity, quantity)
     local request = {
         id=self.idGenerator(self.counter), kind="request", state="QUEUED",
         identity=copy(identity), requested=quantity, delivered=0, moved=0,
+        display_name=identity.display_name or identity.name,
         attempts=0, created_at=self.clock(), updated_at=self.clock(),
     }
     self.ordered[#self.ordered + 1] = request
@@ -112,12 +114,18 @@ function Requests:tick(context)
         if #plan == 0 then
             self:_block(request, context, planReason)
         else
-            request.step = copy(plan[1])
+            -- One gate cycle per batch instead of per step, bounded so a single ambiguous
+            -- window can never span an unbounded number of issued calls.
+            request.steps = {}
+            for index = 1, math.min(#plan, self.batchLimit) do
+                request.steps[index] = copy(plan[index])
+            end
+            request.step = request.steps[1]
             request.reason = nil
             self:_state(request, "TRANSFERRING")
         end
     elseif request.state == "TRANSFERRING" then
-        local result = self.transfer:execute(request, request.step, context.storage or {})
+        local result = self.transfer:executeBatch(request, request.steps, context.storage or {})
         if result.state == "VERIFYING" then
             request.journal = result.journal
             request.pending_moved = result.moved
@@ -152,7 +160,10 @@ function Requests:tick(context)
             self.alerts:set("request_failed:" .. request.id, "critical",
                 request.reason.message, {request_id=request.id,code=request.reason.code})
         else
-            local stepLimit=request.step.limit
+            local stepLimit=0
+            for _,planned in ipairs(request.steps or {request.step}) do
+                stepLimit=stepLimit+planned.limit
+            end
             request.delivered = request.delivered + result.moved
             request.moved = request.delivered
             request.reported_moved=result.reported_moved
@@ -162,7 +173,8 @@ function Requests:tick(context)
                     {code="OVER_DELIVERY",requested=stepLimit,measured=result.moved,
                         reported=result.reported_moved,request_id=request.id})
             end
-            request.step, request.journal, request.pending_moved, request.rescan = nil, nil, nil, nil
+            request.step, request.steps = nil, nil
+            request.journal, request.pending_moved, request.rescan = nil, nil, nil
             local callOk,retired,retireReason=pcall(self.transfer.retire,self.transfer)
             if not callOk then retired,retireReason=nil,retired end
             if not retired then self.alerts:set("journal_retire:"..request.id,"warning",

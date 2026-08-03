@@ -15,6 +15,8 @@ local function clean(reason)
     return tostring(reason or "unknown error"):gsub("[%c]+", " "):sub(1, 240)
 end
 
+local NOTICE_LIMIT = 50
+
 local function nodeView(node)
     return {
         id=node.id, role=node.role, label=node.label or node.id,
@@ -36,7 +38,8 @@ function Coordinator.new(deps)
     assert(type(deps.keymap) == "table", "keymap is required")
     local self = setmetatable({
         deps=deps, clock=assert(deps.clock, "clock is required"), scanner=deps.scanner,
-        ui=deps.ui, keymap=deps.keymap, scanBudget=deps.scan_budget or 32,
+        ui=deps.ui, keymap=deps.keymap, scanBudget=deps.scan_budget or 512,
+        dropoffScanBudget=deps.dropoff_scan_budget or 32,
         metadataBudget=deps.metadata_budget or 1, configured=deps.configured ~= false,
         recovering=deps.recovering == true, paused=deps.paused == true,
         uiState=copy(deps.initial_ui or {}), nodes={}, nodeById={},
@@ -62,11 +65,18 @@ end
 function Coordinator:_recordError(component, reason, node)
     local message = clean(reason)
     self.notices[#self.notices + 1] = {severity="error",component=component,message=message}
+    while #self.notices > NOTICE_LIMIT do table.remove(self.notices, 1) end
     if node then node.state, node.reason = "ERROR", message end
+    if self.deps.alerts and type(self.deps.alerts.set) == "function" then
+        pcall(self.deps.alerts.set, self.deps.alerts, "component_error:" .. tostring(component),
+            "critical", component .. " error: " .. message, {component=component})
+    end
     self.dirty = true
 end
 
-function Coordinator:_context(now)
+-- Lifecycle only needs role health counts. Building it without snapshot copies keeps
+-- the per-tick cost independent of how many slots the storage pool holds.
+function Coordinator:_statusContext(now)
     local ready, unhealthy = 0, 0
     local dropoffReady, pickupReady = false, false
     for _, node in ipairs(self.nodes) do
@@ -76,6 +86,16 @@ function Coordinator:_context(now)
             if node.role == "pickup" then pickupReady = true end
         elseif node.state ~= "DISABLED" and node.role == "storage" then unhealthy = unhealthy + 1 end
     end
+    return {
+        now=now, configured=self.configured, recovering=self.recovering, paused=self.paused,
+        initial_index_complete=self:_initialIndexComplete(), ready_storage=ready,
+        unhealthy_nodes=unhealthy, dropoff_ready=dropoffReady, pickup_ready=pickupReady,
+        generation=self.generation,
+    }
+end
+
+function Coordinator:_context(now)
+    local context = self:_statusContext(now)
     local storage = {}
     for _, node in ipairs(self.nodes) do
         if node.role == "storage" and node.state~="DISABLED" then
@@ -85,13 +105,18 @@ function Coordinator:_context(now)
             storage[#storage + 1]=snapshot
         end
     end
-    return {
-        now=now, configured=self.configured, recovering=self.recovering, paused=self.paused,
-        initial_index_complete=self:_initialIndexComplete(), ready_storage=ready,
-        unhealthy_nodes=unhealthy, dropoff_ready=dropoffReady, pickup_ready=pickupReady,
-        dropoff=self:_snapshotForRole("dropoff"), pickup=self:_snapshotForRole("pickup"),
-        storage=storage, index=self.index, generation=self.generation,
-    }
+    context.dropoff=self:_snapshotForRole("dropoff")
+    context.pickup=self:_snapshotForRole("pickup")
+    context.storage=storage
+    context.index=self.index
+    return context
+end
+
+function Coordinator:epochFor(peripheralName)
+    for _, snapshot in pairs(self.snapshots) do
+        if snapshot.peripheral_name == peripheralName then return snapshot.epoch or 0 end
+    end
+    return 0
 end
 
 function Coordinator:_snapshotForRole(role)
@@ -114,12 +139,26 @@ end
 function Coordinator:_refreshLifecycle(now)
     local derive = self.deps.lifecycle and self.deps.lifecycle.derive
     if derive then
-        local ok, state, reason = pcall(derive, self:_context(now or self.clock()))
+        local ok, state, reason = pcall(derive, self:_statusContext(now or self.clock()))
         if ok then self.lifecycle, self.lifecycleReason = state, reason
         else self.lifecycle, self.lifecycleReason = "ERROR", clean(state) end
     else
         self.lifecycle = self.configured and "INDEXING" or "SETUP_REQUIRED"
     end
+end
+
+-- A tall terminal has room for far more than 10 rows once the results list scrolls, and a
+-- fixed cap left nothing to scroll to. Derive a generous bound from the live surface height
+-- when one is available, and otherwise fall back to a bound well above the old default.
+function Coordinator:_defaultSearchLimit()
+    local surface = self.ui and self.ui.surface
+    if surface and type(surface.getSize) == "function" then
+        local ok, _, height = pcall(surface.getSize)
+        if ok and type(height) == "number" and height > 0 then
+            return math.max(50, height * 4)
+        end
+    end
+    return 50
 end
 
 function Coordinator:_rebuildIndex()
@@ -134,7 +173,7 @@ function Coordinator:_rebuildIndex()
     if ok then
         self.index, self.enrichment = result, nil
         local queryOk, results = pcall(self.deps.search, result, self.uiState.query or "",
-            self.deps.aliases or {}, self.deps.search_limit or 10)
+            self.deps.aliases or {}, self.deps.search_limit or self:_defaultSearchLimit())
         if queryOk then
             local reduced, effect = self.ui:reduce(self.uiState,
                 {type="SYNC_RESULTS",results=results or {}})
@@ -142,6 +181,13 @@ function Coordinator:_rebuildIndex()
             self:_dispatch(effect)
         else self:_recordError("search", results) end
     else self:_recordError("index", result) end
+end
+
+-- Drop-off scans call getItemDetail per occupied slot, so they stay peripheral bounded.
+-- Every other role is pure Lua slot bookkeeping and can absorb a bulk budget.
+function Coordinator:_budgetFor(node)
+    if node.role == "dropoff" then return self.dropoffScanBudget end
+    return self.scanBudget
 end
 
 function Coordinator:_scanStep()
@@ -175,7 +221,7 @@ function Coordinator:_scanStep()
     end
     local active = self.activeScan
     local ok, done, snapshot, reason = pcall(self.scanner.step, self.scanner,
-        active.state, self.scanBudget)
+        active.state, self:_budgetFor(active.node))
     if not ok then
         self:_recordError("scanner", done, active.node)
         self.activeScan = nil
@@ -328,6 +374,29 @@ function Coordinator:_dispatch(effect)
         local ok, reason = pcall(self.deps.requests.create, self.deps.requests,
             identity, effect.quantity)
         if not ok then self:_recordError("request", reason) end
+    elseif effect.type == "RETRY_REQUEST" and self.deps.requests then
+        local target = self.deps.requests.list and self.deps.requests:list()[effect.index]
+        if target then
+            local ok, reason = pcall(self.deps.requests.retry, self.deps.requests, target.id)
+            if not ok then self:_recordError("request", reason) end
+        end
+    elseif effect.type == "CANCEL_REQUEST" and self.deps.requests then
+        local target = self.deps.requests.list and self.deps.requests:list()[effect.index]
+        if target then
+            local ok, reason = pcall(self.deps.requests.cancel, self.deps.requests, target.id)
+            if not ok then self:_recordError("request", reason) end
+        end
+    elseif effect.type == "ACKNOWLEDGE_ALERT" and self.deps.alerts then
+        local target = self.deps.alerts.active and self.deps.alerts:active()[effect.index]
+        if target then
+            local ok, reason = pcall(self.deps.alerts.acknowledge, self.deps.alerts, target.key)
+            if not ok then self:_recordError("alert", reason) end
+        end
+    elseif effect.type == "RESOLVE_RECOVERY" and self.deps.recovery then
+        local ok, reason = pcall(self.deps.recovery.resolve, self.deps.recovery)
+        if not ok then self:_recordError("recovery", reason) end
+    elseif effect.type == "TOGGLE_PAUSE" then
+        if self.paused then self:resume() else self:pause() end
     elseif effect.type == "SETUP_COMMITTED" and effect.config then
         self:completeSetup(effect.config)
     elseif self.deps.on_effect then
@@ -436,10 +505,23 @@ function Coordinator:_nodeForRole(role)
     for _, node in ipairs(self.nodes) do if node.role==role then return copy(node) end end
 end
 
+function Coordinator:_syncPageCounts(model)
+    local requestsReduced = self.ui:reduce(self.uiState,
+        {type="SYNC_REQUESTS",count=#(model.requests or {})})
+    self.uiState = requestsReduced or self.uiState
+    local alertsReduced = self.ui:reduce(self.uiState,
+        {type="SYNC_ALERTS",count=#(model.alerts or {})})
+    self.uiState = alertsReduced or self.uiState
+end
+
 function Coordinator:redraw()
     local model=self:_model()
-    local ok, reason=pcall(self.ui.render,self.ui,self.uiState,model)
-    if not ok then self:_recordError("terminal",reason) end
+    self:_syncPageCounts(model)
+    local ok, result=pcall(self.ui.render,self.ui,self.uiState,model)
+    if not ok then self:_recordError("terminal",result)
+    elseif type(result) == "table" and result.hit_regions then
+        self.uiState.hit_regions = result.hit_regions
+    end
     if self.deps.monitor and self.deps.monitor_surface then
         local monitorOk, monitorReason=pcall(self.deps.monitor.render,self.deps.monitor_surface,model)
         if not monitorOk then self:_recordError("monitor",monitorReason) end

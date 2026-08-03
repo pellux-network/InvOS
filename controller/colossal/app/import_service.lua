@@ -27,6 +27,7 @@ function ImportService.new(deps)
         alerts=assert(deps.alerts, "alerts service is required"),
         transition=assert(deps.transition, "transition function is required"),
         clock=assert(deps.clock, "import clock is required"),
+        batchLimit=deps.batch_limit or 8,
         counter=0,
     }, ImportService)
 end
@@ -84,6 +85,21 @@ function ImportService:_discover(context)
     return true
 end
 
+-- A Drop-off change noticed before any inventory call is not ambiguous: nothing was
+-- issued, so there is nothing to prove. Abandon the stale attempt and let the next tick
+-- rediscover whatever the Drop-off holds now. Anything that happens after a call still
+-- settles into an explicit blocked or failed state awaiting operator retry.
+function ImportService:_abandon(code, message)
+    local previous = self.active
+    self.active = nil
+    self.abandoned = {code=code, message=message,
+        moved=previous and previous.moved or 0,
+        identity_key=previous and previous.source and previous.source.identity_key}
+    if previous and previous.source then
+        self.alerts:resolve("import_blocked:" .. previous.source.identity_key)
+    end
+end
+
 function ImportService:_block(context, reason)
     self.active.reason = copy(reason or {code="BLOCKED",message="Import is blocked",retryable=true})
     self.active.blocked_generation = context.generation
@@ -108,16 +124,14 @@ function ImportService:tick(context)
         local current=context.dropoff and context.dropoff.slots and
             context.dropoff.slots[active.source.slot]
         if not current or current.identity_key~=active.source.identity_key then
-            active.reason={code="SOURCE_CHANGED",message="Drop-off source changed before planning"}
-            self:_state("FAILED")
+            self:_abandon("SOURCE_CHANGED","Drop-off source changed before planning")
             return self:_event()
         end
         if active.moved==0 then
             active.source.count=current.count
             active.original_count=current.count
         elseif current.count~=active.source.count then
-            active.reason={code="SOURCE_CHANGED",message="Drop-off count changed before planning"}
-            self:_state("FAILED")
+            self:_abandon("SOURCE_CHANGED","Drop-off count changed before planning")
             return self:_event()
         end
         active.source.epoch=context.dropoff.epoch
@@ -128,12 +142,18 @@ function ImportService:tick(context)
         if #plan == 0 then
             self:_block(context, planReason)
         else
-            active.step = copy(plan[1])
+            -- One gate cycle per batch instead of per step. Capped so a single ambiguous
+            -- window can never span an unbounded number of issued calls.
+            active.steps = {}
+            for index = 1, math.min(#plan, self.batchLimit) do
+                active.steps[index] = copy(plan[index])
+            end
+            active.step = active.steps[1]
             active.reason = nil
             self:_state("TRANSFERRING")
         end
     elseif active.state == "TRANSFERRING" then
-        local result = self.transfer:execute(active, active.step, context.storage or {})
+        local result = self.transfer:executeBatch(active, active.steps, context.storage or {})
         if result.state == "VERIFYING" then
             active.journal = result.journal
             active.pending_moved = result.moved
@@ -168,7 +188,10 @@ function ImportService:tick(context)
             self.alerts:set("import_failed:" .. active.source.identity_key,
                 "critical", active.reason.message, {code=active.reason.code})
         else
-            local stepLimit=active.step.limit
+            local stepLimit=0
+            for _,planned in ipairs(active.steps or {active.step}) do
+                stepLimit=stepLimit+planned.limit
+            end
             active.moved = active.moved + result.moved
             active.reported_moved=result.reported_moved
             if result.moved>stepLimit then
@@ -177,7 +200,8 @@ function ImportService:tick(context)
                     {code="OVER_DELIVERY",requested=stepLimit,measured=result.moved,
                         reported=result.reported_moved,import_id=active.id})
             end
-            active.step,active.journal,active.pending_moved,active.rescan=nil,nil,nil,nil
+            active.step,active.steps=nil,nil
+            active.journal,active.pending_moved,active.rescan=nil,nil,nil
             local callOk,retired,retireReason=pcall(self.transfer.retire,self.transfer)
             if not callOk then retired,retireReason=nil,retired end
             if not retired then self.alerts:set("journal_retire:"..active.id,"warning",
@@ -199,8 +223,7 @@ function ImportService:tick(context)
         local current = context.dropoff and context.dropoff.slots and
             context.dropoff.slots[active.source.slot]
         if not current or current.identity_key ~= active.source.identity_key then
-            active.reason = {code="SOURCE_CHANGED",message="Drop-off source changed during import"}
-            self:_state("FAILED")
+            self:_abandon("SOURCE_CHANGED","Drop-off source changed during import")
         else
             active.source.count = current.count
             active.source.epoch = context.dropoff.epoch
