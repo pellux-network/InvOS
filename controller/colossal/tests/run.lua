@@ -1,0 +1,36 @@
+package.path = "colossal/?.lua;colossal/?/init.lua;" .. package.path
+
+local defaultModules = {
+    "tests.test_startup",
+    "tests.test_runtime",
+}
+
+local modules = {}
+if type(arg) == "table" and #arg > 0 then
+    for index = 1, #arg do modules[#modules + 1] = arg[index] end
+else
+    modules = defaultModules
+end
+
+local passed, failed = 0, 0
+for _, moduleName in ipairs(modules) do
+    local loaded, tests = pcall(require, moduleName)
+    if not loaded then
+        failed = failed + 1
+        print("FAIL " .. moduleName .. " load: " .. tostring(tests))
+    else
+        for _, test in ipairs(tests) do
+            local ok, reason = pcall(test.run)
+            if ok then
+                passed = passed + 1
+                print("PASS " .. test.name)
+            else
+                failed = failed + 1
+                print("FAIL " .. test.name .. ": " .. tostring(reason))
+            end
+        end
+    end
+end
+
+print(("RESULT %d passed, %d failed"):format(passed, failed))
+if failed > 0 then error("test suite failed", 0) end

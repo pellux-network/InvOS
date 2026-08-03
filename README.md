@@ -6,7 +6,7 @@ The controller indexes wired inventory peripherals, imports items from a dedicat
 
 ## Status
 
-Version 1 is in design. The approved design is documented in `docs/superpowers/specs/2026-08-02-colossal-storage-v1-design.md`.
+Version 1 is being implemented from the approved design in `docs/superpowers/specs/2026-08-02-colossal-storage-v1-design.md`.
 
 ## Scope
 
@@ -20,3 +20,13 @@ Version 1 is in design. The approved design is documented in `docs/superpowers/s
 - Configuration-and-alias backup
 
 Crafting and recipe storage are intentionally reserved for version 2.
+
+## Development
+
+The deployable controller lives under `controller/`. From that directory, run the Lua suite with:
+
+```text
+lua colossal/tests/run.lua
+```
+
+Tests and documentation are development artifacts and must never be copied to a live ComputerCraft computer.
