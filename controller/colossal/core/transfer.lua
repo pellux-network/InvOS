@@ -47,16 +47,19 @@ local function validateLegacy(value)
     if type(value.updated_at)~="number" then return nil,"journal timestamp is invalid" end
     return true
 end
-local function validateScope(step)
-    if not integer(step.storage_pre_count) or type(step.storage_node_ids)~="table" or
-        #step.storage_node_ids<1 then return nil,"journal storage baseline is invalid" end
+local function validateNodeScope(nodeIds)
+    if type(nodeIds)~="table" or #nodeIds<1 then return nil,"journal storage scope is invalid" end
     local prior,seen=nil,{}
-    for _,nodeId in ipairs(step.storage_node_ids) do
+    for _,nodeId in ipairs(nodeIds) do
         if type(nodeId)~="string" or nodeId=="" or seen[nodeId] or
             (prior and nodeId<prior) then return nil,"journal storage scope is invalid" end
         seen[nodeId],prior=true,nodeId
     end
     return true
+end
+local function validateScope(step)
+    if not integer(step.storage_pre_count) then return nil,"journal storage baseline is invalid" end
+    return validateNodeScope(step.storage_node_ids)
 end
 -- Schema 3 records one reconciliation baseline covering several pushes of a single exact
 -- identity. Reconciliation measures an aggregate storage delta, so it cannot tell one push
@@ -102,11 +105,78 @@ local function validateBatch(value)
     return true
 end
 
+-- Schema 4 carries one baseline per distinct identity over a shared node scope. Identities
+-- are sorted so validation is deterministic, and every step must name one of them.
+local function validateMultiBatch(value)
+    if not validateOperation(value.operation) then return nil,"journal operation is invalid" end
+    local batch=value.batch
+    if type(batch)~="table" or type(batch.id)~="string" or not phases[batch.phase] then
+        return nil,"journal batch is invalid"
+    end
+    if type(batch.identities)~="table" or #batch.identities<1 then
+        return nil,"journal batch requires at least one identity"
+    end
+    local totals,prior={},nil
+    for _,entry in ipairs(batch.identities) do
+        if type(entry)~="table" or type(entry.identity_key)~="string" or
+            entry.identity_key=="" then return nil,"journal batch identity is invalid" end
+        if totals[entry.identity_key] or (prior and entry.identity_key<prior) then
+            return nil,"journal batch identities must be unique and sorted"
+        end
+        if not integer(entry.storage_pre_count) or not integer(entry.limit_total,1) then
+            return nil,"journal batch identity baseline is invalid"
+        end
+        if entry.reported_total~=nil and not integer(entry.reported_total) then
+            return nil,"journal reported movement is invalid"
+        end
+        if batch.phase=="CALLED" and not integer(entry.reported_total) then
+            return nil,"called journal requires reported movement"
+        end
+        if batch.phase=="RECONCILED" and not integer(entry.actual_moved) then
+            return nil,"reconciled journal requires actual movement"
+        end
+        totals[entry.identity_key],prior=0,entry.identity_key
+    end
+    if type(batch.steps)~="table" or #batch.steps<1 then
+        return nil,"journal batch requires at least one step"
+    end
+    local claimed={}
+    for _,step in ipairs(batch.steps) do
+        if type(step)~="table" or type(step.identity_key)~="string" or
+            totals[step.identity_key]==nil then
+            return nil,"journal batch step names an unrecorded identity"
+        end
+        if type(step.source_name)~="string" or type(step.destination_name)~="string" or
+            not integer(step.source_slot,1) or not integer(step.limit,1) then
+            return nil,"journal batch step is invalid"
+        end
+        if value.operation.kind~="request" then
+            if not integer(step.destination_slot,1) or not integer(step.destination_pre_count) then
+                return nil,"journal batch step destination is invalid"
+            end
+            local key=step.destination_name.."\0"..step.destination_slot
+            if claimed[key] then return nil,"journal batch step destinations collide" end
+            claimed[key]=true
+        end
+        totals[step.identity_key]=totals[step.identity_key]+step.limit
+    end
+    for _,entry in ipairs(batch.identities) do
+        if totals[entry.identity_key]~=entry.limit_total then
+            return nil,"journal batch limit does not match its steps"
+        end
+    end
+    local scopeOk,scopeReason=validateNodeScope(batch.storage_node_ids)
+    if not scopeOk then return nil,scopeReason end
+    if type(value.updated_at)~="number" then return nil,"journal timestamp is invalid" end
+    return true
+end
+
 function Transfer.validateJournal(value)
     if type(value)~="table" then return nil,"journal is invalid" end
     if value.schema==1 then return validateLegacy(value) end
     if value.schema==3 then return validateBatch(value) end
-    if value.schema~=2 then return nil,"journal schema must be 1, 2 or 3" end
+    if value.schema==4 then return validateMultiBatch(value) end
+    if value.schema~=2 then return nil,"journal schema must be 1, 2, 3 or 4" end
     if not validateOperation(value.operation) then return nil,"journal operation is invalid" end
     local step=value.step
     if type(step)~="table" or type(step.id)~="string" or not phases[step.phase] then
@@ -182,11 +252,18 @@ local function makeJournal(operation,step,baseline,now)
         storage_node_ids=copyArray(baseline.node_ids)},updated_at=now}
 end
 local function record(journal)
-    return journal.schema==3 and journal.batch or journal.step
+    if journal.schema==3 or journal.schema==4 then return journal.batch end
+    return journal.step
 end
 local function reportedOf(journal)
     local value=record(journal)
-    return journal.schema==3 and value.reported_total or value.reported_moved
+    if journal.schema==4 then
+        local total=0
+        for _,entry in ipairs(value.identities) do total=total+(entry.reported_total or 0) end
+        return total
+    end
+    if journal.schema==3 then return value.reported_total end
+    return value.reported_moved
 end
 function Transfer:_write(journal,phase)
     record(journal).phase=phase;journal.updated_at=self.clock()
@@ -354,11 +431,181 @@ function Transfer:executeBatch(operation,steps,storageSnapshots)
     return {state="VERIFYING",moved=reported,journal=copy(journal),rescan=rescan}
 end
 
+local function identityGroups(steps)
+    local seen,order={},{}
+    for _,step in ipairs(steps) do
+        if not seen[step.identity_key] then
+            seen[step.identity_key]={identity_key=step.identity_key,total=0,steps={}}
+            order[#order+1]=seen[step.identity_key]
+        end
+        local group=seen[step.identity_key]
+        group.total=group.total+step.limit
+        group.steps[#group.steps+1]=step
+    end
+    return order,seen
+end
+
+function Transfer:_preflightMulti(operation,steps)
+    for _,group in ipairs(sourceGroups(steps)) do
+        local source,sourceReason=self:_inspect(group.name,group.slot)
+        if not source then return nil,reason("SOURCE_UNAVAILABLE",sourceReason,false) end
+        if source.identity_key~=group.identity_key or source.count<group.total then
+            return nil,reason("SOURCE_CHANGED","source no longer matches the planned snapshot",false)
+        end
+    end
+    if operation.kind=="request" then return true end
+    for _,step in ipairs(steps) do
+        local destination,destinationReason=self:_inspect(step.destination_name,step.destination_slot)
+        if not destination then return nil,reason("DESTINATION_UNAVAILABLE",destinationReason,false) end
+        local identityOk=step.destination_pre_count==0 and
+            (destination.identity_key==nil or destination.count==0) or
+            destination.identity_key==step.identity_key
+        if not identityOk or destination.count~=step.destination_pre_count then
+            return nil,reason("DESTINATION_CHANGED","destination no longer matches the planned snapshot",false)
+        end
+    end
+    return true
+end
+
+local function makeMultiJournal(operation,groups,baseline,steps,now)
+    local identities={}
+    for index,group in ipairs(groups) do
+        identities[index]={identity_key=group.identity_key,
+            storage_pre_count=baseline.totals[group.identity_key],limit_total=group.total}
+    end
+    table.sort(identities,function(left,right)
+        return left.identity_key<right.identity_key
+    end)
+    local recorded={}
+    for index,step in ipairs(steps) do
+        recorded[index]={identity_key=step.identity_key,source_name=step.source_name,
+            source_slot=step.source_slot,source_epoch=step.source_epoch,
+            destination_name=step.destination_name,destination_slot=step.destination_slot,
+            destination_epoch=step.destination_epoch,
+            destination_pre_count=step.destination_pre_count,limit=step.limit}
+    end
+    return {schema=4,operation={id=operation.id,kind=operation.kind,state=operation.state,
+        moved=operation.moved or 0},
+        batch={id=operation.id..":"..tostring(operation.next_step or 1),phase="INTENT",
+            identities=identities,steps=recorded,
+            storage_node_ids=copyArray(baseline.node_ids)},
+        updated_at=now}
+end
+
+function Transfer:executeMultiBatch(operation,steps,storageSnapshots)
+    if not validateOperation(operation) or type(steps)~="table" or #steps<1 then
+        return failed("INVALID_OPERATION","operation and at least one transfer step are required",false)
+    end
+    for _,step in ipairs(steps) do
+        if type(step)~="table" or type(step.identity_key)~="string" or step.identity_key=="" then
+            return failed("INVALID_OPERATION","every transfer step needs an exact identity",false)
+        end
+    end
+    -- Two plans may only ever claim an empty slot or a slot already holding their own
+    -- identity, so a shared destination means the plans were built from inconsistent
+    -- snapshots. Refuse before issuing anything rather than double-filling a slot.
+    if operation.kind~="request" then
+        local claimed={}
+        for _,step in ipairs(steps) do
+            local key=step.destination_name.."\0"..tostring(step.destination_slot)
+            if claimed[key] then
+                return failed("DESTINATION_COLLISION",
+                    "two planned steps target the same storage slot",false)
+            end
+            claimed[key]=true
+        end
+    end
+
+    local groups=identityGroups(steps)
+    local keys={}
+    for index,group in ipairs(groups) do keys[index]=group.identity_key end
+    local baseline,baselineReason=self.reconciliation.captureMany(keys,storageSnapshots)
+    if not baseline then return {state="FAILED",moved=0,reason=copy(baselineReason),
+        rescan=copyArray(baselineReason.rescan or {})} end
+    local ready,preflightReason=self:_preflightMulti(operation,steps)
+    if not ready then return {state="FAILED",moved=0,reason=preflightReason,
+        rescan=rescanForBatch(operation,steps,baseline.node_ids)} end
+
+    local journal=makeMultiJournal(operation,groups,baseline,steps,self.clock())
+    local rescan=rescanForBatch(operation,steps,baseline.node_ids)
+    local saved,saveReason=self:_write(journal,"INTENT")
+    if not saved then return failed("JOURNAL_WRITE",saveReason,false,baseline.node_ids) end
+    saved,saveReason=self:_write(journal,"CALLING")
+    if not saved then return failed("JOURNAL_WRITE",saveReason,false,baseline.node_ids) end
+
+    local reported,callReason={},nil
+    for _,key in ipairs(keys) do reported[key]=0 end
+    for _,step in ipairs(steps) do
+        local destinationSlot=operation.kind=="request" and nil or step.destination_slot
+        local callOk,ok,moved=pcall(self.adapter.push,self.adapter,step.source_name,
+            step.destination_name,step.source_slot,step.limit,destinationSlot)
+        if not callOk then callReason=reason("TRANSFER_EXCEPTION",ok,true);break end
+        if not ok then callReason=reason("TRANSFER_EXCEPTION",moved,true);break end
+        if not integer(moved) then
+            callReason=reason("INVALID_MOVED_COUNT","inventory returned "..tostring(moved),true);break
+        end
+        reported[step.identity_key]=reported[step.identity_key]+moved
+    end
+    local total=0
+    for _,value in pairs(reported) do total=total+value end
+    if callReason then
+        return {state="VERIFYING",moved=total,journal=copy(journal),reason=callReason,rescan=rescan}
+    end
+    for _,entry in ipairs(journal.batch.identities) do
+        entry.reported_total=reported[entry.identity_key]
+    end
+    saved,saveReason=self:_write(journal,"CALLED")
+    if not saved then return {state="VERIFYING",moved=total,journal=copy(journal),
+        reason=reason("JOURNAL_WRITE_AFTER_CALL",saveReason,true),rescan=rescan} end
+    return {state="VERIFYING",moved=total,journal=copy(journal),rescan=rescan}
+end
+
 local function baselineFor(journal)
     local value=record(journal)
     return {identity_key=value.identity_key,total=value.storage_pre_count,
         node_ids=copyArray(value.storage_node_ids)}
 end
+
+local function manyBaselineFor(journal)
+    local totals={}
+    for _,entry in ipairs(journal.batch.identities) do
+        totals[entry.identity_key]=entry.storage_pre_count
+    end
+    return {totals=totals,node_ids=copyArray(journal.batch.storage_node_ids)}
+end
+-- Every identity in the batch is proven separately against its own baseline. A negative
+-- delta anywhere means storage moved opposite the transfer, so the whole batch waits for a
+-- human rather than partially accepting a result nobody can explain.
+function Transfer:_verifyMulti(journal,storageSnapshots)
+    local result=self.reconciliation.measureMany(journal.operation.kind,
+        manyBaselineFor(journal),storageSnapshots)
+    if result.state=="WAITING" then return result end
+    if result.state~="READY" then
+        return failed(result.reason.code,result.reason.message,false,result.rescan)
+    end
+    for _,entry in ipairs(journal.batch.identities) do
+        if result.moved[entry.identity_key]<0 then
+            return {state="WAITING",moved=0,
+                reason=reason("RECONCILE_DIRECTION",
+                    "Storage total changed opposite the transfer direction; awaiting operator review",true),
+                rescan=copyArray(journal.batch.storage_node_ids)}
+        end
+    end
+    local reconciled=copy(journal)
+    local total=0
+    for _,entry in ipairs(reconciled.batch.identities) do
+        entry.actual_moved=result.moved[entry.identity_key]
+        total=total+entry.actual_moved
+    end
+    local saved,saveReason=self:_write(reconciled,"RECONCILED")
+    if not saved then return {state="WAITING",moved=total,
+        reason=reason("JOURNAL_WRITE",saveReason,true),
+        rescan=copyArray(journal.batch.storage_node_ids)} end
+    return {state="COMPLETE",moved=total,moved_by_identity=copy(result.moved),
+        reported_moved=reportedOf(reconciled),journal=reconciled,
+        before_total=result.before,after_total=result.after}
+end
+
 function Transfer:verify(journal,storageSnapshots)
     local valid,validationReason=Transfer.validateJournal(journal)
     if not valid then return failed("INVALID_JOURNAL",validationReason,false) end
@@ -372,6 +619,7 @@ function Transfer:verify(journal,storageSnapshots)
     if entry.phase~="CALLING" and entry.phase~="CALLED" then
         return failed("INVALID_VERIFY_PHASE","journal is not awaiting reconciliation",false)
     end
+    if journal.schema==4 then return self:_verifyMulti(journal,storageSnapshots) end
     local result=self.reconciliation.measure(journal.operation.kind,baselineFor(journal),storageSnapshots)
     if result.state=="WAITING" then return result end
     if result.state~="READY" then return failed(result.reason.code,result.reason.message,false,result.rescan) end

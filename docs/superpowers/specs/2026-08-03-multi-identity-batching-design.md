@@ -1,7 +1,12 @@
 # Multi-identity import batching (schema 4)
 
-Status: specified, not implemented. Builds directly on the schema 3 batch work in
-`perf/hot-paths` (`c95b67d`, `6ceb9be`).
+Status: implemented on `perf/multi-identity-batch`, shipped with `slot_batch_limit=1` so
+deployed behaviour matches single-slot importing until the limit is raised. Builds on the
+schema 3 batch work (`c95b67d`, `6ceb9be`).
+
+Head-of-line blocking, listed under "Import service" below, was deliberately left out of the
+first implementation so the batching change stayed reviewable on its own. A source whose plan
+comes back empty still blocks the batch rather than being deferred and skipped.
 
 ## Problem
 
@@ -118,10 +123,16 @@ Add `Transfer:executeMultiBatch(operation, steps, storageSnapshots)`:
 1. Group steps by `identity_key`, preserving first-seen order for deterministic preflight.
 2. `captureMany` over the distinct keys - one baseline set, one scan.
 3. Preflight: each distinct source slot once (identity match, `count >= sum of its limits`),
-   then every destination slot. All before any push. Planner destination slots are distinct
-   *within one plan*; across plans for different identities they are also distinct because
-   each plan only claims empty slots or slots already holding its own identity. Assert this
-   and fail `DESTINATION_COLLISION` if two steps target the same `(name, slot)`.
+   then every destination slot. All before any push. Assert distinct destinations and fail
+   `DESTINATION_COLLISION` if two steps target the same `(name, slot)`.
+
+   **Corrected 2026-08-03 after a live failure.** An earlier draft claimed destinations are
+   naturally distinct across plans because each plan only claims empty slots or slots holding
+   its own identity. That is false: every source is planned against the *same* storage
+   snapshot, so two different item types both select the first empty slot. The caller must
+   reserve each claimed slot before planning the next source, using the planner's existing
+   `owned_slots` hook. The collision check stays as defence in depth - it is what caught this
+   on the first live mixed drop-off.
 4. Write `INTENT`, then `CALLING`.
 5. Push every step in order. On an unknown outcome, stop and leave the journal at `CALLING`.
    Accumulate `reported_total` per identity.

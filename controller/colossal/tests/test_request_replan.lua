@@ -7,7 +7,7 @@ return {{name="changed storage source blocks for a source-only rescan",run=funct
     local planner={planRetrieval=function() return {{source_name="store",source_slot=1,
         source_epoch=1,source_pre_count=4,destination_name="pickup",
         identity_key="minecraft:stone\0-",limit=4}},0 end}
-    local transfer={executeBatch=function() return {state="FAILED",moved=0,
+    local transfer={executeMultiBatch=function() return {state="FAILED",moved=0,
         reason={code="SOURCE_CHANGED",message="Storage changed"},rescan={"store"}} end}
     local requests=Requests.new({planner=planner,transfer=transfer,
         alerts=Alerts.new(function() return 0 end),transition=Lifecycle.transition,

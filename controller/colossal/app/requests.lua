@@ -125,7 +125,7 @@ function Requests:tick(context)
             self:_state(request, "TRANSFERRING")
         end
     elseif request.state == "TRANSFERRING" then
-        local result = self.transfer:executeBatch(request, request.steps, context.storage or {})
+        local result = self.transfer:executeMultiBatch(request, request.steps, context.storage or {})
         if result.state == "VERIFYING" then
             request.journal = result.journal
             request.pending_moved = result.moved

@@ -80,6 +80,13 @@ return {
         coordinator:handle({"char","x"})
         T.equal(coordinator:viewModel().lifecycle,"SETUP_REQUIRED")
     end},
+    {name="main ships the intended import batching limits",run=function()
+        local _,services=Main.build(environment())
+        T.equal(services.imports.slotBatchLimit,8,
+            "how many Drop-off slots one gate cycle may drain")
+        T.equal(services.imports.batchLimit,8,
+            "how many moves one ambiguous window may span")
+    end},
     {name="startup retires legacy journal asynchronously without slot inspection or freeze",run=function()
         local fs=T.memoryFs()
         local textutils,codec=tokenTextutils()

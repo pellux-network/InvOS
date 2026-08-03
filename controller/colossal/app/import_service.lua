@@ -11,12 +11,13 @@ local function copy(value, seen)
     return result
 end
 
-local function firstSlot(slots)
-    local selected
+local function orderedSlots(slots)
+    local result = {}
     for slot in pairs(slots or {}) do
-        if type(slot) == "number" and (not selected or slot < selected) then selected = slot end
+        if type(slot) == "number" then result[#result + 1] = slot end
     end
-    return selected
+    table.sort(result)
+    return result
 end
 
 function ImportService.new(deps)
@@ -28,6 +29,7 @@ function ImportService.new(deps)
         transition=assert(deps.transition, "transition function is required"),
         clock=assert(deps.clock, "import clock is required"),
         batchLimit=deps.batch_limit or 8,
+        slotBatchLimit=deps.slot_batch_limit or 1,
         counter=0,
     }, ImportService)
 end
@@ -56,20 +58,24 @@ function ImportService:retry()
     return true
 end
 
+-- `source` stays an alias for the first entry so alert keys and single-source callers keep
+-- reading the same field whether the batch spans one Drop-off slot or several.
+local function bindSources(active, sources)
+    active.sources = sources
+    active.source = sources[1]
+    local total = 0
+    for _, source in ipairs(sources) do total = total + source.count end
+    active.original_count = total
+    return total
+end
+
 function ImportService:_discover(context)
     if type(context.dropoff) ~= "table" or context.dropoff.health ~= "READY" then return nil end
-    local slot = firstSlot(context.dropoff.slots)
-    if not slot then return nil end
-    local item = context.dropoff.slots[slot]
-    self.counter = self.counter + 1
-    self.active = {
-        id="import-" .. self.counter,
-        kind="import",
-        state="PENDING",
-        moved=0,
-        original_count=item.count,
-        attempts=0,
-        source={
+    local sources = {}
+    for _, slot in ipairs(orderedSlots(context.dropoff.slots)) do
+        if #sources >= self.slotBatchLimit then break end
+        local item = context.dropoff.slots[slot]
+        sources[#sources + 1] = {
             peripheral_name=context.dropoff.peripheral_name,
             slot=slot,
             epoch=context.dropoff.epoch,
@@ -78,10 +84,39 @@ function ImportService:_discover(context)
             count=item.count,
             identity_key=item.identity_key,
             max_count=item.max_count,
-        },
+        }
+    end
+    if #sources == 0 then return nil end
+    self.counter = self.counter + 1
+    self.active = {
+        id="import-" .. self.counter,
+        kind="import",
+        state="PENDING",
+        moved=0,
+        attempts=0,
         created_at=self.clock(),
         updated_at=self.clock(),
     }
+    bindSources(self.active, sources)
+    return true
+end
+
+-- Re-read every source against the live Drop-off. A source that vanished or changed before
+-- any call is not ambiguous, so it simply leaves the batch; the survivors still import.
+function ImportService:_refreshSources(context)
+    local slots = context.dropoff and context.dropoff.slots or {}
+    local survivors = {}
+    for _, source in ipairs(self.active.sources) do
+        local current = slots[source.slot]
+        if current and current.identity_key == source.identity_key then
+            source.count = current.count
+            source.epoch = context.dropoff.epoch
+            source.max_count = current.max_count or source.max_count
+            survivors[#survivors + 1] = source
+        end
+    end
+    if #survivors == 0 then return nil end
+    bindSources(self.active, survivors)
     return true
 end
 
@@ -121,39 +156,51 @@ function ImportService:tick(context)
     if active.state == "PENDING" then
         self:_state("PLANNING")
     elseif active.state == "PLANNING" then
-        local current=context.dropoff and context.dropoff.slots and
-            context.dropoff.slots[active.source.slot]
-        if not current or current.identity_key~=active.source.identity_key then
+        if not self:_refreshSources(context) then
             self:_abandon("SOURCE_CHANGED","Drop-off source changed before planning")
             return self:_event()
         end
-        if active.moved==0 then
-            active.source.count=current.count
-            active.original_count=current.count
-        elseif current.count~=active.source.count then
-            self:_abandon("SOURCE_CHANGED","Drop-off count changed before planning")
-            return self:_event()
+        -- One gate cycle per batch instead of per step, and one batch across several
+        -- Drop-off slots. Capped so a single ambiguous window can never span an unbounded
+        -- number of issued calls.
+        -- Every source is planned against the same storage snapshot, so a slot one source
+        -- claims must be reserved before the next source is planned. Without this, two item
+        -- types both pick the first empty slot. owned_slots is the planner's existing
+        -- reservation hook.
+        local byName = {}
+        for _, snapshot in ipairs(context.storage or {}) do
+            snapshot.owned_slots = {}
+            if type(snapshot.peripheral_name) == "string" then
+                byName[snapshot.peripheral_name] = snapshot
+            end
         end
-        active.source.epoch=context.dropoff.epoch
-        active.source.max_count=current.max_count or active.source.max_count
-        local plan, remainder, planReason = self.planner.planImport(active.source,
-            context.storage or {})
+        local steps, remainder, planReason = {}, 0, nil
+        for _, source in ipairs(active.sources) do
+            if #steps >= self.batchLimit then break end
+            local plan, sourceRemainder, sourceReason = self.planner.planImport(source,
+                context.storage or {})
+            if #plan == 0 then planReason = planReason or sourceReason end
+            remainder = remainder + (sourceRemainder or 0)
+            for _, planned in ipairs(plan) do
+                if #steps >= self.batchLimit then break end
+                steps[#steps + 1] = copy(planned)
+                local snapshot = planned.destination_name and byName[planned.destination_name]
+                if snapshot and planned.destination_slot then
+                    snapshot.owned_slots[planned.destination_slot] = true
+                end
+            end
+        end
         active.plan_remainder = remainder
-        if #plan == 0 then
+        if #steps == 0 then
             self:_block(context, planReason)
         else
-            -- One gate cycle per batch instead of per step. Capped so a single ambiguous
-            -- window can never span an unbounded number of issued calls.
-            active.steps = {}
-            for index = 1, math.min(#plan, self.batchLimit) do
-                active.steps[index] = copy(plan[index])
-            end
-            active.step = active.steps[1]
+            active.steps = steps
+            active.step = steps[1]
             active.reason = nil
             self:_state("TRANSFERRING")
         end
     elseif active.state == "TRANSFERRING" then
-        local result = self.transfer:executeBatch(active, active.steps, context.storage or {})
+        local result = self.transfer:executeMultiBatch(active, active.steps, context.storage or {})
         if result.state == "VERIFYING" then
             active.journal = result.journal
             active.pending_moved = result.moved
@@ -194,6 +241,7 @@ function ImportService:tick(context)
             end
             active.moved = active.moved + result.moved
             active.reported_moved=result.reported_moved
+            active.moved_by_identity=copy(result.moved_by_identity)
             if result.moved>stepLimit then
                 self.alerts:set("import_overdelivery:"..active.id,"critical",
                     "Storage received "..result.moved.." items for a "..stepLimit.." item step",
@@ -220,13 +268,9 @@ function ImportService:tick(context)
             end
         end
     elseif active.state == "PARTIAL" then
-        local current = context.dropoff and context.dropoff.slots and
-            context.dropoff.slots[active.source.slot]
-        if not current or current.identity_key ~= active.source.identity_key then
+        if not self:_refreshSources(context) then
             self:_abandon("SOURCE_CHANGED","Drop-off source changed during import")
         else
-            active.source.count = current.count
-            active.source.epoch = context.dropoff.epoch
             self:_state("PLANNING")
         end
     elseif active.state == "BLOCKED" then
