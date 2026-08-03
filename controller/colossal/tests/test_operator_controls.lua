@@ -1,3 +1,6 @@
+keys = keys or {up=200, down=208, enter=28, f10=68, escape=1,
+    one=2, two=3, three=4, four=5, five=6, r=19, c=46, a=30, p=25, x=45}
+
 local Alerts = require("app.alerts")
 local Coordinator = require("app.coordinator")
 local Keymap = require("app.keymap")
@@ -171,6 +174,34 @@ return {
         local coordinator = Coordinator.new(d)
         coordinator:tick(1000)
         T.truthy(seenLimit >= 50)
+    end},
+    {name="the full keyboard path retries a request without touching internal state directly", run=function()
+        local requests = recordingRequests({{id="request-1"}, {id="request-2"}})
+        local d = baseDeps(); d.requests = requests
+        local coordinator = Coordinator.new(d)
+        coordinator:redraw()
+        coordinator:handle({"key", keys.three})
+        T.equal(coordinator:viewModel().ui.page, "requests")
+        coordinator:handle({"key", keys.down})
+        T.equal(coordinator:viewModel().ui.request_selection, 2)
+        coordinator:handle({"key", keys.r})
+        T.arrayEqual(requests.calls.retry, {"request-2"})
+    end},
+    {name="the full keyboard path acknowledges an alert after a two key recovery cancel", run=function()
+        local alerts = recordingAlerts({{key="alert-1"}})
+        local recovery = recordingRecovery()
+        local d = baseDeps(); d.alerts, d.recovery = alerts, recovery
+        local coordinator = Coordinator.new(d)
+        coordinator:redraw()
+        coordinator:handle({"key", keys.four})
+        T.equal(coordinator:viewModel().ui.page, "alerts")
+        coordinator:handle({"key", keys.x})
+        T.equal(coordinator:viewModel().ui.recovery_confirm_armed, true)
+        coordinator:handle({"key", keys.up})
+        T.equal(coordinator:viewModel().ui.recovery_confirm_armed, false)
+        T.equal(recovery.calls.resolve, 0)
+        coordinator:handle({"key", keys.a})
+        T.arrayEqual(alerts.calls.acknowledge, {"alert-1"})
     end},
     {name="the notices list is capped so it cannot grow without bound", run=function()
         local d = baseDeps()
