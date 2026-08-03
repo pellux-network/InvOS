@@ -145,6 +145,39 @@ return {
             T.equal(reason and reason.code,case.code)
         end
     end },
+    { name = "Drop-off details only the slot the importer will consume", run = function()
+        local listed={ [11]={name="minecraft:ender_pearl",count=4},
+            [3]={name="minecraft:stone",count=9}, [7]={name="minecraft:dirt",count=2} }
+        local details={}
+        local inventory=makeInventory(listed,27,function(slot)
+            details[#details+1]=slot
+            return {name=listed[slot].name,count=listed[slot].count,nbt=listed[slot].nbt,maxCount=16}
+        end)
+        local scanner=Scanner.new(peripheralFor(inventory),function() return 5 end)
+        local done,snapshot=scanner:step(scanner:begin({id="drop",role="dropoff",
+            peripheral_name="drop"}),64)
+        T.equal(done,true)
+        T.equal(inventory.calls.detail,1,"one detail call per drop-off scan")
+        T.arrayEqual(details,{3},"only the lowest occupied slot is detailed")
+        T.equal(snapshot.slots[3].max_count,16,"the consumed slot carries an authoritative limit")
+        T.equal(snapshot.slots[7].max_count,nil)
+        T.equal(snapshot.slots[11].max_count,nil)
+        T.equal(snapshot.occupied,3,"every occupied slot is still indexed")
+        T.equal(snapshot.slots[11].count,4)
+        T.equal(snapshot.slots[7].identity_key,"minecraft:dirt\0-")
+    end },
+    { name = "Drop-off still rejects a bad detail on the consumed slot", run = function()
+        local listed={ [9]={name="minecraft:stone",count=1}, [2]={name="minecraft:dirt",count=1} }
+        local inventory=makeInventory(listed,27,function()
+            return {name="minecraft:wrong",count=1,maxCount=16}
+        end)
+        local scanner=Scanner.new(peripheralFor(inventory),function() return 5 end)
+        local done,snapshot,reason=scanner:step(scanner:begin({id="drop",role="dropoff",
+            peripheral_name="drop"}),64)
+        T.equal(done,true)
+        T.equal(snapshot,nil)
+        T.equal(reason.code,"DETAIL_MISMATCH")
+    end },
     { name = "scanner reports a missing wrapped peripheral", run = function()
         local scanner = Scanner.new(peripheralFor({}), function() return 1 end)
         local scan = scanner:begin({ id = "missing", peripheral_name = "missing" })

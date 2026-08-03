@@ -53,6 +53,14 @@ function Scanner:begin(node)
         return { failed = failure("INVALID_LIST", "list returned " .. type(listed), node), node = node }
     end
 
+    -- The import service consumes the lowest occupied Drop-off slot, so that is the only
+    -- slot whose stack limit is ever read. Detailing the rest costs one peripheral call
+    -- each and nothing reads the result.
+    local detailSlot
+    for slot in pairs(listed) do
+        if type(slot) == "number" and (not detailSlot or slot < detailSlot) then detailSlot = slot end
+    end
+
     return {
         node = node,
         inventory = inventory,
@@ -60,6 +68,7 @@ function Scanner:begin(node)
         size = size,
         epoch = self.clock(),
         next_key = nil,
+        detail_slot = detailSlot,
         slots = {},
         occupied = 0,
     }
@@ -67,6 +76,7 @@ end
 
 local function stackLimit(scan, slot, listed)
     if scan.node.role ~= "dropoff" then return true end
+    if slot ~= scan.detail_slot then return true end
     if type(scan.inventory.getItemDetail) ~= "function" then
         return nil, failure("PERIPHERAL_INVALID",
             "Drop-off does not provide getItemDetail", scan.node)
