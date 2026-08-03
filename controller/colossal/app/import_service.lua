@@ -27,6 +27,7 @@ function ImportService.new(deps)
         alerts=assert(deps.alerts, "alerts service is required"),
         transition=assert(deps.transition, "transition function is required"),
         clock=assert(deps.clock, "import clock is required"),
+        batchLimit=deps.batch_limit or 8,
         counter=0,
     }, ImportService)
 end
@@ -141,12 +142,18 @@ function ImportService:tick(context)
         if #plan == 0 then
             self:_block(context, planReason)
         else
-            active.step = copy(plan[1])
+            -- One gate cycle per batch instead of per step. Capped so a single ambiguous
+            -- window can never span an unbounded number of issued calls.
+            active.steps = {}
+            for index = 1, math.min(#plan, self.batchLimit) do
+                active.steps[index] = copy(plan[index])
+            end
+            active.step = active.steps[1]
             active.reason = nil
             self:_state("TRANSFERRING")
         end
     elseif active.state == "TRANSFERRING" then
-        local result = self.transfer:execute(active, active.step, context.storage or {})
+        local result = self.transfer:executeBatch(active, active.steps, context.storage or {})
         if result.state == "VERIFYING" then
             active.journal = result.journal
             active.pending_moved = result.moved
@@ -181,7 +188,10 @@ function ImportService:tick(context)
             self.alerts:set("import_failed:" .. active.source.identity_key,
                 "critical", active.reason.message, {code=active.reason.code})
         else
-            local stepLimit=active.step.limit
+            local stepLimit=0
+            for _,planned in ipairs(active.steps or {active.step}) do
+                stepLimit=stepLimit+planned.limit
+            end
             active.moved = active.moved + result.moved
             active.reported_moved=result.reported_moved
             if result.moved>stepLimit then
@@ -190,7 +200,8 @@ function ImportService:tick(context)
                     {code="OVER_DELIVERY",requested=stepLimit,measured=result.moved,
                         reported=result.reported_moved,import_id=active.id})
             end
-            active.step,active.journal,active.pending_moved,active.rescan=nil,nil,nil,nil
+            active.step,active.steps=nil,nil
+            active.journal,active.pending_moved,active.rescan=nil,nil,nil
             local callOk,retired,retireReason=pcall(self.transfer.retire,self.transfer)
             if not callOk then retired,retireReason=nil,retired end
             if not retired then self.alerts:set("journal_retire:"..active.id,"warning",

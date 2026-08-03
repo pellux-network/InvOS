@@ -17,7 +17,7 @@ local function service(plans,outcomes)
     local calls=0;local planner={}
     function planner.planImport() calls=calls+1;local value=plans[calls];return value.plan,value.remainder,value.reason end
     local transfer={execute_calls=0,verify_calls=0,retire_calls=0,cursor=1}
-    function transfer:execute(_,planned,storage)
+    function transfer:executeBatch(_,planned,storage)
         self.execute_calls=self.execute_calls+1;T.truthy(storage)
         return {state="VERIFYING",journal={step=planned},rescan={"storage","drop"}}
     end
@@ -96,6 +96,37 @@ return {
         T.equal(transfer.execute_calls,1,"no further call is issued for the vanished source")
         ctx.dropoff.slots[1]={name="minecraft:stone",count=4,identity_key=stone}
         T.equal(imports:tick(ctx).state,"PLANNING","later Drop-off contents still import")
+    end},
+    {name="a multi step plan is issued as one batch under one verification",run=function()
+        local submitted
+        local plan={step(4),step(1),step(59)}
+        for index,planned in ipairs(plan) do planned.destination_slot=index end
+        local imports,transfer=service({{plan=plan,remainder=0}},
+            {{state="COMPLETE",moved=64,reported_moved=64}})
+        function transfer:executeBatch(_,steps,storage)
+            self.execute_calls=self.execute_calls+1;T.truthy(storage);submitted=steps
+            return {state="VERIFYING",journal={step=steps},rescan={"storage","drop"}}
+        end
+        local ctx=context(64)
+        imports:tick(ctx);imports:tick(ctx);imports:tick(ctx)
+        T.equal(#submitted,3,"the whole plan goes out together")
+        T.arrayEqual({submitted[1].limit,submitted[2].limit,submitted[3].limit},{4,1,59})
+        local result=imports:tick(ctx)
+        T.equal(result.state,"COMPLETE")
+        T.equal(result.moved,64)
+        T.equal(transfer.execute_calls,1,"one gate cycle served every step")
+        T.equal(transfer.verify_calls,1,"one verification served every step")
+    end},
+    {name="a batch is capped so one ambiguous window stays bounded",run=function()
+        local submitted
+        local plan={}
+        for index=1,20 do plan[index]=step(1);plan[index].destination_slot=index end
+        local imports,transfer=service({{plan=plan,remainder=0}},{})
+        function transfer:executeBatch(_,steps) submitted=steps
+            return {state="VERIFYING",journal={},rescan={}} end
+        local ctx=context(20)
+        imports:tick(ctx);imports:tick(ctx);imports:tick(ctx)
+        T.equal(#submitted,8,"the default cap bounds a single batch")
     end},
     {name="opposite import delta raises a critical actionable alert",run=function()
         local imports,transfer,alerts=service({{plan={step(5)},remainder=0}},

@@ -12,7 +12,7 @@ return {
             destination_name="store",destination_slot=1,destination_epoch=2,
             destination_pre_count=0,identity_key=stone,limit=1,
         }},0 end }
-        local transfer = { execute=function() return {state="FAILED",
+        local transfer = { executeBatch=function() return {state="FAILED",
             reason={code="TRANSFER_EXCEPTION",message="cable gone"}} end }
         local imports = ImportService.new({planner=planner,transfer=transfer,
             alerts=Alerts.new(function() return 0 end),transition=Lifecycle.transition,

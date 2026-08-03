@@ -10,7 +10,7 @@ local function planned(limit)
 end
 local function worker(outcomes)
     local value={execute_calls=0,verify_calls=0,retire_calls=0,cursor=1}
-    function value:execute(_,step,storage)
+    function value:executeBatch(_,step,storage)
         self.execute_calls=self.execute_calls+1;T.truthy(storage)
         return {state="VERIFYING",journal={step=step},rescan={"storage"},moved=99}
     end
