@@ -35,6 +35,10 @@ local defaultModules = {
     "tests.test_responsiveness",
     "tests.test_error_recovery",
     "tests.test_main",
+    "tests.test_coordinator_epoch_gate",
+    "tests.test_import_freshness",
+    "tests.test_acceptance",
+    "tests.test_deployment",
 }
 
 local modules = {}

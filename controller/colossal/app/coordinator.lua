@@ -164,6 +164,17 @@ end
 
 function Coordinator:_scanStep()
     if not self.configured then return false end
+    for name,service in pairs({imports=self.deps.imports,requests=self.deps.requests}) do
+        local state
+        if name=="imports" and service and type(service.status)=="function" then
+            local value=service:status();state=value and value.state
+        elseif name=="requests" and service and type(service.list)=="function" then
+            for _,value in ipairs(service:list()) do
+                if value.state~="COMPLETE" and value.state~="CANCELLED" then state=value.state;break end
+            end
+        end
+        if state=="TRANSFERRING" then return false end
+    end
     if not self.activeScan then
         local id = table.remove(self.scanQueue, 1)
         if not id then
@@ -269,7 +280,9 @@ function Coordinator:_automationStep(now)
     if not selected or not selected[2] or type(selected[2].tick)~="function" then return end
     local ok,result=pcall(selected[2].tick,selected[2],self:_context(now))
     if not ok then self:_recordError(selected[1],result)
-    elseif type(result)=="table" and result.rescan then self:_setVerificationGate(selected[1],result.rescan) end
+    elseif type(result)=="table" and result.state=="VERIFYING" and result.rescan then
+        self:_setVerificationGate(selected[1],result.rescan)
+    end
 end
 
 function Coordinator:workStep(now)

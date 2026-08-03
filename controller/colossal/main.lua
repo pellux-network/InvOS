@@ -122,7 +122,7 @@ function Main.build(environment)
     local termApi=env.term or term
     local now=env.clock or clock(osApi)
     local root=env.data_root or "/colossal/data"
-    local store=Store.new(fsApi,Codec,root)
+    local store=Store.new(fsApi,Codec.new(env.textutils or textutils),root)
     local config,configReason=load(store,fsApi,root,"config",Setup.validateConfig,configDefault())
     local aliases,aliasReason=load(store,fsApi,root,"aliases",Setup.validateAliases,aliasesDefault())
 

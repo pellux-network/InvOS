@@ -6,7 +6,7 @@ The controller indexes wired inventory peripherals, imports items from a dedicat
 
 ## Status
 
-Version 1 is being implemented from the approved design in `docs/superpowers/specs/2026-08-02-colossal-storage-v1-design.md`.
+Version 1 is implemented on the feature branch with a cooperative controller, durable exact transfers, a first-run setup wizard, responsive search and retrieval, and a resizable public status monitor. Crafting remains reserved for version 2.
 
 ## Scope
 
@@ -30,3 +30,8 @@ lua colossal/tests/run.lua
 ```
 
 Tests and documentation are development artifacts and must never be copied to a live ComputerCraft computer.
+## Installation and operations
+
+The exact deployment allow-list is `controller/colossal/deployment_manifest.lua`. Copy those paths relative to `controller/` only; the manifest excludes tests, documentation, development helpers, and mutable data.
+
+See `docs/operations.md` for wired topology, setup, lifecycle states, backup/recovery, upgrades, and the required live-deployment safety gate. No live server files are changed by repository development or tests.

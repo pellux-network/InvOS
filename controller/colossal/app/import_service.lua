@@ -105,6 +105,23 @@ function ImportService:tick(context)
     if active.state == "PENDING" then
         self:_state("PLANNING")
     elseif active.state == "PLANNING" then
+        local current=context.dropoff and context.dropoff.slots and
+            context.dropoff.slots[active.source.slot]
+        if not current or current.identity_key~=active.source.identity_key then
+            active.reason={code="SOURCE_CHANGED",message="Drop-off source changed before planning"}
+            self:_state("FAILED")
+            return self:_event()
+        end
+        if active.moved==0 then
+            active.source.count=current.count
+            active.original_count=current.count
+        elseif current.count~=active.source.count then
+            active.reason={code="SOURCE_CHANGED",message="Drop-off count changed before planning"}
+            self:_state("FAILED")
+            return self:_event()
+        end
+        active.source.epoch=context.dropoff.epoch
+        active.source.max_count=current.max_count or active.source.max_count
         local plan, remainder, planReason = self.planner.planImport(active.source,
             context.storage or {})
         active.plan_remainder = remainder

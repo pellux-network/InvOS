@@ -74,7 +74,10 @@ function Transfer:_preflight(step)
     if not source then return nil, reason("SOURCE_UNAVAILABLE", sourceReason, false) end
     if source.generation ~= step.source_epoch or source.identity_key ~= step.identity_key or
         source.count ~= step.source_pre_count or source.count < step.limit then
-        return nil, reason("SOURCE_CHANGED", "source no longer matches the planned snapshot", false)
+        return nil, reason("SOURCE_CHANGED", "source changed: generation "..tostring(source.generation)..
+            "/"..tostring(step.source_epoch)..", identity "..tostring(source.identity_key)..
+            "/"..tostring(step.identity_key)..", count "..tostring(source.count)..
+            "/"..tostring(step.source_pre_count), false)
     end
 
     local destination, destinationReason = self:_inspect(

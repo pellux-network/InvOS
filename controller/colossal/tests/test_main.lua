@@ -15,6 +15,7 @@ local function environment()
         os={getComputerID=function() return 17 end,getComputerLabel=function() return nil end,
             epoch=function() return 1000 end},
         term={current=function() return surface end},clock=function() return 1000 end,
+        textutils={serialize=function() return "{}" end,unserialize=function() return {} end},
         surface=surface,
     }
 end
