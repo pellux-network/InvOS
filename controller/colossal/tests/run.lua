@@ -12,6 +12,8 @@ local defaultModules = {
     "tests.test_scanner",
     "tests.test_index",
     "tests.test_planner",
+    "tests.test_transfer",
+    "tests.test_recovery",
 }
 
 local modules = {}
