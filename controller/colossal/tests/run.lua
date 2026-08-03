@@ -14,6 +14,10 @@ local defaultModules = {
     "tests.test_planner",
     "tests.test_transfer",
     "tests.test_recovery",
+    "tests.test_alerts",
+    "tests.test_import_service",
+    "tests.test_requests",
+    "tests.test_service_recovery",
 }
 
 local modules = {}

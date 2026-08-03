@@ -1,0 +1,166 @@
+local Requests = {}
+Requests.__index = Requests
+
+local terminal = { COMPLETE=true, CANCELLED=true }
+
+local function copy(value, seen)
+    if type(value) ~= "table" then return value end
+    seen = seen or {}
+    if seen[value] then return seen[value] end
+    local result = {}
+    seen[value] = result
+    for key, item in pairs(value) do result[copy(key, seen)] = copy(item, seen) end
+    return result
+end
+
+function Requests.new(deps)
+    assert(type(deps) == "table", "request dependencies are required")
+    return setmetatable({
+        planner=assert(deps.planner, "request planner is required"),
+        transfer=assert(deps.transfer, "transfer service is required"),
+        alerts=assert(deps.alerts, "alerts service is required"),
+        transition=assert(deps.transition, "transition function is required"),
+        clock=assert(deps.clock, "request clock is required"),
+        idGenerator=assert(deps.idGenerator, "request ID generator is required"),
+        counter=0, ordered={}, byId={},
+    }, Requests)
+end
+
+function Requests:_state(request, to)
+    local ok, reason = self.transition("request", request.state, to)
+    if not ok then error(reason, 2) end
+    request.state = to
+    request.updated_at = self.clock()
+end
+
+function Requests:create(identity, quantity)
+    assert(type(identity) == "table" and type(identity.key) == "string",
+        "exact item identity is required")
+    assert(type(quantity) == "number" and quantity >= 1 and quantity % 1 == 0,
+        "request quantity must be a positive integer")
+    self.counter = self.counter + 1
+    local request = {
+        id=self.idGenerator(self.counter), kind="request", state="QUEUED",
+        identity=copy(identity), requested=quantity, delivered=0, moved=0,
+        attempts=0, created_at=self.clock(), updated_at=self.clock(),
+    }
+    self.ordered[#self.ordered + 1] = request
+    self.byId[request.id] = request
+    return copy(request)
+end
+
+function Requests:get(id)
+    return self.byId[id] and copy(self.byId[id]) or nil
+end
+
+function Requests:list()
+    return copy(self.ordered)
+end
+
+function Requests:_next()
+    for _, request in ipairs(self.ordered) do
+        if not terminal[request.state] and request.state ~= "FAILED" then return request end
+    end
+    return nil
+end
+
+function Requests:_block(request, context, blockReason)
+    request.reason = copy(blockReason or {code="BLOCKED",message="Request is blocked",retryable=true})
+    request.blocked_generation = context.generation
+    request.attempts = request.attempts + 1
+    request.next_retry_at = (context.now or self.clock()) +
+        math.min(60000, 1000 * (2 ^ math.min(request.attempts - 1, 6)))
+    self:_state(request, "BLOCKED")
+    self.alerts:set("request_blocked:" .. request.id, "warning", request.reason.message,
+        {request_id=request.id,code=request.reason.code})
+end
+
+function Requests:cancel(id)
+    local request = self.byId[id]
+    if not request or terminal[request.state] then return nil, "request cannot be cancelled" end
+    if request.state == "TRANSFERRING" or request.state == "VERIFYING" then
+        request.cancel_requested = true
+        request.updated_at = self.clock()
+        return true
+    end
+    self:_state(request, "CANCELLED")
+    self.alerts:resolve("request_blocked:" .. request.id)
+    return true
+end
+
+function Requests:retry(id)
+    local request = self.byId[id]
+    if not request or (request.state ~= "FAILED" and request.state ~= "BLOCKED" and
+        request.state ~= "PARTIAL") then return nil, "request is not retryable" end
+    request.reason = nil
+    self:_state(request, "PLANNING")
+    return true
+end
+
+function Requests:tick(context)
+    context = context or {}
+    local request = self:_next()
+    if not request then return {state="IDLE"} end
+
+    if request.state == "QUEUED" then
+        self:_state(request, "PLANNING")
+    elseif request.state == "PLANNING" then
+        local remaining = request.requested - request.delivered
+        local plan, remainder, planReason = self.planner.planRetrieval(
+            request.identity.key, remaining, context.index, context.pickup)
+        request.plan_remainder = remainder
+        if #plan == 0 then
+            self:_block(request, context, planReason)
+        else
+            request.step = copy(plan[1])
+            request.reason = nil
+            self:_state(request, "TRANSFERRING")
+        end
+    elseif request.state == "TRANSFERRING" then
+        local result = self.transfer:execute(request, request.step)
+        if result.state == "VERIFYING" then
+            request.journal = result.journal
+            request.pending_moved = result.moved
+            request.rescan = copy(result.rescan)
+            self:_state(request, "VERIFYING")
+        else
+            request.reason = copy(result.reason)
+            self:_state(request, "FAILED")
+            self.alerts:set("request_failed:" .. request.id, "critical",
+                request.reason.message, {request_id=request.id,code=request.reason.code})
+        end
+    elseif request.state == "VERIFYING" then
+        local result = self.transfer:verify(request.journal, context.observed or {})
+        if result.state ~= "COMPLETE" then
+            request.reason = copy(result.reason)
+            self:_state(request, "FAILED")
+            self.alerts:set("request_failed:" .. request.id, "critical",
+                request.reason.message, {request_id=request.id,code=request.reason.code})
+        else
+            request.delivered = request.delivered + result.moved
+            request.moved = request.delivered
+            request.step, request.journal, request.pending_moved = nil, nil, nil
+            self.alerts:resolve("request_blocked:" .. request.id)
+            if request.cancel_requested then
+                self:_state(request, "PARTIAL")
+                self:_state(request, "CANCELLED")
+            elseif request.delivered >= request.requested then
+                self:_state(request, "COMPLETE")
+            elseif result.moved <= 0 then
+                self:_block(request, context, {code="SHORT_TRANSFER",
+                    message="Pickup accepted no items",retryable=true})
+            else
+                self:_state(request, "PARTIAL")
+            end
+        end
+    elseif request.state == "PARTIAL" then
+        self:_state(request, "PLANNING")
+    elseif request.state == "BLOCKED" then
+        local generationChanged = context.generation ~= request.blocked_generation
+        local retryDue = (context.now or self.clock()) >= request.next_retry_at
+        if generationChanged or retryDue then self:_state(request, "PLANNING") end
+    end
+    return copy(request)
+end
+
+return Requests
