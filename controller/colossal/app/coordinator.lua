@@ -457,13 +457,11 @@ function Coordinator:run()
     local function events()
         while true do self:handle({os.pullEventRaw()}) end
     end
-    local function heartbeat()
-        while true do sleep((self.deps.intervals or {}).heartbeat or 0.25); self:tick(self.clock()) end
-    end
     local function worker()
-        while true do self:workStep(self.clock()); sleep(0) end
+        local interval=(self.deps.intervals or {}).worker or 0.05
+        while true do self:workStep(self.clock()); sleep(interval) end
     end
-    parallel.waitForAny(events,heartbeat,worker)
+    parallel.waitForAny(events,worker)
 end
 
 return Coordinator

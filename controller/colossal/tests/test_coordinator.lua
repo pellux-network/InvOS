@@ -92,4 +92,16 @@ return {
         coordinator:resume(); coordinator:tick(1001); T.equal(automation,1)
         T.equal(d.scans.steps,2)
     end},
+    {name="run has exactly one automation work loop",run=function()
+        local coordinator=Coordinator.new(deps())
+        local priorParallel=parallel
+        local loopCount
+        parallel={waitForAny=function(...)
+            loopCount=select("#",...)
+        end}
+        local ok,reason=pcall(coordinator.run,coordinator)
+        parallel=priorParallel
+        if not ok then error(reason,0) end
+        T.equal(loopCount,2)
+    end},
 }
