@@ -52,6 +52,7 @@ local defaultModules = {
     "tests.test_hot_paths",
     "tests.test_transfer_batch",
     "tests.test_reconciliation_many",
+    "tests.test_transfer_multibatch",
 }
 
 local modules = {}
