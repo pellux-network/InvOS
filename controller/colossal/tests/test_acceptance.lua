@@ -13,6 +13,7 @@ local UI=require("app.ui")
 local Adapter=require("core.inventory_adapter")
 local Index=require("core.index")
 local Planner=require("core.planner")
+local Reconciliation=require("core.reconciliation")
 local Scanner=require("core.scanner")
 local Transfer=require("core.transfer")
 local Codec=require("shared.codec")
@@ -24,7 +25,8 @@ local function clone(value)
     local result={};for key,item in pairs(value) do result[key]=clone(item) end;return result
 end
 
-local function Harness()
+local function Harness(options)
+    options=options or {}
     local now=0
     local inventories={drop={size=8,slots={}},pickup={size=8,slots={}},
         store_a={size=4,slots={}},store_b={size=4,slots={}}}
@@ -41,6 +43,9 @@ local function Harness()
                 detail.maxCount=64;return detail
             end,
             pushItems=function(destination,fromSlot,limit,toSlot)
+                if options.pushItems then
+                    return options.pushItems(name,inventories,destination,fromSlot,limit,toSlot)
+                end
                 local source=inventory.slots[fromSlot];local target=inventories[destination]
                 if not source or not target then return 0 end
                 local selected=toSlot
@@ -73,7 +78,8 @@ local function Harness()
         end
         return 0
     end)
-    local transfer=Transfer.new({store=store,adapter=adapter,clock=clock})
+    local transfer=Transfer.new({store=store,adapter=adapter,clock=clock,
+        reconciliation=Reconciliation})
     local imports=Imports.new({planner=Planner,transfer=transfer,alerts=alerts,
         transition=Lifecycle.transition,clock=clock})
     local requests=Requests.new({planner=Planner,transfer=transfer,alerts=alerts,
@@ -87,7 +93,8 @@ local function Harness()
         ui=ui,keymap=Keymap,initial_ui=UI.initialState(),build_index=Index.build,
         search=Search.query,lifecycle=Lifecycle,imports=imports,requests=requests,alerts=alerts,
         monitor=Monitor,monitor_surface=monitor,enrich_step=Index.enrichStep,registry=adapter})
-    local value={coordinator=coordinator,requests=requests,inventories=inventories,monitor=monitor}
+    local value={coordinator=coordinator,requests=requests,inventories=inventories,
+        monitor=monitor,alerts=alerts}
     function value:tick() now=now+1;self.coordinator:tick(now) end
     function value:runUntil(predicate,limit)
         for _=1,limit do self:tick();if predicate(self.coordinator:viewModel()) then return end end
@@ -122,6 +129,28 @@ return {
         T.equal(app:storageCount(key),30)
         T.equal(app:count("drop",key)+app:count("pickup",key)+app:storageCount(key),100)
         T.contains(app.monitor.allText(),"COLOSSAL STORAGE")
+    end},
+    {name="misreported compacted retrieval completes once from pooled inventory truth",run=function()
+        local calls=0;local echo="the_vault:gem_echo\0-"
+        local app=Harness({pushItems=function(sourceName,inventories,destination,fromSlot)
+            calls=calls+1;T.equal(sourceName,"store_a")
+            local source=inventories[sourceName].slots[fromSlot]
+            T.equal(source.name,"the_vault:gem_echo")
+            inventories[destination].slots[1]={name=source.name,count=3}
+            inventories[sourceName].slots[fromSlot]={name="the_vault:gem_wutodie",count=29}
+            return 1
+        end})
+        app.inventories.store_a.slots[1]={name="the_vault:gem_echo",count=3}
+        app:runUntil(function(model) return model.total_types==1 end,80)
+        app.requests:create({key=echo,name="the_vault:gem_echo",display_name="Echo Gem"},2)
+        app:runUntil(function(model)
+            return model.requests[1] and model.requests[1].state=="COMPLETE"
+        end,200)
+        local request=app.requests:list()[1]
+        T.equal(request.delivered,3);T.equal(calls,1)
+        T.equal(app:count("pickup",echo),3);T.equal(app:storageCount(echo),0)
+        local active=app.alerts:active();T.equal(active[1].severity,"critical")
+        T.equal(active[1].details.code,"OVER_DELIVERY")
     end},
     {name="exact NBT variants remain separate across pooled nodes",run=function()
         local app=Harness();local left,right="minecraft:potion\0healing","minecraft:potion\0strength"

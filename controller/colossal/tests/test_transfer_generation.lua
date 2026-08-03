@@ -1,3 +1,4 @@
+local Reconciliation=require("core.reconciliation")
 local Transfer=require("core.transfer")
 local T=require("tests.mock_cc")
 
@@ -13,11 +14,13 @@ return {{name="unchanged live slots tolerate harmless scan generation advances",
         return true,{identity_key=nil,count=0,generation=21}
     end
     function adapter:push() pushed=pushed+1;return true,12 end
-    local transfer=Transfer.new({store=store(),adapter=adapter,clock=function() return 1 end})
+    local transfer=Transfer.new({store=store(),adapter=adapter,clock=function() return 1 end,
+        reconciliation=Reconciliation})
     local result=transfer:execute({id="move",kind="request",state="TRANSFERRING"},{
         source_name="source",source_slot=1,source_epoch=10,source_pre_count=12,
         destination_name="pickup",destination_slot=1,destination_epoch=20,destination_pre_count=0,
-        identity_key=stone,limit=12})
+        identity_key=stone,limit=12},{{node_id="store",health="READY",
+            slots={[1]={identity_key=stone,count=12}}}})
     T.equal(result.state,"VERIFYING")
     T.equal(pushed,1)
 end}}
