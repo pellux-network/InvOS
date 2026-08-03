@@ -20,6 +20,10 @@ local defaultModules = {
     "tests.test_service_recovery",
     "tests.test_search",
     "tests.test_keymap",
+    "tests.test_ui",
+    "tests.test_ui_layout",
+    "tests.test_ui_purity",
+    "tests.test_monitor",
 }
 
 local modules = {}
