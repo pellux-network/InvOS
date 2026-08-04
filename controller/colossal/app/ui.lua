@@ -242,6 +242,11 @@ local function footerHelp(state)
     return "1 Search  P pause  F10 back"
 end
 
+local function enrichmentText(enrichment)
+    if not enrichment then return nil end
+    return "Learning item names: " .. formatNumber(enrichment.learned) .. "/" .. formatNumber(enrichment.total)
+end
+
 function UI:_footer(state, model)
     local surface = self.surface
     local width, height = surface.getSize()
@@ -251,7 +256,8 @@ function UI:_footer(state, model)
     writeClipped(surface, 2, height - 1, footerHelp(state), width - 2)
     fill(surface, height, palette.black)
     surface.setTextColor(state.notice and palette.cyan or palette.lightGray)
-    writeClipped(surface, 2, height, state.notice or model.lifecycle_reason or "", width - 2)
+    writeClipped(surface, 2, height,
+        state.notice or enrichmentText(model.enrichment) or model.lifecycle_reason or "", width - 2)
 end
 
 function UI:_search(state, model, hitRegions)

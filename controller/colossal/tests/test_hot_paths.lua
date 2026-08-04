@@ -120,15 +120,28 @@ return {
 
     {name="partial scan steps do not repaint the screen", run=function()
         -- A scan spread over several work steps changes nothing on screen until it finishes,
-        -- so only its completion should repaint.
+        -- so only its completion should repaint. The node is well inside the default refresh
+        -- interval for the rest of the run, so on-demand scheduling scans it once and goes idle.
         local deps = base({steps=4})
         local renders = 0
         deps.ui = {reduce=function(_, state) return state end, render=function() renders = renders + 1 end}
         local coordinator = Coordinator.new(deps)
         for value = 1, 12 do coordinator:tick(value) end
-        T.equal(deps.completed(), 3, "twelve ticks of four-step scans is three completions")
-        T.truthy(renders <= 4,
-            "three completed scans repainted " .. renders .. " times over twelve ticks")
+        T.equal(deps.completed(), 1, "a fresh node must not be rescanned before it goes stale")
+        T.equal(renders, 2,
+            "only the first frame and the one completion should repaint over twelve ticks")
+    end},
+
+    {name="an idle coordinator does not rescan a fresh node, then scans once it goes stale", run=function()
+        local deps = base({steps=1})
+        deps.scan_refresh_interval = 100
+        local coordinator = Coordinator.new(deps)
+        coordinator:tick(1)
+        T.equal(deps.completed(), 1, "the never-scanned node scans promptly")
+        coordinator:tick(50)
+        T.equal(deps.completed(), 1, "fresh inside the refresh interval must not rescan")
+        coordinator:tick(102)
+        T.equal(deps.completed(), 2, "stale past the refresh interval rescans exactly once")
     end},
 
     {name="epoch lookup resolves a peripheral without copying the view model", run=function()

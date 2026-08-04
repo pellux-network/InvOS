@@ -203,4 +203,25 @@ return {
         T.contains(surface.allText(),"proof")
         T.equal(surface.writesOutsideBounds(),0)
     end },
+    { name = "in-progress metadata enrichment replaces the lifecycle reason in the footer", run = function()
+        local surface=T.recordingSurface(51,19)
+        local ui=UI.new(surface)
+        local model=view(); model.enrichment={learned=1200,total=3000}
+        local state=UI.initialState()
+        ui:render(state,model)
+        T.contains(surface.line(19),"1,200")
+        T.contains(surface.line(19),"3,000")
+        T.equal(surface.allText():find("All inventories healthy",1,true),nil)
+        T.equal(surface.writesOutsideBounds(),0)
+    end },
+    { name = "an operator notice still takes priority over enrichment progress in the footer", run = function()
+        local surface=T.recordingSurface(51,19)
+        local ui=UI.new(surface)
+        local model=view(); model.enrichment={learned=1200,total=3000}
+        local state=UI.initialState(); state.notice="Queued 5 Stone"
+        ui:render(state,model)
+        T.contains(surface.line(19),"Queued 5 Stone")
+        T.equal(surface.allText():find("1,200/3,000",1,true),nil)
+        T.equal(surface.writesOutsideBounds(),0)
+    end },
 }

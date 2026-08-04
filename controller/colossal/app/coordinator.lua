@@ -44,6 +44,7 @@ function Coordinator.new(deps)
         recovering=deps.recovering == true, paused=deps.paused == true,
         uiState=copy(deps.initial_ui or {}), nodes={}, nodeById={},
         snapshots={}, scanQueue={}, targeted={}, generation=0, scanRevision={}, automationCursor=1, verificationGate=nil,
+        scanCompletedAt={}, scanRefreshInterval=deps.scan_refresh_interval or 2000,
         metadata=copy(deps.metadata or {}), notices={}, dirty=true,
     }, Coordinator)
     self:_replaceNodes(deps.nodes or {})
@@ -54,11 +55,11 @@ end
 function Coordinator:_replaceNodes(nodes)
     self.nodes, self.nodeById, self.scanQueue = {}, {}, {}
     self.snapshots,self.scanRevision,self.activeScan,self.index,self.enrichment={}, {}, nil, nil, nil
+    self.scanCompletedAt = {}
     for _, definition in ipairs(nodes) do
         local node = nodeView(definition)
         self.nodes[#self.nodes + 1] = node
         self.nodeById[node.id] = node
-        if node.state ~= "DISABLED" then self.scanQueue[#self.scanQueue + 1] = node.id end
     end
 end
 
@@ -208,7 +209,30 @@ function Coordinator:_budgetFor(node)
     return self.scanBudget
 end
 
-function Coordinator:_scanStep()
+-- Idle refill only offers a node once it is actually worth scanning: currently missing a
+-- snapshot (never scanned, or knocked offline since its last one -- either way treated as
+-- infinitely stale so it wins any tie) or stale past scanRefreshInterval. Returning nil lets
+-- the work loop go quiet instead of rescanning every node forever regardless of freshness.
+function Coordinator:_staleNodeId(now)
+    local bestId, bestAge
+    for _, node in ipairs(self.nodes) do
+        if node.state ~= "DISABLED" then
+            local age
+            if not self.snapshots[node.id] then
+                age = math.huge
+            else
+                local completedAt = self.scanCompletedAt[node.id]
+                age = completedAt and (now - completedAt) or math.huge
+            end
+            if age >= self.scanRefreshInterval and (not bestAge or age > bestAge) then
+                bestId, bestAge = node.id, age
+            end
+        end
+    end
+    return bestId
+end
+
+function Coordinator:_scanStep(now)
     if not self.configured then return false end
     for name,service in pairs({recovery=self.deps.recovery,imports=self.deps.imports,requests=self.deps.requests}) do
         local state
@@ -223,16 +247,13 @@ function Coordinator:_scanStep()
         if state=="TRANSFERRING" then return false end
     end
     if not self.activeScan then
-        local id = table.remove(self.scanQueue, 1)
-        if not id then
-            for _, node in ipairs(self.nodes) do
-                if node.state ~= "DISABLED" then self.scanQueue[#self.scanQueue + 1] = node.id end
-            end
-            id = table.remove(self.scanQueue, 1)
-        end
+        local id = table.remove(self.scanQueue, 1) or self:_staleNodeId(now)
         local node = id and self.nodeById[id]
         if not node then return false end
-        if not self.snapshots[node.id] then node.state = "SCANNING" end
+        -- Starting a fresh scan (never scanned, or retrying after an ERROR/OFFLINE) is
+        -- user-visible even before it finishes, so it must repaint even though a merely
+        -- in-progress step normally does not.
+        if not self.snapshots[node.id] then node.state = "SCANNING"; self.dirty = true end
         local ok, scan = pcall(self.scanner.begin, self.scanner, node)
         if not ok then self:_recordError("scanner", scan, node); return true end
         self.activeScan = {state=scan,node=node}
@@ -251,6 +272,7 @@ function Coordinator:_scanStep()
             snapshot.priority = active.node.priority
             self.snapshots[active.node.id] = snapshot
             self.scanRevision[active.node.id]=(self.scanRevision[active.node.id] or 0)+1
+            self.scanCompletedAt[active.node.id] = now
             active.node.state, active.node.reason = "READY", nil
             self.generation = self.generation + 1
             self:_rebuildIndex()
@@ -387,7 +409,7 @@ end
 
 function Coordinator:workStep(now)
     now = now or self.clock()
-    self:_scanStep()
+    self:_scanStep(now)
     self:_enrichStep()
     self:_automationStep(now)
     self:_refreshLifecycle(now)
@@ -525,6 +547,31 @@ function Coordinator:_requestsDisplay()
     return reversed
 end
 
+local TERMINAL_REQUEST = {COMPLETE=true, CANCELLED=true, FAILED=true}
+
+-- The request actually in flight is the oldest non-terminal one, because Requests:_next()
+-- processes creation order, not the newest one: a burst of queued retrievals must not pin
+-- "current activity" on a request that has not started while older ones keep progressing.
+-- requestsNewestFirst is already reversed for display, so walk it back-to-front. Once
+-- nothing is active, fall back to the newest entry so "last activity" still shows something.
+local function activeRequest(requestsNewestFirst)
+    for index = #requestsNewestFirst, 1, -1 do
+        local request = requestsNewestFirst[index]
+        if not TERMINAL_REQUEST[request.state] then return request end
+    end
+    return requestsNewestFirst[1]
+end
+
+-- Enrichment learns display names and stack limits gradually and deliberately never blocks
+-- INDEXING/READY (AGENTS.md: "a failed getItemDetail call does not stop scanning or input"),
+-- so without this a wiped metadata cache looks identical to a fully settled system while
+-- thousands of getItemDetail calls are still queued behind it, one per tick.
+function Coordinator:_enrichmentProgress()
+    local state = self.enrichment
+    if not state or state.done then return nil end
+    return {learned = state.cursor - 1, total = #state.keys}
+end
+
 function Coordinator:_model()
     local items = self.index and self.index.items and self.index:items() or {}
     local total=0; for _, item in ipairs(items) do total=total+(item.quantity or 0) end
@@ -537,8 +584,9 @@ function Coordinator:_model()
     end
     return {lifecycle=self.lifecycle,lifecycle_reason=self.lifecycleReason,nodes=nodes,
         total_items=total,total_types=#items,alerts=copy(alerts),requests=copy(requests),
-        highest_alert=alerts[1],active_request=requests[1],
+        highest_alert=alerts[1],active_request=activeRequest(requests),
         dropoff=self:_nodeForRole("dropoff"),pickup=self:_nodeForRole("pickup"),
+        enrichment=self:_enrichmentProgress(),
         notices=copy(self.notices),generation=self.generation,configured=self.configured}
 end
 

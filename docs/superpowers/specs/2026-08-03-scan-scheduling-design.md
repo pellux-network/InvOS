@@ -1,7 +1,15 @@
 # On-demand scan scheduling
 
-Status: specified, not implemented. Largest remaining background cost after the import
-throughput work of 2026-08-03.
+Status: implemented 2026-08-04, default lowered to 2s the same day. `Coordinator:_scanStep`
+now selects the requested node, else the stalest node past `scanRefreshInterval`
+(never-scanned nodes count as infinitely stale), else does nothing. `scanCompletedAt` tracks
+completions; `scan_refresh_interval` is injectable via `main.lua`.
+
+The initial 30s default made Drop-off discovery, not the verification-gate scan itself, the
+dominant delay: nothing tells the coordinator when an item physically lands in Drop-off, so
+an idle controller only learns about it on the next staleness rescan. 30s read as "the whole
+system got slow" even though the storage scan itself was unaffected. 2s keeps Drop-off
+responsive without reverting to unconditional continuous rescanning.
 
 ## Problem
 

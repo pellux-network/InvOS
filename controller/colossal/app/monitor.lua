@@ -50,6 +50,11 @@ local function renderSmall(surface,model,width,height)
     if model.highest_alert then write(surface,width,height,2,height,model.highest_alert.message,width-2,palette.red) end
 end
 
+local function enrichmentText(enrichment)
+    if not enrichment then return nil end
+    return "Learning item names: "..formatNumber(enrichment.learned).."/"..formatNumber(enrichment.total)
+end
+
 local function renderMedium(surface,model,width,height)
     line(surface,width,height,1,palette.gray)
     write(surface,width,height,2,1,"PELLSTORE",9,palette.white)
@@ -57,6 +62,8 @@ local function renderMedium(surface,model,width,height)
     write(surface,width,height,math.max(2,width-#state),1,state,#state,colorFor(state))
     write(surface,width,height,2,3,formatNumber(model.total_items).." items  "..
         formatNumber(model.total_types).." types",width-2,palette.cyan)
+    local enriching=enrichmentText(model.enrichment)
+    if enriching then write(surface,width,height,2,4,enriching,width-2,palette.lightGray) end
     write(surface,width,height,2,5,"DROP-OFF > STORAGE > PICKUP",width-2,palette.lightGray)
     write(surface,width,height,2,6,tostring(model.dropoff and model.dropoff.state or "OFFLINE"),9,
         colorFor(model.dropoff and model.dropoff.state))
@@ -78,6 +85,8 @@ local function renderLarge(surface,model,width,height)
     write(surface,width,height,math.max(2,width-#state-1),1,state,#state,colorFor(state),palette.gray)
     write(surface,width,height,2,3,formatNumber(model.total_items).." ITEMS",18,palette.cyan)
     write(surface,width,height,22,3,formatNumber(model.total_types).." TYPES",16,palette.lightGray)
+    local enriching=enrichmentText(model.enrichment)
+    if enriching then write(surface,width,height,2,4,enriching,width-2,palette.lightGray) end
     line(surface,width,height,5,palette.gray)
     local flow="DROP-OFF  > STORAGE >  PICKUP"
     write(surface,width,height,math.max(2,math.floor((width-#flow)/2)),5,flow,#flow,palette.white,palette.gray)

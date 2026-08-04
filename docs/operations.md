@@ -37,6 +37,8 @@ Importing is batched. Each cycle scans storage, issues every planned move, then 
 
 On the controller, type any part of an item name. Results update while background scans continue. Select an item, choose an exact NBT variant when necessary, and request one, a stack, all available, or an exact number. Retrieved items arrive in Pickup. The public monitor is status-only and resizes automatically.
 
+Once the initial index is built, a node is rescanned only for a reason: an operator or automation action requests it (a peripheral reattaching, or a planning/verification gate before a transfer), or its last scan is older than `scan_refresh_interval` (default 2 seconds, injectable), which is how the system notices a chest a player edited by hand. This is also the only way Drop-off contents are noticed at all: nothing tells the coordinator when an item physically lands there, so an idle controller only discovers a fresh deposit on the next staleness rescan, up to `scan_refresh_interval` after it happened. `READY` means the index is both complete and settled, not merely that it once was.
+
 Digit keys `1`-`5` jump directly to Search, Nodes, Requests, Alerts, and Setup. From any of those secondary pages, `F10` always returns to Search.
 
 Avoid manually changing storage while a transfer is verifying. The controller treats complete live storage scans as truth, measures movement by exact item-and-NBT totals across the whole configured storage pool, and waits rather than guessing when a node is unavailable or an unrelated change makes the result ambiguous.

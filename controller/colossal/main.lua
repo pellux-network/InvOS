@@ -269,7 +269,7 @@ function Main.build(environment)
         configured=config.configured,ui=ui,keymap=Keymap,initial_ui=uiState,
         build_index=Index.build,search=Search.query,aliases=aliases.items,
         enrich_step=enrichStep,registry=adapter,metadata_budget=1,metadata=metadata.items,
-        scan_budget=512,dropoff_scan_budget=32,
+        scan_budget=512,dropoff_scan_budget=32,scan_refresh_interval=env.scan_refresh_interval,
         lifecycle=Lifecycle,recovery=recovery,imports=imports,requests=requests,alerts=alerts,
         monitor=Monitor,monitor_surface=monitorSurface,on_effect=onEffect,
         intervals={heartbeat=0.25}})

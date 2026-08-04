@@ -16,7 +16,7 @@ Operators drive recovery from the terminal: retry and cancel on the Requests pag
 - `controller/colossal/tests/` contains the host-runnable Lua suite and must never be deployed.
 - `controller/colossal/deployment_manifest.lua` is the exact runtime deployment allow-list.
 - `docs/operations.md` describes topology, setup, recovery, upgrades, and deployment safety.
-- `docs/superpowers/specs/` holds design specs and `docs/superpowers/plans/` holds smaller work items. Pending: `specs/2026-08-03-scan-scheduling-design.md`, `specs/2026-08-03-crafting-turtle-design.md`, `plans/2026-08-03-batch-limit-tuning.md`.
+- `docs/superpowers/specs/` holds design specs and `docs/superpowers/plans/` holds smaller work items. Pending: `specs/2026-08-03-crafting-turtle-design.md`, `plans/2026-08-03-batch-limit-tuning.md`.
 
 ## Live-server safety
 
@@ -42,6 +42,8 @@ Operators drive recovery from the terminal: retry and cancel on the Requests pag
 - Journal schemas 1, 2, 3 and 4 must all keep validating, verifying and recovering. An upgrade must never orphan a journal that was in flight when the controller stopped.
 - Batching is bounded by two limits with different jobs: `slot_batch_limit` caps how many Drop-off slots join one cycle, `batch_limit` caps the moves issued in it and therefore how much a single ambiguous window can span. Raise either only with a live measurement, and ship a behaviour-preserving value first when the code path underneath is new.
 - A zero-movement or ambiguous operation must settle into an explicit blocked or recovery state rather than retrying from unrelated background scan generations. `SHORT_TRANSFER` and `PICKUP_FULL` therefore wait for explicit operator retry: `generation` increments on every completed node scan, so it is never evidence that the relevant inventory changed.
+- A node is only ever scanned for a reason: requested (`requestRescan`, from peripheral events and the planning/verification gates), never scanned (no snapshot, including a node just knocked offline), or stale past `scanRefreshInterval`. An idle coordinator with fresh snapshots does no scan work. `_initialIndexComplete` and every gate depend on this staying request-driven; do not reintroduce an unconditional queue refill, or every node is rescanned forever regardless of freshness again.
+- Nothing tells the coordinator when an item physically lands in Drop-off; the only way it finds out is a rescan. So `scanRefreshInterval` is not just a CPU/traffic dial, it is the upper bound on how long a fresh deposit sits unnoticed before an import even starts. Raising it trades that responsiveness for fewer background scans; a verification-gate's own forced rescan is unaffected by it either way, since that always discards and restarts regardless of freshness.
 - A change observed before any inventory call is not ambiguous, because nothing was issued. Abandon the stale attempt and rediscover rather than entering a terminal state.
 - A blocked batch replans the very same sources; it never rediscovers. So an item type that currently cannot be placed must be set aside with a backoff *and* its attempt abandoned, or a few unplaceable stacks low in the Drop-off hide every importable slot behind them.
 - Redraws happen only when something user-visible changed, so every such change must mark the coordinator dirty: scan completion, lifecycle transition, automation tick, recorded error, and command handling. A missed mark shows as a stale screen rather than an error, so verify against a live retrieval, not only tests.

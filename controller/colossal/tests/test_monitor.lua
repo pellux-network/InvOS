@@ -75,6 +75,25 @@ return {
         T.contains(surface.line(8):sub(activityX),"No active request")
         T.equal(surface.writesOutsideBounds(),0)
     end },
+    { name = "medium and large monitors show enrichment progress while learning item names", run = function()
+        local model=view(); model.enrichment={learned=1200,total=3000}
+        local mediumSurface=T.recordingSurface(34,11)
+        Monitor.render(mediumSurface,model)
+        T.contains(mediumSurface.allText(),"1,200")
+        T.contains(mediumSurface.allText(),"3,000")
+        T.equal(mediumSurface.writesOutsideBounds(),0)
+
+        local largeSurface=T.recordingSurface(58,18)
+        Monitor.render(largeSurface,model)
+        T.contains(largeSurface.allText(),"1,200")
+        T.contains(largeSurface.allText(),"3,000")
+        T.equal(largeSurface.writesOutsideBounds(),0)
+    end },
+    { name = "enrichment progress does not show once learning finishes", run = function()
+        local surface=T.recordingSurface(58,18)
+        Monitor.render(surface,view())
+        T.equal(surface.allText():find("Learning",1,true),nil)
+    end },
     { name = "large monitor frame looks up the surface size exactly once", run = function()
         local surface,calls=countedSurface(58,18)
         Monitor.render(surface,view())
