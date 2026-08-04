@@ -1878,3 +1878,30 @@ Deliberately not built here, to keep the stage shippable on its own:
 - Wiring `recipe_repo` or `craft_prefs` into `main.lua` — nothing constructs them yet. Stage 2 does, when there is a planner to consume them.
 - Loading `custom_recipes.lua` and `craft_prefs.lua` from disk through `shared/store.lua`. The repo and prefs modules accept injected values; the store wiring lands with the `main.lua` wiring in stage 2.
 - Any KubeJS or mod-jar import. The converter already accepts `--namespace` and any jar, but exercising that is a later step.
+
+---
+
+## Implementation notes: where the shipped code diverges from this plan
+
+Completed and merged. Final counts: **373 Lua tests** (not the 370 predicted) and **32 Python tests** (not 25). The code listings above are kept as written for the record, but the following diverged. Trust the repository over this document.
+
+**Two defects in this plan reached the implementer before being caught.**
+
+*The Task 6 shard fixture was reversed.* It placed `stick` in shard 1 and `chest` in shard 2, but `1 + (output_index % shard_count)` puts chest (index 2) in shard 1 and stick (index 3) in shard 2. Two Task 7 tests encoded the same reversal. Fixed in place above.
+
+*Task 7's `_shard` requested `pack_%d`, but the converter emits `pack_01.lua`.* Every `require` failed, `_shard` degraded to an empty shard by design, and all 639 outputs became silently uncraftable while every unit test passed — the injected test loader matched `^pack_(%d+)$` and was padding-agnostic where the real filenames are not. The shipped code uses `pack_%02d` and the caching test now asserts the padded names. **This is exactly what Task 7 Step 5 exists to catch**, and it is the reason that step is worth keeping in any future stage.
+
+**Hardening added after code review.**
+
+- `lua_value` escapes `\n`, `\r`, `\t` and `\000` as well as `\` and `"`. Unescaped control characters produced Lua that failed at `require` time on the game computer. `\0` is zero-padded because Lua's `\ddd` escape otherwise merges with a following digit.
+- `_grid` rejects patterns wider or taller than 3. An over-wide pattern previously corrupted the grid silently while an over-tall one raised `IndexError` — the same bad input failing loudly on one axis and quietly on the other.
+- The "is valid Lua" test now actually parses the rendered files with `luac -p` instead of checking substrings, and skips rather than errors when no Lua binary is present.
+- `build_pack` validates `shard_count`, warns about tags a recipe references but no jar defines, and shards render one recipe per line.
+- `output_id` was removed; it was written by the producer and stripped by the consumer.
+- The CLI resolves `--namespace` when deciding whether to unwrap a bundler, skips nested jars lacking data for that namespace, reports errors as messages rather than tracebacks, prunes shard files above the current `--shards`, closes its zip handles, and measures output in bytes rather than characters.
+
+**Design improvements in the runtime module.**
+
+- `RecipeRepo` owns copies of the item arrays. `defaultLoader` returns `require`'s cached module table, so interning a custom item into it would have mutated state shared by every instance and grown it on each construction.
+- `isCraftable` consults a membership set rather than scanning `index.outputs`. It is called once per search result across 639 outputs, so the linear scan would have made the Crafting page quadratic in pack size.
+- Two manifest guards were added: every manifest path must exist on disk, and every shard the pack declares must be listed. The manifest names shard files explicitly, so it has to stay in step with the converter's `--shards` default, and a mismatch would otherwise surface only at deployment.
