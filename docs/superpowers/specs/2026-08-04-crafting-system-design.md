@@ -167,10 +167,13 @@ the manifest could not list it either. The split is on mutability, not on file t
 
 Generated pack files:
 
-- `items.lua` -- interned item-ID table. Recipes reference integer indices.
-- `index.lua` -- output item -> recipe IDs, plus display names. Always resident. This is the
-  Crafting page's search corpus.
-- `pack_NN.lua` -- recipe bodies in shards, loaded on demand and cached.
+- `items.lua` -- interned item IDs plus their display names, as two parallel arrays. Recipes
+  reference integer indices into it. Always resident.
+- `index.lua` -- the sorted item indices that at least one recipe produces, plus the shard
+  count. Always resident. Together with `items.lua` this is the Crafting page's search corpus.
+- `pack_NN.lua` -- recipe bodies in shards, loaded on demand and cached. A recipe lives in
+  shard `1 + (output_index % shard_count)`, so every recipe for one output shares a shard and
+  resolving an output costs exactly one file load.
 - `tags.lua` -- the 71 tags, **pre-flattened by the converter**, so the controller never does
   recursive tag expansion at runtime.
 
