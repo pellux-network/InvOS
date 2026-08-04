@@ -298,7 +298,7 @@ function Main.build(environment)
 
     -- Crafting is optional. Without a bound buffer and turtle the modules are simply not
     -- built, the coordinator sees no craft service, and everything else runs unchanged.
-    local crafts
+    local crafts, link
     local recipes=RecipeRepo.new({custom=load(store,fsApi,root,"custom_recipes",
         RecipeRepo.validateCustom,nil)})
     local craftPrefs=CraftPrefs.new(load(store,fsApi,root,"craft_prefs",
@@ -309,7 +309,7 @@ function Main.build(environment)
         local bufferImports=ImportService.new({planner=Planner,transfer=transfer,alerts=alerts,
             transition=Lifecycle.transition,clock=now,slot_batch_limit=env.slot_batch_limit or 8})
         local buffer=CraftBuffer.new({imports=bufferImports,adapter=adapter})
-        local link=TurtleLink.new({rednet=env.rednet or rednet,peripheral=peripheralApi,
+        link=TurtleLink.new({rednet=env.rednet or rednet,peripheral=peripheralApi,
             name=config.turtle.peripheral_name})
         crafts=CraftService.new({planner=CraftPlanner,repo=recipes,prefs=craftPrefs,
             requests=requests,buffer=buffer,link=link,alerts=alerts,
@@ -385,6 +385,7 @@ function Main.build(environment)
         scan_budget=512,dropoff_scan_budget=32,scan_refresh_interval=env.scan_refresh_interval,
         lifecycle=Lifecycle,recovery=recovery,imports=imports,requests=requests,alerts=alerts,
         crafts=crafts,recipes=recipes,craft_prefs=craftPrefs,craft_planner=CraftPlanner,
+        turtle_link=link,
         craft_monitor=CraftMonitor,
         monitor=Monitor,monitor_surface=monitorSurface,
         craft_monitor_surface=craftMonitorSurface,on_effect=onEffect,

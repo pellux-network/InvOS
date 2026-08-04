@@ -131,4 +131,32 @@ return {
         local coordinator = build({crafts=stubService("IDLE")})
         T.equal(coordinator:topologyChangeSafe(), true)
     end},
+    {name="a rednet reply reaches the turtle link",run=function()
+        -- The event loop is the only place that sees every event, so it has to hand the
+        -- turtle's reply to the link. Nothing else does.
+        local received = {}
+        local link = {deliver=function(_, sender, message, protocol)
+            received[#received+1] = {sender=sender, message=message, protocol=protocol}
+            return true
+        end}
+        local coordinator = build({turtle_link=link})
+        coordinator:handle({"rednet_message", 7, {ok=true}, "pellstore-craft"})
+        T.equal(#received, 1, "the reply must be handed to the link")
+        T.equal(received[1].sender, 7)
+        T.equal(received[1].protocol, "pellstore-craft")
+        T.equal(received[1].message.ok, true)
+    end},
+    {name="a rednet message with no link configured is harmless",run=function()
+        local coordinator = build()
+        coordinator:handle({"rednet_message", 7, {ok=true}, "pellstore-craft"})
+        T.truthy(true, "an install without a turtle must not crash on stray rednet traffic")
+    end},
+    {name="a link that throws is recorded rather than killing the event loop",run=function()
+        local link = {deliver=function() error("modem exploded") end}
+        local coordinator = build({turtle_link=link})
+        coordinator:handle({"rednet_message", 7, {ok=true}, "pellstore-craft"})
+        local notices = coordinator:viewModel().notices
+        T.truthy(#notices > 0, "the error must surface rather than vanish")
+    end},
+
 }

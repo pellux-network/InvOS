@@ -15,7 +15,7 @@ function TurtleLink.new(deps)
         name = assert(deps.name, "the turtle peripheral name is required"),
         protocol = deps.protocol or PROTOCOL,
         timeout = deps.timeout or 0,
-        pending = nil,
+        pending = nil, inbox = {},
     }, TurtleLink)
 end
 
@@ -69,16 +69,34 @@ function TurtleLink:send(command)
         self:forget()
         return nil, "the crafting turtle did not accept the command"
     end
+    -- Drop anything left over from an earlier job so a stale reply cannot be
+    -- mistaken for this one's.
+    self.inbox = {}
     self.pending = command.job
     return true
 end
 
--- Non-blocking by design: the craft service polls between work-loop ticks, so the
--- controller keeps importing and retrieving while the turtle works.
+-- Replies arrive as rednet_message events on the controller's main event loop, and are
+-- handed here by the coordinator. They are NOT read with rednet.receive.
+--
+-- rednet.receive only catches a message that lands while it is waiting. The craft
+-- service polls from the work loop, which spends almost all of its time scanning,
+-- planning or sleeping, so a reply arriving outside that sliver of a tick was consumed
+-- by the event loop and discarded as unrecognised. The turtle answered and the
+-- controller threw the answer away, then timed out blaming the turtle.
+function TurtleLink:deliver(sender, message, protocol)
+    if protocol ~= nil and protocol ~= self.protocol then return false end
+    if type(message) ~= "table" then return false end
+    local expected = self:id()
+    if expected and sender ~= expected then return false end
+    self.inbox[#self.inbox + 1] = message
+    return true
+end
+
 function TurtleLink:poll()
     if not self.pending then return nil end
-    local ok, sender, message = pcall(self.rednet.receive, self.protocol, self.timeout)
-    if not ok or sender == nil or type(message) ~= "table" then return nil end
+    local message = table.remove(self.inbox, 1)
+    if message == nil then return nil end
     self.pending = nil
     return message
 end
