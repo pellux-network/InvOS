@@ -376,13 +376,23 @@ end
 -- the operator wants it in Pickup, moves it there as an ordinary retrieval -- the same
 -- pipeline any other request uses, and the only one that can see the whole amount.
 function CraftService:_advanceDelivering(job, context)
-    local cleared = self.buffer:drain(context, {})
-    if cleared.state == "BLOCKED" then
-        self:_block(job, cleared.reason or
-            {code="DRAIN_FAILED", message="The buffer could not be emptied to storage"})
+    -- Drained once, not on every tick. The delivery request plans against a storage
+    -- snapshot and then executes against live inventories; a drain running underneath it
+    -- moves the very slots it planned from, which surfaces as SOURCE_CHANGED and blocks
+    -- a craft that had already succeeded.
+    if not job.buffer_cleared then
+        local cleared = self.buffer:drain(context, {})
+        if cleared.state == "BLOCKED" then
+            self:_block(job, cleared.reason or
+                {code="DRAIN_FAILED", message="The buffer could not be emptied to storage"})
+            return
+        end
+        if cleared.state ~= "DONE" then return end
+        job.buffer_cleared = true
+        -- Return without creating the request, so the storage rescan that the request's
+        -- own planning gate forces happens after the output has landed.
         return
     end
-    if cleared.state ~= "DONE" then return end
 
     if job.destination == "storage" then
         self.alerts:resolve("craft_blocked:" .. job.id)

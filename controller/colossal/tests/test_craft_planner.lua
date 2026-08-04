@@ -107,12 +107,16 @@ local function consumedBy(step, itemId)
 end
 
 return {
-    {name="an item already in stock needs no craft at all",run=function()
+    {name="existing stock of the requested item is not counted toward it",run=function()
+        -- "craft 2 chests" means make 2, even with 5 already on the shelf. Topping up to
+        -- a total lives on the Search page's shortfall shortcut instead.
         local plan = CraftPlanner.plan({item="minecraft:chest", quantity=2},
-            context({["minecraft:chest"]=5}))
+            context({["minecraft:chest"]=5, ["minecraft:oak_planks"]=64}))
         T.equal(plan.ok, true)
-        T.equal(#plan.steps, 0, "nothing to craft")
-        T.equal(withdrawalOf(plan, "minecraft:chest"), 2)
+        T.equal(#plan.steps, 1, "it crafts rather than drawing on the five already held")
+        T.equal(stepFor(plan, "minecraft:chest").produced, 2)
+        T.equal(withdrawalOf(plan, "minecraft:chest"), 0, "the existing chests are untouched")
+        T.equal(withdrawalOf(plan, "minecraft:oak_planks"), 16)
     end},
     {name="a single craft withdraws its ingredients and records one step",run=function()
         local plan = CraftPlanner.plan({item="minecraft:chest", quantity=1},
@@ -127,11 +131,14 @@ return {
         T.equal(consumedBy(step, "minecraft:oak_planks"), 8)
         T.equal(withdrawalOf(plan, "minecraft:oak_planks"), 8)
     end},
-    {name="partial stock is used before anything is crafted",run=function()
-        local plan = CraftPlanner.plan({item="minecraft:chest", quantity=3},
-            context({["minecraft:chest"]=1, ["minecraft:oak_planks"]=64}))
-        T.equal(withdrawalOf(plan, "minecraft:chest"), 1, "existing stock is drawn first")
-        T.equal(stepFor(plan, "minecraft:chest").produced, 2, "only the shortfall is crafted")
+    {name="ingredient stock is still used before crafting more of it",run=function()
+        -- The rule covers the requested item only. Ingredients behave as before.
+        local plan = CraftPlanner.plan({item="minecraft:chest", quantity=1},
+            context({["minecraft:oak_planks"]=8, ["minecraft:oak_log"]=64}))
+        T.equal(plan.ok, true)
+        T.equal(withdrawalOf(plan, "minecraft:oak_planks"), 8, "planks on hand are used")
+        T.equal(withdrawalOf(plan, "minecraft:oak_log"), 0, "so no logs are needed")
+        T.equal(#plan.steps, 1, "only the chest is crafted")
     end},
     {name="a multistep tree resolves leaf-first",run=function()
         -- no planks, only logs: chest needs planks, planks need logs
@@ -295,10 +302,10 @@ return {
             context({["minecraft:oak_planks"]=24}))
         T.equal(howMany, 3, "24 planks makes 3 chests")
     end},
-    {name="maxCraftable counts sub-crafts and existing stock",run=function()
+    {name="maxCraftable counts sub-crafts but not stock of the item itself",run=function()
         local howMany = CraftPlanner.maxCraftable("minecraft:chest",
             context({["minecraft:chest"]=2, ["minecraft:oak_log"]=4}))
-        T.equal(howMany, 4, "2 in stock plus 16 planks from 4 logs makes 2 more")
+        T.equal(howMany, 2, "4 logs makes 16 planks, which makes 2 chests")
     end},
     {name="maxCraftable is zero when nothing can be made",run=function()
         T.equal(CraftPlanner.maxCraftable("minecraft:chest", context({})), 0)

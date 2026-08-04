@@ -219,7 +219,13 @@ Resolving a target `(identity, quantity)`:
    `craft()` call over 512 planks, not 64 calls. A recipe using an unstackable ingredient such
    as a bucket is pinned to one craft per call. AGENTS.md: throughput work belongs in reducing
    cycles, and this is where the cycles are.
-3. **Resolve tags against a running reservation ledger.** Availability is always
+3. **The requested item is crafted, not topped up.** Asking for 250 sticks makes 250,
+   even with 200 already on the shelf. Existing stock of the *requested* item is
+   deliberately not counted toward it; ingredients still come from storage as normal.
+   "Get me up to N" is the Search page's shortfall shortcut, which plans the difference
+   and hands that to the Crafting page as the quantity to make.
+
+4. **Resolve tags against a running reservation ledger.** Availability is always
    `live_quantity - already_reserved_by_this_plan`. Without the ledger, two branches of the
    tree both see the same 30 planks and both claim them.
 
@@ -240,10 +246,10 @@ Resolving a target `(identity, quantity)`:
    such as `[{"item": "..."}, {"tag": "..."}]`. The converter flattens each list to the union
    of its concrete items, after which it is indistinguishable from a tag and takes the
    identical selection rule. The planner has one ambiguity mechanism, not two.
-4. **Recurse on shortfall**, leaf-first, with a depth limit of 6 and a cycle guard on the set
+5. **Recurse on shortfall**, leaf-first, with a depth limit of 6 and a cycle guard on the set
    of outputs currently being resolved. `iron_ingot <-> iron_block` and comparable loops are
    real and otherwise recurse forever.
-5. **Aggregate shortfalls rather than failing fast.** An item neither in stock nor craftable
+6. **Aggregate shortfalls rather than failing fast.** An item neither in stock nor craftable
    makes the plan impossible, but the planner returns the complete missing list so the UI
    shows everything at once rather than one item per attempt.
 
