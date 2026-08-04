@@ -13,6 +13,7 @@ local defaultModules = {
     "tests.test_index",
     "tests.test_planner",
     "tests.test_recipe_repo",
+    "tests.test_craft_prefs",
     "tests.test_reconciliation",
     "tests.test_transfer",
     "tests.test_recovery",
