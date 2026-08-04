@@ -12,20 +12,30 @@ built here.
 The earlier spec left four open questions. Three are now answered from evidence rather than
 assumption.
 
-**A wired modem does network a turtle.** The controller's peripheral list reports `turtle_1`
-as an attached peripheral. The turtle's second upgrade slot stays free; no wireless or ender
-modem is needed. Rednet runs over the wired modem.
+**A wired modem does network a turtle.** The controller's peripheral list reports the crafting
+turtle as an attached peripheral. The turtle's second upgrade slot stays free; no wireless or
+ender modem is needed. Rednet runs over the wired modem.
 
-**The turtle exposes no inventory.** The same peripheral list reports `turtle_1 (turtle)` --
-one type -- while every chest reports two, for example `ironchests:netherite_chest_1
-(ironchests:netherite_chest, inventory)`. The turtle peripheral therefore offers only
-computer control (`turnOn`, `shutdown`, `reboot`, `isOn`), not turtle actions and not an
-inventory. The controller cannot push items into the turtle. Items reach it only by
-`suckDown` from the inventory directly beneath it.
+**The turtle exposes no inventory.** The peripheral list reports the turtle as one type --
+`turtle_2 (turtle)` -- while every chest reports two, for example
+`ironchests:netherite_chest_1 (ironchests:netherite_chest, inventory)`. Confirmed twice, on
+two different turtle instances. The turtle peripheral therefore offers only computer control
+(`turnOn`, `shutdown`, `reboot`, `isOn`), not turtle actions and not an inventory. The
+controller cannot push items into the turtle. Items reach it only by `suckDown` from the
+inventory directly beneath it.
 
-*Re-verify this at implementation time.* If `turtle_1` ever reports an `inventory` type, the
+*Re-verify at implementation time.* If the turtle ever reports an `inventory` type, the
 controller could push straight into grid slots and the staging design collapses to something
 much simpler.
+
+**The turtle's peripheral name is volatile and must never be hardcoded.** It was `turtle_1`
+in one observation and `turtle_2` in the next, because CC derives the name from the computer
+ID and a rebuilt turtle receives a new one. It is a Setup binding like every inventory.
+
+Rednet addresses computers by ID, not by peripheral name, so the controller resolves the
+turtle's rednet ID at runtime with `peripheral.call(<bound name>, "getID")` rather than
+storing an ID that can go stale. A rebuilt turtle then needs one Setup rebind and nothing
+else.
 
 **Staging happens in a dedicated buffer, not in Pickup.** See Topology.
 
@@ -50,6 +60,28 @@ transfer today.
 
 Use a 27-slot chest or larger. A 3x3 recipe stages up to nine distinct ingredient stacks and
 the result needs somewhere to land.
+
+### Confirmed bindings
+
+The full hardware is built and wired. Observed from the controller, every role below is bound
+in Setup and none is hardcoded:
+
+| role | peripheral |
+|---|---|
+| Drop-off | `ironchests:netherite_chest_1` |
+| Storage | `colossalchests:colossal_chest_0` |
+| Pickup | `ironchests:diamond_chest_1` |
+| Craft buffer | `ironchests:diamond_chest_2` |
+| Crafting turtle | `turtle_2` -- *volatile, see above* |
+| Main monitor | `top` |
+| Crafting monitor | `monitor_0` |
+
+Also attached and unused by this design: `bottom (modem, peripheral_hub)` and
+`speaker_0 (speaker)`.
+
+Note that Pickup and the buffer are both `ironchests:diamond_chest`, distinguished only by
+their trailing index. `Registry.validate` already rejects binding one peripheral to two roles,
+which is what stops a mis-set Setup from pointing crafting at the chest players collect from.
 
 ### Why a dedicated buffer rather than Pickup
 
@@ -402,10 +434,16 @@ first, which is arbitrary with two monitors attached. Config gains
 find stays as the fallback when unbound, so an install that has not been reconfigured keeps
 working.
 
-Config schema goes 1 -> 2, adding both `monitors` and the optional `craft_buffer` binding. The
-migration fills `monitors.main` from the current find and leaves `craft_buffer` absent, so the
-existing live install stays valid and keeps its current behaviour until the buffer is bound in
-Setup.
+Config schema goes 1 -> 2, adding `monitors`, `craft_buffer`, and `turtle` as first-class
+bindings alongside `dropoff`, `pickup`, and `storage`. The hardware is all built and wired, so
+none of these is a hypothetical optional extra and the schema does not pretend otherwise.
+
+They remain *absent-tolerant* for one reason only, which is not the same as optional: the
+controller must still boot and run storage without them, so that a fresh install can reach the
+Setup wizard and an operator who has not yet bound the buffer is not locked out of retrieval.
+Crafting features disable themselves when unbound; the system never refuses to start. The
+schema 1 -> 2 migration fills `monitors.main` from the existing `peripheral.find` result and
+leaves the crafting bindings for Setup.
 
 ## Changes to existing modules
 
@@ -416,22 +454,26 @@ All defaults preserve current behaviour exactly.
 | `core/planner.lua` | `planRetrieval`'s `pickup` parameter becomes `destination`. It is only read for `.health` and `.peripheral_name`; a pure rename. |
 | `app/requests.lua` | `create(identity, quantity, opts)` gains `opts.destination_role` and `opts.owner`. `tick` reads `context[destination_role or "pickup"]`. `PICKUP_FULL` becomes role-derived. `record_usage` is skipped for craft-owned requests, so search ranking keeps reflecting what people ask for rather than what recipes consume. |
 | `app/coordinator.lua` | `_context` gains the `craft_buffer` snapshot. `_preflightNames("requests")` derives its destination from the in-flight request instead of always Pickup. `craft_service` joins the automation rotation. |
-| `core/registry.lua` | `craft_buffer` becomes a fourth role in `validate`, entered into `bindings` so it cannot collide with Drop-off, Pickup, or a storage node, and optional so a non-crafting install stays valid. |
-| `colossal/main.lua` | `nodesFrom` adds the buffer node; monitor bindings; craft service wiring. |
+| `core/registry.lua` | `craft_buffer` becomes a fourth role in `validate`, entered into `bindings` so it cannot collide with Drop-off, Pickup, or a storage node. This matters concretely here: Pickup and the buffer are both `ironchests:diamond_chest`. |
+| `colossal/main.lua` | `nodesFrom` adds the buffer node; monitor and turtle bindings; craft service wiring. |
 | `app/keymap.lua`, `app/ui.lua` | Crafting page and its modes. |
 | `deployment_manifest.lua` | new runtime files; a second manifest for the turtle. |
 | `core/transfer.lua`, `core/reconciliation.lua` | **unchanged** |
 
-## Known cost
+## Known cost, and why it is accepted
 
 A Request carries one identity, so a three-ingredient craft step becomes three requests and
 therefore three gate cycles, where a single direct multi-identity batch would be one.
-AGENTS.md is explicit that the gate cycle is the unit of cost.
+AGENTS.md is explicit that the gate cycle is the unit of cost, so this is worth naming.
 
-This is accepted deliberately: one storage-withdrawal path is worth more than the cycles, and
-AGENTS.md is equally explicit that performance work is sized against the live installation
-first. Ship the consistent version, measure staging against the real Colossal Chest, and only
-then consider a multi-identity request line.
+It is accepted on live evidence, not on argument: retrievals on the real installation complete
+nearly instantly, so a few extra cycles per craft step are not a meaningful cost against the
+value of a single storage-withdrawal path. AGENTS.md requires performance work to be sized
+against the live installation rather than assumed, and that measurement has been made.
+
+Do not pre-optimise this into a multi-identity request line. If staging ever does become slow
+-- most plausibly on a much larger recipe tree, or after the Colossal Chest grows enough to
+make scans expensive -- measure it again first.
 
 ## Testing
 
@@ -479,5 +521,5 @@ extraction.
   controller did not cause surfaces as `RECONCILE_DIRECTION` and halts automation.
 - The turtle is a second live computer: its own manifest, and the same shutdown-confirm,
   hash-verified deployment gate as the controller.
-- Re-verify the `turtle_1` peripheral type list on the live system before building the staging
-  path.
+- Re-verify the turtle's peripheral type list on the live system before building the staging
+  path. Never hardcode its peripheral name; it has already changed once between observations.
