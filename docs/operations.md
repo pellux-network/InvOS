@@ -103,3 +103,39 @@ Insert a writable floppy in a connected disk drive and use the backup action. On
 For rollback, restore the previous runtime files while leaving local data in place. Never move inventory snapshots or journals between computers. If data schema compatibility is uncertain, recover the configuration-only floppy through fresh setup instead.
 
 Before any live installation, rerun the creative-world compatibility script against the target modpack and require `ALL TESTS PASSED`. Then perform a disposable-stack conservation smoke test: Drop-off + Pickup + all storage counts must equal the starting count.
+
+## Regenerating the crafting recipe pack
+
+The recipe pack under `controller/colossal/recipes/` is generated, not hand-written. It is deployed like code and listed in `deployment_manifest.lua`. Never edit it directly: the next regeneration overwrites it.
+
+Hand-written recipes belong in `colossal/data/custom_recipes.lua`, which lives with the mutable data the deployment gate preserves, and which takes precedence over every generated pack. Operator tag and recipe pins live alongside it in `colossal/data/craft_prefs.lua`.
+
+To regenerate from the vanilla server jar:
+
+```
+python tools/recipe_import.py \
+  --jar "C:/Servers/Wold's Vaults/libraries/net/minecraft/server/1.18.2/server-1.18.2.jar" \
+  --out controller/colossal/recipes
+```
+
+Expect 726 recipes across 639 outputs, written as 7 files totalling roughly 129 KB. A recipe count of 0 means the jar was opened but no recipe data was found for the namespace.
+
+The 1.18.2 server jar is a Mojang *bundler*: opening it directly finds 104 entries and no recipes at all. The converter unwraps the real jar nested at `META-INF/versions/1.18.2/server-1.18.2.jar` automatically, and only when the outer jar genuinely lacks data for the requested namespace.
+
+The jar is read read-only. Regenerating changes nothing on the live server, and can be done while the server is running.
+
+Only `crafting_shaped` and `crafting_shapeless` recipes are imported, because those are the only ones a crafty turtle can perform. Smelting, blasting, smoking, campfire cooking, stonecutting and smithing are skipped, as are the `crafting_special_*` recipes, which are hardcoded in Java with no data to read.
+
+Two flags exist for later use. `--namespace` points the converter at a mod's data (`data/<namespace>/recipes/`), and `--shards` changes how many `pack_NN.lua` files are emitted.
+
+**Changing `--shards` requires editing `deployment_manifest.lua` to match.** The manifest names each shard file explicitly. The suite has two guards for this — one asserting every manifest path exists, one asserting every shard the pack declares is listed — so a mismatch fails the test run rather than a live deployment. The converter also prunes shard files above the new count so stale shards cannot be deployed.
+
+### Verifying a regenerated pack
+
+From `controller/`:
+
+```
+lua -e 'package.path="colossal/?.lua;"..package.path; local R=require("core.recipe_repo").new({}); local o=R:outputs(); local m=0; for _,e in ipairs(o) do if #R:recipesFor(e.item)==0 then m=m+1 end end; print(#o.." outputs, "..m.." unreachable")'
+```
+
+Expect `639 outputs, 0 unreachable`. A non-zero unreachable count means the converter's shard placement and `recipe_repo`'s shard lookup disagree, which the unit tests cannot catch because they use an injected loader rather than the real files.

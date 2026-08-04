@@ -13,6 +13,8 @@ Operators drive recovery from the terminal: retry and cancel on the Requests pag
 - `controller/colossal/app/` contains services, coordination, setup, UI, and monitor rendering.
 - `controller/colossal/core/` contains inventory scanning, indexing, planning, transfers, reconciliation, and registry logic.
 - `controller/colossal/shared/` contains runtime, codec, and durable-store helpers.
+- `controller/colossal/recipes/` holds the generated crafting recipe pack. It is deployed like code, never hand-edited; regenerate it with `tools/recipe_import.py` and see `docs/operations.md`. Hand-written recipes go in `colossal/data/custom_recipes.lua` instead, which takes precedence over it.
+- `tools/` holds host-side build tooling that is never deployed. Its Python tests run with `python -m unittest test_recipe_pack` from `tools/`.
 - `controller/colossal/tests/` contains the host-runnable Lua suite and must never be deployed.
 - `controller/colossal/deployment_manifest.lua` is the exact runtime deployment allow-list.
 - `docs/operations.md` describes topology, setup, recovery, upgrades, and deployment safety.
@@ -66,6 +68,7 @@ Operators drive recovery from the terminal: retry and cancel on the Requests pag
 - Size any performance work against the live installation before optimising. A benchmark built on assumed scale, or on fakes where peripheral calls return instantly, will point at the wrong bottleneck.
 - A gate cycle costs roughly the same whether it carries one item or hundreds, so throughput work belongs in reducing the number of cycles, not the cost of each. Compare time per unit of work moved, never seconds per cycle: a change that amortises fixed overhead correctly makes each cycle slower.
 - When a design argues that some bad state cannot arise, still assert it. The claim that batched plans could never target the same slot was wrong, and the guard written against it turned a silent double-fill into a clean named failure before anything was issued.
+- A test double that is more permissive than the real thing hides integration bugs. `recipe_repo`'s injected loader matched `^pack_(%d+)$`, so it accepted the unpadded `pack_1` the module asked for while the converter emits `pack_01.lua`. Every unit test passed and all 639 outputs were silently uncraftable. Pin the exact contract in the test, and keep a check that exercises the real artifact.
 - When several independent changes are parallelised across agents, assign strict per-file ownership so the branches merge cleanly, and review returned work against the code rather than trusting the report.
 - Test changes must cover conservation of items, one-call transfer behavior, restart recovery, responsive input, renderer bounds, and live failure reproductions when relevant.
 - Host tests and repository development must not read from or write to live Minecraft inventories.
