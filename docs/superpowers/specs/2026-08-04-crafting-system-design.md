@@ -291,9 +291,43 @@ slot layout, and emits the turtle's step list already in that order.
 
 This is what makes the turtle thin and makes leftover intermediates in low slots harmless.
 
+### Job queue
+
+Jobs queue, and **exactly one runs at a time**. This is not a throttling policy that could be
+relaxed later -- it is forced by the hardware. There is one buffer chest and one turtle, so two
+concurrent jobs would interleave their ingredients in the same inventory and break the
+buffer-exactness invariant directly. Concurrency here would not be faster, it would be wrong.
+
+The queue mirrors `app/requests.lua`, which already solves this shape:
+
+- An ordered list plus an `byId` map. `_next()` returns the oldest non-terminal job, and only
+  that job advances on a tick. Every other job sits in `QUEUED` and is not planned, not
+  staged, and consumes nothing.
+- Terminal jobs are pruned against a cap, as `Requests:_prune()` does. Without it the list
+  grows forever and every redraw pays to deep-copy it.
+- Planning is deliberately deferred to the moment a job becomes active, never at enqueue time.
+  A job queued behind two others must plan against the stock that exists when its turn comes,
+  not the stock at the time it was submitted -- the jobs ahead of it will have consumed
+  materials it was counting on.
+
+**A job must leave the buffer empty before the next one starts.** Leftovers and byproducts go
+back to storage as the final act of a job, not lazily at the start of the next one, so every
+job begins from a known-clean buffer and a failed job cannot poison its successor.
+
+Cancellation:
+
+- A `QUEUED` job cancels immediately -- nothing has moved.
+- The active job follows `Requests:cancel` semantics: if it is mid-transfer it is marked
+  `cancel_requested` and settles at the next safe boundary rather than being torn down
+  mid-flight. The buffer purge still runs, so nothing is stranded.
+
+The queue is in-memory, like the jobs in it and like operator requests. A controller restart
+drops the whole queue; that follows from craft jobs being non-durable, and is the behaviour to
+expect rather than a gap.
+
 ### Job state machine
 
-Per craft step, leaf-first:
+The active job advances through these per craft step, leaf-first:
 
 - **PLANNING** -- replans against current stock on every entry, behind the existing planning
   verification gate, exactly as imports and requests do. Stock changes between steps are
@@ -339,9 +373,10 @@ Failure paths:
 ### Restart recovery
 
 **Craft jobs are deliberately not durable. The buffer is.** Transfers are already covered by
-the existing journal. An interrupted job is abandoned; on boot, a non-empty buffer with no
-active job raises an alert offering to return its contents to storage. Nothing is stranded
-where the controller cannot see it, which is the property the earlier spec asks for.
+the existing journal. An interrupted job is abandoned and the queue behind it is dropped; on
+boot, a non-empty buffer with no active job raises an alert offering to return its contents to
+storage. Nothing is stranded where the controller cannot see it, which is the property the
+earlier spec asks for.
 
 A durable job store would buy very little and would cost a fifth journal-adjacent schema that
 must keep validating forever.
@@ -397,7 +432,11 @@ New page 6, Crafting, added to the `pages` table in `app/keymap.lua`.
   the delivery destination between Pickup (default) and Storage, `p` pins the chosen item for
   that tag into the preference store, Enter commits, F10 backs out. **Nothing moves until this
   screen is confirmed.**
-- **`craft_jobs`** -- job list with `r` retry and `c` cancel, matching the Requests page.
+- **`craft_jobs`** -- the queue in run order, newest-first for display as the Requests page
+  does, with the active job marked and queued jobs showing their position. `r` retries and `c`
+  cancels, matching the Requests page. Committing from `craft_plan` enqueues rather than
+  starting immediately when a job is already running, and the plan screen says so instead of
+  appearing to stall.
 
 Secondary entry point: on the Search page, a request whose quantity exceeds stock shows
 `Craftable -- C to plan` and jumps into `craft_plan` for the shortfall. This is a shortcut,
@@ -422,7 +461,11 @@ STEP 2/3
 [####    ]
 oak_planks
 STAGING
++2 queued
 ```
+
+The queue-depth line is omitted entirely when nothing is waiting, rather than rendering
+`+0 queued`. On a 15x10 surface every line is worth something.
 
 Idle shows the craftable-type count and `IDLE`. Blocked shows the reason in red.
 
@@ -484,6 +527,9 @@ make scans expensive -- measure it again first.
 - Craft service: against the existing `mock_cc` plus a fake rednet and fake turtle, covering
   unreachable, timeout, ingredient mismatch, partial craft, and restart with a non-empty
   buffer.
+- Queue behaviour: only the active job advances; a queued job plans against stock as it exists
+  when it becomes active rather than at enqueue time; a job leaves the buffer empty before its
+  successor starts; cancelling a queued job moves nothing; terminal jobs are pruned.
 - The buffer-exactness invariant is asserted in code and tested directly.
 - Register every new test module in `defaultModules` in `colossal/tests/run.lua`.
 
