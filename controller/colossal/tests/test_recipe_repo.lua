@@ -9,14 +9,14 @@ local function pack()
         tags  = {schema=1, tags={["minecraft:planks"]={1}}},
         shards = {
             [1] = {schema=1, recipes={
-                {id="minecraft:stick", output=3, count=4, shaped=false,
-                 ingredients={"minecraft:planks","minecraft:planks"}},
-            }},
-            [2] = {schema=1, recipes={
                 {id="minecraft:chest", output=2, count=1, shaped=true,
                  grid={"minecraft:planks","minecraft:planks","minecraft:planks",
                        "minecraft:planks",0,"minecraft:planks",
                        "minecraft:planks","minecraft:planks","minecraft:planks"}},
+            }},
+            [2] = {schema=1, recipes={
+                {id="minecraft:stick", output=3, count=4, shaped=false,
+                 ingredients={"minecraft:planks","minecraft:planks"}},
             }},
         },
     }
@@ -58,5 +58,47 @@ return {
         local repo = RecipeRepo.new({loader=function() return nil end})
         T.arrayEqual(repo:outputs(), {})
         T.equal(repo:isCraftable("minecraft:chest"), false)
+    end},
+    {name="repo returns recipe bodies for an output",run=function()
+        local repo = RecipeRepo.new({loader=loaderFor(pack())})
+        local recipes = repo:recipesFor("minecraft:chest")
+        T.equal(#recipes, 1)
+        T.equal(recipes[1].id, "minecraft:chest")
+        T.equal(recipes[1].shaped, true)
+        T.equal(recipes[1].count, 1)
+        T.equal(#recipes[1].grid, 9)
+    end},
+    {name="repo loads only the shard an output maps to, and caches it",run=function()
+        local counter = {}
+        local repo = RecipeRepo.new({loader=loaderFor(pack(), counter)})
+        repo:recipesFor("minecraft:chest")
+        repo:recipesFor("minecraft:chest")
+        -- Names are asserted zero-padded on purpose. tools/recipe_pack.py emits
+        -- pack_01.lua, so an unpadded request resolves to nothing, _shard degrades
+        -- to an empty shard, and every output silently looks uncraftable in
+        -- production while these tests still pass.
+        T.equal(counter["pack_01"], 1, "shard should load once")
+        T.equal(counter["pack_02"], nil, "unrelated shard must not load")
+    end},
+    {name="repo expands a tag reference to concrete item ids",run=function()
+        local repo = RecipeRepo.new({loader=loaderFor(pack())})
+        T.arrayEqual(repo:expand("minecraft:planks"), {"minecraft:oak_planks"})
+        T.arrayEqual(repo:expand("minecraft:missing"), {})
+    end},
+    {name="repo resolves an ingredient reference of either form",run=function()
+        local repo = RecipeRepo.new({loader=loaderFor(pack())})
+        T.arrayEqual(repo:resolve("minecraft:planks"), {"minecraft:oak_planks"})
+        T.arrayEqual(repo:resolve(2), {"minecraft:chest"})
+        T.arrayEqual(repo:resolve(0), {})
+    end},
+    {name="repo returns nothing for an unknown output",run=function()
+        local repo = RecipeRepo.new({loader=loaderFor(pack())})
+        T.arrayEqual(repo:recipesFor("minecraft:nonexistent"), {})
+    end},
+    {name="repo survives a shard that fails to load",run=function()
+        local value = pack()
+        value.shards[1] = nil
+        local repo = RecipeRepo.new({loader=loaderFor(value)})
+        T.arrayEqual(repo:recipesFor("minecraft:chest"), {})
     end},
 }
