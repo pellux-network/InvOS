@@ -4,7 +4,7 @@ local M={files={
     "colossal/deployment_manifest.lua",
     "colossal/app/alerts.lua",
     "colossal/app/backup.lua",
-    "colossal/app/craft_buffer.lua",
+    "colossal/app/craft_buffer.lua",
     "colossal/app/craft_monitor.lua",
     "colossal/app/craft_service.lua",
     "colossal/app/coordinator.lua",
