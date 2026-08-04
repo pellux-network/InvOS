@@ -15,6 +15,7 @@ import zipfile
 from recipe_import import (
     merge_tags,
     read_jar,
+    read_kubejs,
     read_mods,
 )
 
@@ -174,6 +175,78 @@ class ReadModsTest(unittest.TestCase):
             recipes, _, _, report = read_mods(directory)
         self.assertEqual(report["collisions"], 1)
         self.assertEqual(recipes["ns:x"]["result"]["item"], "ns:second")
+
+
+class ReadKubeJsTest(unittest.TestCase):
+    """The runtime dump is authoritative in a way a jar scan cannot be: about 10% of modded
+    crafting recipes are gated behind conditions that depend on each mod's config."""
+
+    def dump(self, payload):
+        handle = tempfile.NamedTemporaryFile("w", suffix=".json", delete=False)
+        with handle:
+            json.dump(payload, handle)
+        self.addCleanup(os.unlink, handle.name)
+        return handle.name
+
+    def test_reads_recipes_keyed_by_id(self):
+        path = self.dump({"schema": 1,
+                          "recipes": [{"id": "quark:dark_oak_chest",
+                                       "recipe": shaped("quark:dark_oak_chest")}],
+                          "tags": {}})
+        recipes, tags, _ = read_kubejs(path)
+        self.assertEqual(list(recipes), ["quark:dark_oak_chest"])
+        self.assertEqual(recipes["quark:dark_oak_chest"]["result"]["item"],
+                         "quark:dark_oak_chest")
+        self.assertEqual(tags, {})
+
+    def test_tags_come_resolved_from_the_game(self):
+        # The game already expanded these, so nothing here needs flattening and nothing can
+        # disagree with what the server will actually accept.
+        path = self.dump({"schema": 1, "recipes": [],
+                          "tags": {"minecraft:planks": ["minecraft:oak_planks",
+                                                        "minecraft:dark_oak_planks"]}})
+        _, tags, _ = read_kubejs(path)
+        self.assertEqual(tags["minecraft:planks"],
+                         ["minecraft:oak_planks", "minecraft:dark_oak_planks"])
+
+    def test_an_empty_tag_is_kept_rather_than_dropped(self):
+        # Kept so "resolves to nothing" stays distinguishable from "never mentioned", which
+        # is what the undefined-tag warning reports on.
+        path = self.dump({"schema": 1, "recipes": [], "tags": {"mod:absent": []}})
+        _, tags, _ = read_kubejs(path)
+        self.assertEqual(tags["mod:absent"], [])
+
+    def test_a_report_counts_what_was_read(self):
+        path = self.dump({"schema": 1,
+                          "recipes": [{"id": "a:one", "recipe": shaped("a:one")},
+                                      {"id": "a:two", "recipe": shaped("a:two")}],
+                          "tags": {"t:x": ["a:i"]}})
+        _, _, report = read_kubejs(path)
+        self.assertEqual(report["recipes"], 2)
+        self.assertEqual(report["tags"], 1)
+
+    def test_an_unknown_schema_is_refused(self):
+        # A dump from a newer script must not be read under old assumptions.
+        path = self.dump({"schema": 99, "recipes": [], "tags": {}})
+        with self.assertRaises(SystemExit):
+            read_kubejs(path)
+
+    def test_a_missing_file_is_a_clean_error(self):
+        with self.assertRaises(SystemExit):
+            read_kubejs(os.path.join(tempfile.gettempdir(), "no-such-dump-12345.json"))
+
+    def test_malformed_json_is_a_clean_error(self):
+        handle = tempfile.NamedTemporaryFile("w", suffix=".json", delete=False)
+        with handle:
+            handle.write("{not json")
+        self.addCleanup(os.unlink, handle.name)
+        with self.assertRaises(SystemExit):
+            read_kubejs(handle.name)
+
+    def test_an_entry_missing_its_id_is_refused(self):
+        path = self.dump({"schema": 1, "recipes": [{"recipe": shaped("a:one")}], "tags": {}})
+        with self.assertRaises(SystemExit):
+            read_kubejs(path)
 
 
 if __name__ == "__main__":

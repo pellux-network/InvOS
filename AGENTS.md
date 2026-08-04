@@ -84,6 +84,7 @@ several shapes.
 - **A craft quantity means "make N", not "bring stock up to N".** The "up to" behaviour is the Search page's retrieval. The planner draws ingredients from storage but never the requested item itself.
 - **`rednet.send` throws "No open sides" unless a modem is opened first,** and the controller has no other reason to use rednet. The turtle's reply arrives as an event on the work loop, so the link needs an inbox: polling `rednet.receive` loses a reply that lands between polls.
 - **A live pack is not a fixture.** The planner picked `acacia_planks` with only oak logs in stock; only running the real recipe pack found it. Tag candidates are now tried in order with ledger rollback.
+- **Mod jars describe recipes that may not exist.** About 10% of modded crafting recipes carry `conditions`, and the common ones are config flags (`quark:flag`, `thermal:flag`, `mysticalagriculture:*`) that only resolve at runtime. A jar scan reports both halves of a mutually exclusive pair — Quark's `minecraft:chest` and `quark:dark_oak_chest` are gated on opposite states of one flag — and the controller then plans a craft that produces a different item and blocks on `OUTPUT_MISSING` after consuming real materials. For a modpack, source the recipe set from `tools/kubejs/pellstore_export.js`, which runs after conditions resolve. Jar scanning is a superset, correct only for vanilla.
 
 ## Development and testing
 

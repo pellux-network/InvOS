@@ -154,6 +154,52 @@ def merge_tags(accumulated, incoming):
     return accumulated
 
 
+KUBEJS_SCHEMA = 1
+
+
+def read_kubejs(path):
+    """Read a runtime dump written by tools/kubejs/pellstore_export.js.
+
+    This is authoritative in a way a jar scan cannot be. Around 10% of modded crafting
+    recipes are gated behind `conditions`, and the common ones -- quark:flag,
+    supplementaries:flag, thermal:flag, mysticalagriculture:* -- depend on each mod's
+    config, which only exists at runtime. A jar scan reports both halves of a mutually
+    exclusive pair, so the controller can plan a craft that produces a different item than
+    it expects and then block on the mismatch.
+
+    Tags arrive already resolved by the game, so nothing here needs flattening and nothing
+    can disagree with what the server will accept.
+    """
+    try:
+        with open(path, "r", encoding="utf-8") as handle:
+            payload = json.load(handle)
+    except FileNotFoundError:
+        raise SystemExit("kubejs dump not found: %s\n"
+                         "         copy tools/kubejs/pellstore_export.js into "
+                         "<server>/kubejs/server_scripts/ and run /reload" % path)
+    except ValueError as exc:
+        raise SystemExit("kubejs dump is not valid json: %s (%s)" % (path, exc))
+
+    schema = payload.get("schema")
+    if schema != KUBEJS_SCHEMA:
+        raise SystemExit("kubejs dump schema %r is not supported (expected %d); "
+                         "regenerate it with the current pellstore_export.js"
+                         % (schema, KUBEJS_SCHEMA))
+
+    recipes = {}
+    for entry in payload.get("recipes") or []:
+        recipe_id = entry.get("id")
+        if not recipe_id:
+            raise SystemExit("kubejs dump contains a recipe with no id")
+        recipes[recipe_id] = entry.get("recipe") or {}
+
+    tags = {}
+    for name, items in (payload.get("tags") or {}).items():
+        tags[name] = list(items)
+
+    return recipes, tags, {"recipes": len(recipes), "tags": len(tags)}
+
+
 def jar_paths(sources):
     """Expand a list of directories and/or jar files into a sorted list of jar paths.
 
@@ -233,14 +279,20 @@ def main():
                              "namespace. Pass the mods directory AND the Forge universal "
                              "jar: Forge owns the forge:* item tags that modded recipes "
                              "refer to. Combine with --jar to include vanilla.")
+    parser.add_argument("--kubejs", metavar="DUMP",
+                        help="a pellstore_recipes.json written by "
+                             "tools/kubejs/pellstore_export.js. This is the recipe set the "
+                             "game actually has, with conditions already resolved; prefer "
+                             "it over --mods for a modpack. Pair with --mods to pick up "
+                             "display names.")
     parser.add_argument("--out", required=True, help="output directory for the pack")
     parser.add_argument("--namespace", default="minecraft",
                         help="which namespace --jar is read for (ignored by --mods)")
     parser.add_argument("--shards", type=int, default=4)
     args = parser.parse_args()
 
-    if not args.jar and not args.mods:
-        raise SystemExit("nothing to read: pass --jar, --mods, or both")
+    if not args.jar and not args.mods and not args.kubejs:
+        raise SystemExit("nothing to read: pass --kubejs, --jar, --mods, or a combination")
 
     recipes, tags, lang = {}, {}, {}
 
@@ -273,6 +325,23 @@ def main():
         if report["collisions"]:
             print("  %d recipe ids defined more than once; the last jar won"
                   % report["collisions"])
+
+    # Last, so the runtime set wins over anything read from disk: where they disagree, the
+    # game is right and the jars are describing recipes that conditions turned off.
+    if args.kubejs:
+        liveRecipes, liveTags, report = read_kubejs(args.kubejs)
+        if args.mods or args.jar:
+            print("kubejs dump overrides %d of %d jar-read recipes"
+                  % (sum(1 for key in liveRecipes if key in recipes), len(recipes)))
+            recipes = {key: body for key, body in recipes.items() if key in liveRecipes}
+        recipes.update(liveRecipes)
+        # Resolved tags replace rather than extend: the game has already decided what each
+        # tag contains, and adding jar-read members back would reintroduce items the
+        # running server does not actually accept.
+        for name, items in liveTags.items():
+            tags[name] = items
+        print("kubejs dump: %d recipes, %d resolved tags"
+              % (report["recipes"], report["tags"]))
 
     if not recipes:
         raise SystemExit("no recipes found")

@@ -258,8 +258,44 @@ Expect `639 outputs, 0 unreachable`. A non-zero unreachable count means the conv
 
 ### Importing every modded recipe
 
-`--mods` scans whole jars instead of one namespace. Sources may be directories or single
-jar files, and any number of them:
+**Use the runtime dump for a modpack.** Roughly 10% of modded crafting recipes are gated
+behind `conditions`, and the common ones — `quark:flag`, `supplementaries:flag`,
+`thermal:flag`, `sophisticatedcore:item_enabled`, `mysticalagriculture:*` — depend on each
+mod's config, which only exists at runtime. Reading jars cannot evaluate them, so it reports
+recipes that are switched off, including both halves of a mutually exclusive pair.
+
+Quark's chest is the clearest example. `minecraft:chest` from any planks is gated on
+`forge:not(quark:flag variant_chests)`, while `quark:dark_oak_chest` from dark oak planks is
+gated on the same flag being on. A jar scan yields both. The controller would then plan
+`minecraft:chest`, the turtle would craft a `quark:dark_oak_chest`, and the job would block
+on `OUTPUT_MISSING` — a craft that consumed real items and produced the wrong thing.
+
+1. Copy `tools/kubejs/pellstore_export.js` into `<server>/kubejs/server_scripts/`.
+2. Restart the server, or run `/reload`. The script adds, removes and modifies nothing; it
+   reads the loaded recipe set and writes `kubejs/exported/pellstore_recipes.json`. Prefer a
+   restart on a large pack — `/reload` is server-wide and some mods handle it poorly.
+3. Convert, pairing the dump with the jars so display names come along:
+
+```bash
+python tools/recipe_import.py \
+  --kubejs "C:/Servers/<world>/kubejs/exported/pellstore_recipes.json" \
+  --mods "C:/Servers/<world>/mods" \
+  --out controller/colossal/recipes --shards 16
+```
+
+The dump is applied last and wins: where it and the jars disagree, the game is right and the
+jars are describing recipes that conditions turned off. Its tags are used as-is rather than
+merged, because the game has already decided what each tag contains.
+
+The script's console line reports how many recipes and tags it exported. If it does not
+appear, the script is not in `server_scripts/` or the reload did not happen.
+
+#### Reading jars directly
+
+Useful for vanilla, for a pack with no KubeJS, or as a cross-check. It reads whole jars
+instead of one namespace; sources may be directories or single jar files, and any number of
+them. **It does not evaluate `conditions`**, so treat its output as a superset of what the
+game will actually craft:
 
 ```bash
 python tools/recipe_import.py \
@@ -275,7 +311,8 @@ Thousands of modded recipes refer to them. Leaving it out does not fail: 54 extr
 silently resolve to no items and every recipe using them becomes uncraftable. The converter
 warns about tags that are referenced but never defined; that list is the check.
 
-Measured against the live 1.18.2 installation (408 jars):
+Measured against the live 1.18.2 installation (408 jars), before conditions are accounted
+for — 1,653 of these carry conditions and an unknown fraction of those are inactive:
 
 | | |
 |---|---|
