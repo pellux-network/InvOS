@@ -148,6 +148,23 @@ local function setupChoices(service,step)
             end
         end
     end
+    -- Every crafting binding is optional and skippable: an installation without a turtle
+    -- must still be able to finish Setup.
+    local function addSkip(label)
+        choices[#choices+1]={label=label or "Skip (no crafting)",detail="leave unbound"}
+    end
+    local function addByType(kind,exclude)
+        for _,entry in ipairs(service:discoverByType(kind)) do
+            if entry.name~=exclude then
+                choices[#choices+1]={name=entry.name,label=entry.name,detail=kind}
+            end
+        end
+    end
+    local function bound(name,current)
+        if current and name==current then return "[bound] "..name end
+        return name
+    end
+
     if step==1 then
         choices={{label="Continue with "..#discovered.." inventories",detail="read-only discovery"}}
     elseif step==2 or step==3 then addInventories()
@@ -161,13 +178,45 @@ local function setupChoices(service,step)
                 if node.peripheral_name==choice.name then choice.label="[added] "..choice.label end
             end
         end
-    elseif step==5 then choices={{label="Run read-only validation",detail="moves no items"}}
-    elseif step==6 then choices={{label="Save configuration and enable",detail="starts immediately"}} end
+    elseif step==5 then
+        addSkip()
+        addInventories(function(name,value)
+            if value.dropoff and name==value.dropoff.peripheral_name then return false end
+            if value.pickup and name==value.pickup.peripheral_name then return false end
+            for _,node in ipairs(value.storage or {}) do
+                if node.peripheral_name==name then return false end
+            end
+            return true
+        end)
+        for _,choice in ipairs(choices) do
+            if choice.name and draft.craft_buffer and
+                choice.name==draft.craft_buffer.peripheral_name then
+                choice.label="[bound] "..choice.label
+            end
+        end
+    elseif step==6 then
+        addSkip()
+        addByType("turtle")
+        for _,choice in ipairs(choices) do
+            if choice.name and draft.turtle and choice.name==draft.turtle.peripheral_name then
+                choice.label="[bound] "..choice.label
+            end
+        end
+    elseif step==7 or step==8 then
+        local monitors=draft.monitors or {}
+        addSkip(step==7 and "Skip (auto-detect)" or "Skip (no crafting monitor)")
+        addByType("monitor", step==8 and monitors.main or nil)
+        local current=step==7 and monitors.main or monitors.crafting
+        for _,choice in ipairs(choices) do
+            if choice.name then choice.label=bound(choice.name,current) end
+        end
+    elseif step==9 then choices={{label="Run read-only validation",detail="moves no items"}}
+    elseif step==10 then choices={{label="Save configuration and enable",detail="starts immediately"}} end
     return choices
 end
 
 local function syncSetup(coordinator,service,step,issues)
-    coordinator:command({type="SYNC_SETUP",step=math.max(1,math.min(6,step)),
+    coordinator:command({type="SYNC_SETUP",step=math.max(1,math.min(10,step)),
         choices=setupChoices(service,step),issues=issues or {}})
     coordinator:redraw()
 end
@@ -277,8 +326,8 @@ function Main.build(environment)
         elseif effect.type=="CANCEL_SETUP" then setup:cancel()
         elseif effect.type=="SETUP_BACK" then syncSetup(active,setup,(effect.step or 1)-1)
         elseif effect.type=="SETUP_NEXT" then
-            local nextStep=math.min(6,(effect.step or 1)+1)
-            if nextStep==6 then report=setup:validate() end
+            local nextStep=math.min(10,(effect.step or 1)+1)
+            if nextStep==9 then report=setup:validate() end
             syncSetup(active,setup,nextStep,report and report.issues)
         elseif effect.type=="SETUP_SELECT" then
             local step=effect.step or 1
@@ -296,10 +345,16 @@ function Main.build(environment)
                 if found then setup:removeStorage(found.id)
                 else setup:addStorage(choice.name,choice.name) end
                 syncSetup(active,setup,4)
-            elseif step==5 then
+            elseif (step==5 or step==6 or step==7 or step==8) and choice then
+                -- choice.name is nil for the Skip entry, which clears the binding.
+                local roles={[5]="craft_buffer",[6]="turtle",
+                    [7]="monitor_main",[8]="monitor_crafting"}
+                setup:assign(roles[step],choice.name)
+                syncSetup(active,setup,step+1)
+            elseif step==9 then
                 report=setup:validate()
-                syncSetup(active,setup,report.ok and 6 or 5,report.issues)
-            elseif step==6 and report and report.ok then
+                syncSetup(active,setup,report.ok and 10 or 9,report.issues)
+            elseif step==10 and report and report.ok then
                 local topologyOk,topologyReason=active:topologyChangeSafe()
                 if not topologyOk then
                     alerts:set("setup_save","warning",topologyReason)

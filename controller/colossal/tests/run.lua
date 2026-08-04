@@ -38,6 +38,7 @@ local defaultModules = {
     "tests.test_monitor",
     "tests.test_setup",
     "tests.test_setup_validation",
+    "tests.test_setup_crafting",
     "tests.test_setup_recovery",
     "tests.test_setup_duplicates",
     "tests.test_setup_ui",
