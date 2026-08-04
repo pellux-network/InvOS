@@ -107,20 +107,34 @@ local function newTurtle(buffer)
         return true
     end
     -- Crafts as many times as the smallest occupied grid cell allows, capped at 64,
-    -- which is what turtle.craft() does.
+    -- and refuses unless the occupied slots are exactly the recipe's layout.
+    --
+    -- Validating the layout is the point. Without it the fake crafts from whatever
+    -- happens to be lying in the grid, which is how a recipe staged into the wrong
+    -- turtle slots passed every test and then failed in game.
+    local GRID = {1,2,3,5,6,7,9,10,11}
+    local INSIDE = {}
+    for _, slot in ipairs(GRID) do INSIDE[slot] = true end
     function api.craft()
-        local grid = {1,2,3,5,6,7,9,10,11}
+        local recipe = api.recipe
+        if not recipe then return false end
+        local expected = {}
+        for _, slot in ipairs(recipe.slots or {}) do expected[slot] = true end
         local runs, occupied = STACK, 0
-        for _, cell in ipairs(grid) do
-            local entry = api.slots[cell]
+        for slot = 1, 16 do
+            local entry = api.slots[slot]
             if entry then
+                if not INSIDE[slot] then return false end
+                if not expected[slot] then return false end
                 occupied = occupied + 1
                 runs = math.min(runs, entry.count)
             end
         end
         if occupied == 0 then return false end
-        local recipe = api.recipe
-        if not recipe then return false end
+        for slot in pairs(expected) do
+            if not api.slots[slot] then return false end
+        end
+        local grid = GRID
         for _, cell in ipairs(grid) do
             local entry = api.slots[cell]
             if entry then
@@ -190,9 +204,11 @@ local function run(item, quantity, storage)
     local buffer = newBuffer()
     local turtle = newTurtle(buffer)
     local link = newLink(turtle, {
-        ["minecraft:oak_planks"] = {item = "minecraft:oak_planks", per = 4},
-        ["minecraft:stick"] = {item = "minecraft:stick", per = 4},
-        ["minecraft:chest"] = {item = "minecraft:chest", per = 1},
+        -- slots are the turtle grid slots each recipe must occupy
+        ["minecraft:oak_planks"] = {item = "minecraft:oak_planks", per = 4, slots = {1}},
+        ["minecraft:stick"] = {item = "minecraft:stick", per = 4, slots = {1, 5}},
+        ["minecraft:chest"] = {item = "minecraft:chest", per = 1,
+            slots = {1, 2, 3, 5, 7, 9, 10, 11}},
     })
     local delivered = {}
     local requests = newRequests(buffer, storage, delivered)

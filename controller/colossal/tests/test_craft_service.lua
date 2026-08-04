@@ -355,4 +355,32 @@ return {
         T.fails(function() craft:enqueue("minecraft:chest", 0) end)
         T.fails(function() craft:enqueue("minecraft:chest", 1.5) end)
     end},
+    {name="recipe grid positions map onto the turtle's crafting slots",run=function()
+        -- turtle.craft() reads slots 1-3, 5-7 and 9-11. Slots 4, 8 and 12-16 are outside
+        -- the grid, so a recipe position passed straight through as a slot lands an
+        -- ingredient where the craft cannot see it.
+        local expected = {1,2,3, 5,6,7, 9,10,11}
+        for position = 1, 9 do
+            T.equal(CraftService._turtleSlot(position), expected[position],
+                "grid position " .. position)
+        end
+    end},
+    {name="a two-cell vertical recipe uses slots 1 and 5, not 1 and 4",run=function()
+        -- The stick recipe is one column, two rows: grid positions 1 and 4. Position 4
+        -- is turtle slot 5; slot 4 is outside the crafting grid entirely.
+        local link = fakeLink()
+        local craft = service({plan({{item="minecraft:stick", recipe_id="r:stick",
+            crafts=1, batch=1, calls=1, produced=4, per_craft=4,
+            consumes={{item="minecraft:oak_planks", count=2}},
+            cells={"minecraft:oak_planks", false, false, "minecraft:oak_planks"}}},
+            {{item="minecraft:oak_planks", count=2}})}, {link=link})
+        craft:enqueue("minecraft:stick", 4)
+        run(craft, context(), 8)
+        T.equal(#link.sent, 1, "one command should have been sent")
+        local sent = link.sent[1]
+        T.equal(#sent.steps, 1, "one ingredient")
+        T.arrayEqual(sent.steps[1].cells, {1, 5},
+            "grid positions 1 and 4 are turtle slots 1 and 5")
+    end},
+
 }
