@@ -471,6 +471,31 @@ function Coordinator:_dispatch(effect)
     elseif effect.type == "RESOLVE_RECOVERY" and self.deps.recovery then
         local ok, reason = pcall(self.deps.recovery.resolve, self.deps.recovery)
         if not ok then self:_recordError("recovery", reason) end
+    elseif effect.type == "PLAN_CRAFT" then
+        self:_planCraft(effect)
+    elseif effect.type == "COMMIT_CRAFT" then
+        if self.deps.crafts then
+            local ok, reason = pcall(self.deps.crafts.enqueue, self.deps.crafts,
+                effect.item, effect.quantity,
+                {destination=effect.destination, confirmed=effect.plan})
+            if not ok then self:_recordError("craft", reason) end
+        else
+            self:_recordError("craft", "crafting is not configured; bind a buffer and turtle")
+        end
+    elseif effect.type == "PIN_CRAFT_CHOICE" and self.deps.craft_prefs then
+        local ok, reason = pcall(self.deps.craft_prefs.pinTag, self.deps.craft_prefs,
+            effect.tag, effect.item)
+        if not ok then self:_recordError("craft", reason) end
+    elseif effect.type == "RETRY_CRAFT" or effect.type == "CANCEL_CRAFT" or
+        effect.type == "CONFIRM_CRAFT" then
+        local service = self.deps.crafts
+        local target = service and service.list and service:list()[effect.index]
+        if service and target then
+            local method = effect.type == "RETRY_CRAFT" and service.retry or
+                (effect.type == "CANCEL_CRAFT" and service.cancel or service.confirm)
+            local ok, reason = pcall(method, service, target.id)
+            if not ok then self:_recordError("craft", reason) end
+        end
     elseif effect.type == "TOGGLE_PAUSE" then
         if self.paused then self:resume() else self:pause() end
     elseif effect.type == "SETUP_COMMITTED" and effect.config then
@@ -479,6 +504,38 @@ function Coordinator:_dispatch(effect)
         local ok, reason = pcall(self.deps.on_effect, effect, self)
         if not ok then self:_recordError("command", reason) end
     end
+end
+
+
+-- Planning is a pure computation over the current index, so it runs inline on the
+-- keypress rather than going through the automation rotation. Nothing moves here; the
+-- resulting plan is only rendered so the operator can confirm it.
+function Coordinator:_planCraft(effect)
+    local repo, planner = self.deps.recipes, self.deps.craft_planner
+    if not repo or not planner then return end
+    local context = {
+        repo = repo, prefs = self.deps.craft_prefs,
+        available = function(itemId) return self:_craftStock(itemId) end,
+        stack_limit = function() return 64 end,
+    }
+    local quantity = effect.quantity
+    if quantity == "max" then
+        local ok, most = pcall(planner.maxCraftable, effect.item, context)
+        quantity = ok and most or 0
+    end
+    local plan
+    if type(quantity) ~= "number" or quantity < 1 then
+        plan = {ok=false, item=effect.item, quantity=0, steps={}, withdrawals={},
+            chosen={}, shortfalls={{item=effect.item, missing=1}},
+            reason={code="NOTHING_CRAFTABLE", message="Nothing can be crafted right now"}}
+    else
+        local ok, computed = pcall(planner.plan, {item=effect.item, quantity=quantity}, context)
+        if not ok then self:_recordError("craft", computed); return end
+        plan = computed
+    end
+    local reduced = self.ui:reduce(self.uiState, {type="SYNC_CRAFT_PLAN", plan=plan})
+    self.uiState = reduced or self.uiState
+    self.dirty = true
 end
 
 function Coordinator:command(command)
@@ -515,6 +572,10 @@ function Coordinator:handle(event)
     if command then
         self:command(command)
         if command.type == "QUERY_APPEND" or command.type == "QUERY_BACKSPACE" then self:_rebuildIndex() end
+        if command.type == "CRAFT_QUERY_APPEND" or command.type == "CRAFT_QUERY_BACKSPACE" or
+            (command.type == "OPEN_PAGE" and command.page == "crafting") then
+            self:_syncCraft()
+        end
         self:redraw()
     end
 end
@@ -596,6 +657,85 @@ function Coordinator:_enrichmentProgress()
     return {learned = state.cursor - 1, total = #state.keys}
 end
 
+
+-- The recipe catalogue is 639 entries and does not change while the controller runs, so
+-- it is built once rather than rebuilt per keystroke. Stock is looked up per displayed
+-- result instead, which is bounded by the display limit.
+function Coordinator:_craftCatalogue()
+    if self.craftCatalogue then return self.craftCatalogue end
+    local repo = self.deps.recipes
+    if not repo or type(repo.outputs) ~= "function" then return {} end
+    local ok, listed = pcall(repo.outputs, repo)
+    self.craftCatalogue = ok and listed or {}
+    return self.craftCatalogue
+end
+
+function Coordinator:_craftStock(itemId)
+    if not self.index or type(self.index.quantity) ~= "function" then return 0 end
+    local key = tostring(itemId) .. string.char(0) .. "-"
+    local ok, quantity = pcall(self.index.quantity, self.index, key)
+    if not ok or type(quantity) ~= "number" then return 0 end
+    return quantity
+end
+
+function Coordinator:_craftSearch(query)
+    local needle = tostring(query or ""):lower()
+    local results, limit = {}, 60
+    for _, entry in ipairs(self:_craftCatalogue()) do
+        if #results >= limit then break end
+        local label = tostring(entry.display_name or entry.item):lower()
+        if needle == "" or label:find(needle, 1, true) or
+            tostring(entry.item):lower():find(needle, 1, true) then
+            results[#results + 1] = {item=entry.item, display_name=entry.display_name,
+                quantity=self:_craftStock(entry.item)}
+        end
+    end
+    return results
+end
+
+function Coordinator:_syncCraft()
+    local reduced = self.ui:reduce(self.uiState,
+        {type="SYNC_CRAFT_RESULTS", results=self:_craftSearch(self.uiState.craft_query)})
+    self.uiState = reduced or self.uiState
+    local jobs = self.deps.crafts and self.deps.crafts.list and self.deps.crafts:list() or {}
+    local view = {}
+    for index, job in ipairs(jobs) do
+        view[index] = {item=job.item, display_name=job.item, state=job.state,
+            quantity=job.quantity, id=job.id}
+    end
+    local synced = self.ui:reduce(self.uiState, {type="SYNC_CRAFT_JOBS", jobs=view})
+    self.uiState = synced or self.uiState
+end
+
+-- What the 1x1 crafting monitor renders. Deliberately a different model from the storage
+-- monitor's, which is why it is a separate renderer rather than another size tier.
+function Coordinator:_craftMonitorModel()
+    local service = self.deps.crafts
+    local catalogue = #self:_craftCatalogue()
+    if not service or type(service.list) ~= "function" then
+        return {active=nil, queued=0, craftable_types=catalogue}
+    end
+    local jobs, active, queued = service:list(), nil, 0
+    for _, job in ipairs(jobs) do
+        local terminal = job.state == "COMPLETE" or job.state == "CANCELLED" or
+            job.state == "FAILED"
+        if not terminal then
+            if not active then active = job else queued = queued + 1 end
+        end
+    end
+    if not active then return {active=nil, queued=0, craftable_types=catalogue} end
+    local steps = active.plan and #active.plan.steps or nil
+    local current = active.plan and active.step_index and active.plan.steps[active.step_index]
+    return {
+        active = {item=active.item, display_name=active.item, state=active.state,
+            step=active.step_index, steps=steps, quantity=active.quantity,
+            produced=current and current.produced or 0,
+            current_item=current and current.item or nil,
+            reason=active.reason and active.reason.code or nil},
+        queued = queued, craftable_types = catalogue,
+    }
+end
+
 function Coordinator:_model()
     local items = self.index and self.index.items and self.index:items() or {}
     local total=0; for _, item in ipairs(items) do total=total+(item.quantity or 0) end
@@ -638,6 +778,11 @@ function Coordinator:redraw()
     if self.deps.monitor and self.deps.monitor_surface then
         local monitorOk, monitorReason=pcall(self.deps.monitor.render,self.deps.monitor_surface,model)
         if not monitorOk then self:_recordError("monitor",monitorReason) end
+    end
+    if self.deps.craft_monitor and self.deps.craft_monitor_surface then
+        local craftOk, craftReason=pcall(self.deps.craft_monitor.render,
+            self.deps.craft_monitor_surface,self:_craftMonitorModel())
+        if not craftOk then self:_recordError("craft monitor",craftReason) end
     end
     self.dirty=false
 end

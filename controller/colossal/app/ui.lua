@@ -72,6 +72,10 @@ function UI.initialState()
         notice=nil, hit_regions={},
         request_selection=1, request_count=0, alert_selection=1, alert_count=0,
         storage_scroll=1, recovery_confirm_armed=false,
+        craft_query="", craft_results={}, craft_result_count=0, craft_selection=1,
+        craft_scroll=1, craft_quantity_text="", craft_item=nil, craft_plan=nil,
+        craft_destination="pickup", craft_plan_selection=1,
+        craft_jobs={}, craft_job_count=0, craft_job_selection=1,
     }
 end
 
@@ -105,7 +109,17 @@ function UI:reduce(current, command)
         state.query = state.query:sub(1, math.max(0, #state.query - 1))
         state.selection, state.scroll, state.notice = 1, 1, nil
     elseif kind == "MOVE" then
-        if state.mode == "variant" then
+        if state.mode == "craft_search" then
+            state.craft_selection = math.max(1, math.min(math.max(1, state.craft_result_count or 0),
+                (state.craft_selection or 1) + command.delta))
+        elseif state.mode == "craft_jobs" then
+            state.craft_job_selection = math.max(1, math.min(math.max(1, state.craft_job_count or 0),
+                (state.craft_job_selection or 1) + command.delta))
+        elseif state.mode == "craft_plan" then
+            local total = state.craft_plan and #(state.craft_plan.chosen or {}) or 0
+            state.craft_plan_selection = math.max(1, math.min(math.max(1, total),
+                (state.craft_plan_selection or 1) + command.delta))
+        elseif state.mode == "variant" then
             state.variant_selection = math.max(1,
                 math.min(#(state.variants or {}), state.variant_selection + command.delta))
         elseif state.page == "requests" then
@@ -128,6 +142,96 @@ function UI:reduce(current, command)
         state.alert_count = command.count or 0
         state.alert_selection = math.max(1, math.min(state.alert_selection or 1,
             math.max(1, state.alert_count)))
+    elseif kind == "CRAFT_QUERY_APPEND" then
+        state.craft_query = state.craft_query .. tostring(command.text or "")
+        state.craft_selection, state.craft_scroll, state.suppress_char = 1, 1, nil
+    elseif kind == "CRAFT_QUERY_BACKSPACE" then
+        state.craft_query = state.craft_query:sub(1, math.max(0, #state.craft_query - 1))
+        state.craft_selection, state.craft_scroll = 1, 1
+    elseif kind == "SYNC_CRAFT_RESULTS" then
+        state.craft_results = copy(command.results or {})
+        state.craft_result_count = #state.craft_results
+        state.craft_selection = math.max(1,
+            math.min(state.craft_selection, math.max(1, state.craft_result_count)))
+        state.craft_scroll = math.min(state.craft_scroll, state.craft_selection)
+    elseif kind == "SYNC_CRAFT_JOBS" then
+        state.craft_jobs = copy(command.jobs or {})
+        state.craft_job_count = #state.craft_jobs
+        state.craft_job_selection = math.max(1,
+            math.min(state.craft_job_selection or 1, math.max(1, state.craft_job_count)))
+    elseif kind == "OPEN_CRAFT_QUANTITY" then
+        local selected = state.craft_results and state.craft_results[state.craft_selection]
+        if selected then
+            state.craft_item = copy(selected)
+            state.craft_quantity_text, state.mode = "", "craft_quantity"
+        end
+    elseif kind == "SET_CRAFT_QUANTITY" then
+        if #state.craft_quantity_text < 6 then
+            state.craft_quantity_text = state.craft_quantity_text .. command.digit
+        end
+    elseif kind == "CRAFT_QUANTITY_BACKSPACE" then
+        state.craft_quantity_text = state.craft_quantity_text:sub(1,
+            math.max(0, #state.craft_quantity_text - 1))
+    elseif kind == "CRAFT_QUANTITY_MAX" then
+        state.suppress_char = command.char
+        return state, {type="PLAN_CRAFT", item=state.craft_item and state.craft_item.item,
+            quantity="max"}
+    elseif kind == "PLAN_CRAFT" then
+        local quantity = tonumber(state.craft_quantity_text)
+        if state.craft_quantity_text == "" then quantity = 1 end
+        if quantity and quantity >= 1 and quantity % 1 == 0 then
+            return state, {type="PLAN_CRAFT",
+                item=state.craft_item and state.craft_item.item, quantity=quantity}
+        end
+    elseif kind == "SYNC_CRAFT_PLAN" then
+        state.craft_plan = copy(command.plan)
+        state.craft_plan_selection = 1
+        state.mode = "craft_plan"
+        if command.item then state.craft_item = copy(command.item) end
+    elseif kind == "TOGGLE_CRAFT_DESTINATION" then
+        state.craft_destination = state.craft_destination == "storage" and "pickup" or "storage"
+    elseif kind == "PIN_CRAFT_CHOICE" then
+        local plan = state.craft_plan
+        local chosen = plan and plan.chosen and plan.chosen[state.craft_plan_selection]
+        if chosen then return state, {type="PIN_CRAFT_CHOICE", tag=chosen.tag, item=chosen.item} end
+    elseif kind == "COMMIT_CRAFT" then
+        local plan = state.craft_plan
+        if plan and plan.ok then
+            state.mode = "craft_jobs"
+            return state, {type="COMMIT_CRAFT", item=plan.item, quantity=plan.quantity,
+                destination=state.craft_destination, plan=copy(plan)}
+        end
+    elseif kind == "OPEN_CRAFT_JOBS" then
+        state.mode = "craft_jobs"
+    elseif kind == "OPEN_CRAFT_SEARCH" then
+        state.mode, state.craft_plan = "craft_search", nil
+    elseif kind == "RETRY_CRAFT" then
+        return state, {type="RETRY_CRAFT", index=state.craft_job_selection}
+    elseif kind == "CANCEL_CRAFT" then
+        return state, {type="CANCEL_CRAFT", index=state.craft_job_selection}
+    elseif kind == "CONFIRM_CRAFT" then
+        return state, {type="CONFIRM_CRAFT", index=state.craft_job_selection}
+    elseif kind == "OPEN_CRAFT_FOR_SELECTION" then
+        -- Reached from the retrieval quantity prompt. Plan only the part storage cannot
+        -- fill, so pressing C after asking for 64 with 10 in stock plans 54, not 64.
+        local selected = selectedResult(state)
+        state.suppress_char = command.char
+        if selected then
+            local wanted = tonumber(state.quantity_text) or 1
+            local shortfall = math.max(1, wanted - (selected.quantity or 0))
+            state.page, state.mode = "crafting", "craft_quantity"
+            state.craft_item = {item=selected.name, display_name=selected.display_name}
+            state.craft_quantity_text = tostring(shortfall)
+            state.craft_plan = nil
+            return state, {type="PLAN_CRAFT", item=selected.name, quantity=shortfall}
+        end
+    elseif kind == "OPEN_CRAFT_FOR" then
+        -- The Search page shortcut: plan the shortfall for the highlighted item.
+        state.page, state.mode = "crafting", "craft_quantity"
+        state.craft_item = {item=command.item, display_name=command.display_name}
+        state.craft_quantity_text = tostring(command.quantity or "")
+        state.craft_plan = nil
+        return state, {type="PLAN_CRAFT", item=command.item, quantity=command.quantity or 1}
     elseif kind == "RETRY_REQUEST" then
         return state, {type="RETRY_REQUEST",index=state.request_selection}
     elseif kind == "CANCEL_REQUEST" then
@@ -161,7 +265,17 @@ function UI:reduce(current, command)
             end
         end
     elseif kind == "ACTIVATE" then
-        if state.mode == "variant" then
+        if state.mode == "craft_search" then
+            state.craft_selection = math.max(1, math.min(math.max(1, state.craft_result_count or 0),
+                (state.craft_selection or 1) + command.delta))
+        elseif state.mode == "craft_jobs" then
+            state.craft_job_selection = math.max(1, math.min(math.max(1, state.craft_job_count or 0),
+                (state.craft_job_selection or 1) + command.delta))
+        elseif state.mode == "craft_plan" then
+            local total = state.craft_plan and #(state.craft_plan.chosen or {}) or 0
+            state.craft_plan_selection = math.max(1, math.min(math.max(1, total),
+                (state.craft_plan_selection or 1) + command.delta))
+        elseif state.mode == "variant" then
             local selected = state.variants[state.variant_selection]
             if selected then enterQuantity(state, selected, selectedResult(state) or selected) end
         elseif state.mode == "search" and command.index then
@@ -207,10 +321,26 @@ function UI:reduce(current, command)
         state.mode, state.page = "page", "setup"
         return state, {type="CANCEL_SETUP"}
     elseif kind == "CANCEL" then
-        state.mode, state.page, state.quantity_text, state.variants = "search", "search", "", nil
+        -- Within the Crafting page F10 steps back one level rather than leaving the
+        -- page, so backing out of a plan does not lose the search that found it.
+        if state.mode == "craft_plan" then
+            state.mode, state.craft_plan = "craft_quantity", nil
+        elseif state.mode == "craft_quantity" then
+            state.mode, state.craft_quantity_text = "craft_search", ""
+        elseif state.mode == "craft_jobs" then
+            state.mode = "craft_search"
+        else
+            state.mode, state.page, state.quantity_text, state.variants = "search", "search", "", nil
+        end
     elseif kind == "OPEN_PAGE" then
         state.page = command.page
         state.mode = command.page == "search" and "search" or "page"
+        if command.page == "crafting" then
+            -- The Crafting page is search-first: typing filters recipes immediately,
+            -- exactly as the Search page does.
+            state.mode = "craft_search"
+            state.craft_plan, state.craft_item = nil, nil
+        end
         state.notice, state.suppress_char = nil, command.suppress_char
     end
     return state
@@ -239,6 +369,16 @@ local function footerHelp(state)
         return "Up/Down  A acknowledge  X+Enter release recovery"
     end
     if state.page == "storage" then return "Up/Down scroll  P pause  F10 back" end
+    if state.page == "crafting" then
+        if state.mode == "craft_plan" then
+            return "Enter craft  D destination  P pin choice  F10 back"
+        end
+        if state.mode == "craft_quantity" then return "Digits then Enter  A max  F10 back" end
+        if state.mode == "craft_jobs" then
+            return "Up/Down select  R retry  C cancel  Enter confirm  Tab search"
+        end
+        return "Type to find a recipe  Enter choose  Tab jobs  F10 back"
+    end
     return "1 Search  P pause  F10 back"
 end
 
@@ -532,6 +672,128 @@ function UI:_setupWizard(state, model)
     surface.setCursorBlink(false)
     return {hit_regions={}}
 end
+
+-- Crafting page. Four views behind one page, because they are steps of one task and
+-- swapping pages between them would lose the search that found the item.
+function UI:_crafting(state, model, hitRegions)
+    local surface = self.surface
+    local width, height = surface.getSize()
+    local bottom = height - 2
+
+    if state.mode == "craft_jobs" then
+        surface.setBackgroundColor(palette.black)
+        writeClipped(surface, 2, 3, "CRAFT JOBS", width - 2)
+        local row = 4
+        for index, job in ipairs(state.craft_jobs or {}) do
+            if row > bottom then break end
+            local selected = index == (state.craft_job_selection or 1)
+            fill(surface, row, selected and palette.gray or palette.black)
+            surface.setTextColor(palette.white)
+            local marker = index == 1 and ">" or " "
+            writeClipped(surface, 2, row, marker .. " " .. tostring(job.display_name or job.item),
+                math.max(1, width - 22))
+            surface.setTextColor(stateColor(job.state))
+            local label = tostring(job.state)
+            if job.state == "QUEUED" then label = "QUEUED #" .. tostring(index - 1) end
+            writeClipped(surface, math.max(2, width - #label - 1), row, label, #label)
+            row = row + 1
+        end
+        if (state.craft_job_count or 0) == 0 then
+            surface.setBackgroundColor(palette.black)
+            surface.setTextColor(palette.lightGray)
+            writeClipped(surface, 2, 4, "No craft jobs", width - 2)
+        end
+        return
+    end
+
+    if state.mode == "craft_plan" then
+        local plan = state.craft_plan
+        surface.setBackgroundColor(palette.black)
+        if not plan then
+            surface.setTextColor(palette.lightGray)
+            writeClipped(surface, 2, 3, "Planning...", width - 2)
+            return
+        end
+        surface.setTextColor(palette.white)
+        writeClipped(surface, 2, 3, "PLAN: " .. formatNumber(plan.quantity or 0) .. " x " ..
+            tostring((state.craft_item and state.craft_item.display_name) or plan.item), width - 2)
+        local row = 4
+        if not plan.ok then
+            surface.setTextColor(palette.red)
+            writeClipped(surface, 2, row, "Cannot craft: missing", width - 2)
+            row = row + 1
+            for _, missing in ipairs(plan.shortfalls or {}) do
+                if row > bottom then break end
+                writeClipped(surface, 4, row, formatNumber(missing.missing) .. " x " ..
+                    tostring(missing.item), width - 4)
+                row = row + 1
+            end
+            return
+        end
+        for index, choice in ipairs(plan.chosen or {}) do
+            if row > bottom then break end
+            local selected = index == (state.craft_plan_selection or 1)
+            fill(surface, row, selected and palette.gray or palette.black)
+            surface.setTextColor(palette.yellow)
+            writeClipped(surface, 2, row, tostring(choice.tag) .. " -> " .. tostring(choice.item),
+                width - 2)
+            row = row + 1
+        end
+        surface.setBackgroundColor(palette.black)
+        for _, step in ipairs(plan.steps or {}) do
+            if row > bottom then break end
+            surface.setTextColor(palette.cyan)
+            writeClipped(surface, 2, row, "craft " .. formatNumber(step.produced) .. " x " ..
+                tostring(step.item), width - 2)
+            row = row + 1
+        end
+        for _, draw in ipairs(plan.withdrawals or {}) do
+            if row > bottom then break end
+            surface.setTextColor(palette.lightGray)
+            writeClipped(surface, 2, row, "use " .. formatNumber(draw.count) .. " x " ..
+                tostring(draw.item), width - 2)
+            row = row + 1
+        end
+        if row <= bottom then
+            surface.setTextColor(palette.white)
+            writeClipped(surface, 2, row, "deliver to " .. tostring(state.craft_destination),
+                width - 2)
+        end
+        return
+    end
+
+    -- craft_search and craft_quantity share the recipe list; the quantity prompt draws
+    -- over it as an overlay so the item stays visible while typing.
+    surface.setBackgroundColor(palette.black)
+    surface.setTextColor(palette.white)
+    writeClipped(surface, 2, 3, "Craft: " .. state.craft_query, width - 2)
+    local row = 4
+    for index, entry in ipairs(state.craft_results or {}) do
+        if row > bottom then break end
+        local selected = index == (state.craft_selection or 1)
+        fill(surface, row, selected and palette.gray or palette.black)
+        surface.setTextColor(palette.white)
+        writeClipped(surface, 2, row, tostring(entry.display_name or entry.item),
+            math.max(1, width - 18))
+        local stock = "have " .. formatNumber(entry.quantity or 0)
+        surface.setTextColor((entry.quantity or 0) > 0 and palette.lime or palette.lightGray)
+        writeClipped(surface, math.max(2, width - #stock - 1), row, stock, #stock)
+        row = row + 1
+    end
+    if (state.craft_result_count or 0) == 0 then
+        surface.setBackgroundColor(palette.black)
+        surface.setTextColor(palette.lightGray)
+        writeClipped(surface, 2, 4, "No matching recipes", width - 2)
+    end
+    if state.mode == "craft_quantity" then
+        surface.setBackgroundColor(palette.gray)
+        surface.setTextColor(palette.white)
+        local prompt = "How many? " .. state.craft_quantity_text
+        fill(surface, bottom, palette.gray)
+        writeClipped(surface, 2, bottom, prompt, width - 2)
+    end
+end
+
 function UI:render(state, model)
     model = model or {}
     local surface = self.surface
@@ -545,12 +807,13 @@ function UI:render(state, model)
     elseif state.page == "storage" then self:_storage(state, model)
     elseif state.page == "requests" then self:_requests(state, model)
     elseif state.page == "alerts" then self:_alerts(state, model)
+    elseif state.page == "crafting" then self:_crafting(state, model, hitRegions)
     else self:_setup(model) end
     self:_footer(state, model)
     if state.mode == "quantity" or state.mode == "variant" then self:_overlay(state) end
     surface.setBackgroundColor(palette.black)
     surface.setTextColor(palette.white)
-    surface.setCursorBlink(state.mode == "search")
+    surface.setCursorBlink(state.mode == "search" or state.mode == "craft_search")
     return { hit_regions=hitRegions }
 end
 

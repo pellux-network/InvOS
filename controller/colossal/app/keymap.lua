@@ -25,14 +25,21 @@ function M.command(event, state)
     if name == "paste" and state.mode == "search" then
         return {type="QUERY_APPEND",text=tostring(event[2] or "")}
     end
+    if name == "paste" and state.mode == "craft_search" then
+        return {type="CRAFT_QUERY_APPEND",text=tostring(event[2] or "")}
+    end
     if name == "char" then
         local character = tostring(event[2] or "")
         if state.suppress_char == character then
             return {type="CONSUME_CHAR",text=character}
         end
         if state.mode == "search" then return {type="QUERY_APPEND",text=character} end
+        if state.mode == "craft_search" then return {type="CRAFT_QUERY_APPEND",text=character} end
         if state.mode == "quantity" and character:match("^%d$") then
             return {type="SET_QUANTITY",digit=character}
+        end
+        if state.mode == "craft_quantity" and character:match("^%d$") then
+            return {type="SET_CRAFT_QUANTITY",digit=character}
         end
         return nil
     end
@@ -58,19 +65,24 @@ function M.command(event, state)
         return {type="CANCEL_RECOVERY_RELEASE"}
     end
 
-    if key == keys.f10 and state.mode ~= "search" then return {type="CANCEL"} end
+    if key == keys.f10 and state.mode ~= "search" and state.mode ~= "craft_search" then
+        return {type="CANCEL"}
+    end
 
     -- Pause is available everywhere except the search text box, where letter keys are
     -- ordinary query characters.
-    if state.mode ~= "search" and key == keys.p then return {type="TOGGLE_PAUSE"} end
+    if state.mode ~= "search" and state.mode ~= "craft_search" and
+        state.mode ~= "craft_plan" and key == keys.p then return {type="TOGGLE_PAUSE"} end
 
-    if state.mode ~= "quantity" and state.mode ~= "variant" then
+    if state.mode ~= "quantity" and state.mode ~= "variant" and
+        state.mode ~= "craft_search" and state.mode ~= "craft_quantity" then
         local pages, digits = {}, {}
         if keys.one then pages[keys.one],digits[keys.one]="search","1" end
         if keys.two then pages[keys.two],digits[keys.two]="storage","2" end
         if keys.three then pages[keys.three],digits[keys.three]="requests","3" end
         if keys.four then pages[keys.four],digits[keys.four]="alerts","4" end
         if keys.five then pages[keys.five],digits[keys.five]="setup","5" end
+        if keys.six then pages[keys.six],digits[keys.six]="crafting","6" end
         if pages[key] then
             return {type="OPEN_PAGE",page=pages[key],suppress_char=digits[key]}
         end
@@ -87,11 +99,42 @@ function M.command(event, state)
         if key == keys.r then return {type="RETRY_REQUEST"} end
         if key == keys.c then return {type="CANCEL_REQUEST"} end
     end
+    -- The Crafting page is search-first like the Search page, so typing filters recipes
+    -- and the action keys live in the plan and job modes rather than here.
+    if state.mode == "craft_search" then
+        if key == keys.backspace then return {type="CRAFT_QUERY_BACKSPACE"} end
+        if key == keys.up then return {type="MOVE",delta=-1} end
+        if key == keys.down then return {type="MOVE",delta=1} end
+        if key == keys.enter then return {type="OPEN_CRAFT_QUANTITY"} end
+        if key == keys.tab then return {type="OPEN_CRAFT_JOBS"} end
+    elseif state.mode == "craft_quantity" then
+        if key == keys.a then return {type="CRAFT_QUANTITY_MAX",char="a"} end
+        if key == keys.backspace then return {type="CRAFT_QUANTITY_BACKSPACE"} end
+        if key == keys.enter then return {type="PLAN_CRAFT"} end
+    elseif state.mode == "craft_plan" then
+        -- Nothing has moved yet at this point; Enter is the only thing that commits.
+        if key == keys.enter then return {type="COMMIT_CRAFT"} end
+        if key == keys.d then return {type="TOGGLE_CRAFT_DESTINATION"} end
+        if key == keys.p then return {type="PIN_CRAFT_CHOICE"} end
+        if key == keys.up then return {type="MOVE",delta=-1} end
+        if key == keys.down then return {type="MOVE",delta=1} end
+    elseif state.mode == "craft_jobs" then
+        if key == keys.up then return {type="MOVE",delta=-1} end
+        if key == keys.down then return {type="MOVE",delta=1} end
+        if key == keys.r then return {type="RETRY_CRAFT"} end
+        if key == keys.c then return {type="CANCEL_CRAFT"} end
+        if key == keys.enter then return {type="CONFIRM_CRAFT"} end
+        if key == keys.tab then return {type="OPEN_CRAFT_SEARCH"} end
+    end
     if state.mode == "page" and state.page == "alerts" then
         if key == keys.a then return {type="ACKNOWLEDGE_ALERT"} end
         if key == keys.x then return {type="ARM_RECOVERY_RELEASE"} end
     end
 
+    if state.mode == "quantity" and key == keys.c then
+        -- Shortcut from a retrieval that cannot be filled: plan the shortfall instead.
+        return {type="OPEN_CRAFT_FOR_SELECTION", char="c"}
+    end
     if state.mode == "search" then
         if key == keys.backspace then return {type="QUERY_BACKSPACE"} end
         if key == keys.up then return {type="MOVE",delta=-1} end

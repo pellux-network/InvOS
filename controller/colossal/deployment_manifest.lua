@@ -5,6 +5,7 @@ local M={files={
     "colossal/app/alerts.lua",
     "colossal/app/backup.lua",
     "colossal/app/craft_buffer.lua",
+    "colossal/app/craft_monitor.lua",
     "colossal/app/craft_service.lua",
     "colossal/app/coordinator.lua",
     "colossal/app/import_service.lua",
