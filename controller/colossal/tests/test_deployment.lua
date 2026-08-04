@@ -27,7 +27,8 @@ return {
         local seen={}
         for _,path in ipairs(Manifest.files) do seen[path]=true end
         T.equal(seen["colossal/core/recipe_repo.lua"],true)
-        T.equal(seen["colossal/app/craft_buffer.lua"],true)
+        T.equal(seen["colossal/app/craft_buffer.lua"],true)
+        T.equal(seen["colossal/app/craft_monitor.lua"],true)
         T.equal(seen["colossal/app/craft_service.lua"],true)
         T.equal(seen["colossal/app/turtle_link.lua"],true)
         T.equal(seen["colossal/core/craft_planner.lua"],true)

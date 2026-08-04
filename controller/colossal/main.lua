@@ -1,7 +1,8 @@
 package.path = "/colossal/?.lua;/colossal/?/init.lua;" .. package.path
 
 local Alerts = require("app.alerts")
-local CraftBuffer = require("app.craft_buffer")
+local CraftBuffer = require("app.craft_buffer")
+local CraftMonitor = require("app.craft_monitor")
 local CraftService = require("app.craft_service")
 local TurtleLink = require("app.turtle_link")
 local Backup = require("app.backup")
@@ -328,7 +329,8 @@ function Main.build(environment)
         enrich_step=enrichStep,registry=adapter,metadata_budget=1,metadata=metadata.items,
         scan_budget=512,dropoff_scan_budget=32,scan_refresh_interval=env.scan_refresh_interval,
         lifecycle=Lifecycle,recovery=recovery,imports=imports,requests=requests,alerts=alerts,
-        crafts=crafts,recipes=recipes,craft_prefs=craftPrefs,
+        crafts=crafts,recipes=recipes,craft_prefs=craftPrefs,craft_planner=CraftPlanner,
+        craft_monitor=CraftMonitor,
         monitor=Monitor,monitor_surface=monitorSurface,
         craft_monitor_surface=craftMonitorSurface,on_effect=onEffect,
         intervals={heartbeat=0.25}})

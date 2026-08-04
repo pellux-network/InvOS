@@ -20,6 +20,8 @@ local defaultModules = {
     "tests.test_craft_turtle",
     "tests.test_craft_buffer",
     "tests.test_craft_monitor",
+    "tests.test_craft_ui",
+    "tests.test_craft_integration",
     "tests.test_reconciliation",
     "tests.test_transfer",
     "tests.test_recovery",
