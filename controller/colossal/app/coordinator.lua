@@ -426,7 +426,10 @@ function Coordinator:_automationStep(now)
     -- Automation advancing is user-visible: request progress, node states, alerts.
     self.dirty=true
     if not ok then self:_recordError(selected[1],result)
-    elseif type(result)=="table" and (result.state=="VERIFYING" or result.state=="BLOCKED") and result.rescan then
+    elseif type(result)=="table" and result.rescan and
+        (result.state=="VERIFYING" or result.state=="BLOCKED" or selected[1]=="crafts") then
+        -- Crafting asks for a rescan from its own states, not VERIFYING or BLOCKED: the
+        -- turtle drops output into the buffer without anything telling the controller.
         self:_setVerificationGate(selected[1],result.rescan)
     end
 end

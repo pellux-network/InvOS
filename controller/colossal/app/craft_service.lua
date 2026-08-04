@@ -32,7 +32,7 @@ function CraftService.new(deps)
         prefs=deps.prefs,
         stackLimit=deps.stack_limit or function() return 64 end,
         turtleTimeout=deps.turtle_timeout or DEFAULT_TURTLE_TIMEOUT,
-        counter=0, ordered={}, byId={}, strandedReported=false,
+        counter=0, ordered={}, byId={}, strandedReported=false, rescan=nil,
     }, CraftService)
 end
 
@@ -101,6 +101,12 @@ function CraftService:status()
     local job = self:_active()
     if not job then return {state="IDLE"} end
     return {state=job.state, job_id=job.id, item=job.item}
+end
+
+-- Asks the coordinator to refresh a node before this service runs again. Attached to the
+-- next tick's result, which is what the automation gate reads.
+function CraftService:_requestRescan(names)
+    self.rescan = names
 end
 
 function CraftService:_block(job, reason)
@@ -361,7 +367,27 @@ function CraftService:_advanceCrafting(job, context)
     self:_state(job, "COLLECTING")
 end
 
-function CraftService:_advanceCollecting(job)
+-- Nothing tells the controller that the turtle just dropped its output into the buffer;
+-- the only way it finds out is a rescan. Without one the buffer snapshot still shows the
+-- state from before the craft, so the drain sees an empty buffer, decides there is
+-- nothing to move, and strands the output there while delivery quietly pulls the same
+-- item out of storage instead.
+function CraftService:_advanceCollecting(job, context)
+    if not job.collected then
+        job.collected = true
+        self:_requestRescan({"craft_buffer"})
+        return
+    end
+    job.collected = nil
+
+    local step = job.plan.steps[job.step_index]
+    local held = (self.buffer:snapshot(context) or {})[step.item] or 0
+    if held <= 0 then
+        self:_block(job, {code="OUTPUT_MISSING", message="The turtle reported success " ..
+            "but the buffer holds no " .. tostring(step.item)})
+        return
+    end
+
     job.step_index = job.step_index + 1
     if job.step_index > #job.plan.steps then
         self:_state(job, "DELIVERING")
@@ -432,10 +458,18 @@ function CraftService:tick(context)
         if contents and next(contents) ~= nil then
             if not self.strandedReported then
                 self.alerts:set("craft_buffer_stranded", "warning",
-                    "The craft buffer holds items with no active job; return them to storage",
+                    "The craft buffer held items with no active job; returning them to storage",
                     {code="BUFFER_NOT_EMPTY"})
                 self.strandedReported = true
             end
+            -- Return them rather than only complaining about them. With no job running
+            -- nothing else touches the buffer, so this is safe, and it means an
+            -- interrupted job leaves nothing for an operator to clean up by hand.
+            local cleared = self.buffer:drain(context, {})
+            if cleared.state == "BLOCKED" then
+                return {state="IDLE", reason=cleared.reason}
+            end
+            return {state="IDLE", rescan={"craft_buffer"}}
         elseif self.strandedReported then
             self.alerts:resolve("craft_buffer_stranded")
             self.strandedReported = false
@@ -454,10 +488,15 @@ function CraftService:tick(context)
     elseif job.state == "PLANNING" then self:_advancePlanning(job, context)
     elseif job.state == "STAGING" then self:_advanceStaging(job, context)
     elseif job.state == "CRAFTING" then self:_advanceCrafting(job, context)
-    elseif job.state == "COLLECTING" then self:_advanceCollecting(job)
+    elseif job.state == "COLLECTING" then self:_advanceCollecting(job, context)
     elseif job.state == "DELIVERING" then self:_advanceDelivering(job, context)
     end
-    return copy(job)
+    local result = copy(job)
+    if self.rescan then
+        result.rescan = self.rescan
+        self.rescan = nil
+    end
+    return result
 end
 
 return CraftService

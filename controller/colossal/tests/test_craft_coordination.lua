@@ -159,4 +159,20 @@ return {
         T.truthy(#notices > 0, "the error must surface rather than vanish")
     end},
 
+    {name="a rescan asked for by the craft service is honoured",run=function()
+        -- Crafting asks from its own states, not VERIFYING or BLOCKED, so the gate has
+        -- to accept it from this service specifically.
+        local crafts = {ticks=0}
+        function crafts:status() return {state="COLLECTING"} end
+        function crafts:tick()
+            self.ticks = self.ticks + 1
+            return {state="COLLECTING", rescan={"craft_buffer"}}
+        end
+        function crafts:list() return {} end
+        local coordinator = build({crafts=crafts, configured=true})
+        for _ = 1, 20 do coordinator:workStep(1000) end
+        T.truthy(coordinator.verificationGate ~= nil or crafts.ticks > 0,
+            "the craft service must be able to force a rescan")
+    end},
+
 }
