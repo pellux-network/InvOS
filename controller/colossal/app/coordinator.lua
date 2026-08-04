@@ -693,18 +693,29 @@ function Coordinator:_craftSearch(query)
     return results
 end
 
-function Coordinator:_syncCraft()
-    local reduced = self.ui:reduce(self.uiState,
-        {type="SYNC_CRAFT_RESULTS", results=self:_craftSearch(self.uiState.craft_query)})
-    self.uiState = reduced or self.uiState
+-- Jobs change without any keypress: they advance through the automation rotation, and a
+-- commit adds one. So this belongs in the redraw path alongside the request and alert
+-- counts, not only on the keystrokes that opened the page. Syncing it on keystrokes
+-- alone left the list showing whatever it held when the page was opened, so a freshly
+-- committed job read as "No craft jobs" and a running one appeared frozen at QUEUED.
+function Coordinator:_syncCraftJobs()
     local jobs = self.deps.crafts and self.deps.crafts.list and self.deps.crafts:list() or {}
     local view = {}
     for index, job in ipairs(jobs) do
         view[index] = {item=job.item, display_name=job.item, state=job.state,
-            quantity=job.quantity, id=job.id}
+            quantity=job.quantity, id=job.id,
+            reason=job.reason and job.reason.message or nil}
     end
     local synced = self.ui:reduce(self.uiState, {type="SYNC_CRAFT_JOBS", jobs=view})
     self.uiState = synced or self.uiState
+end
+
+-- The recipe list only changes when the query does, so it stays on the keystroke path.
+function Coordinator:_syncCraft()
+    local reduced = self.ui:reduce(self.uiState,
+        {type="SYNC_CRAFT_RESULTS", results=self:_craftSearch(self.uiState.craft_query)})
+    self.uiState = reduced or self.uiState
+    self:_syncCraftJobs()
 end
 
 -- What the 1x1 crafting monitor renders. Deliberately a different model from the storage
@@ -765,6 +776,7 @@ function Coordinator:_syncPageCounts(model)
     local alertsReduced = self.ui:reduce(self.uiState,
         {type="SYNC_ALERTS",count=#(model.alerts or {})})
     self.uiState = alertsReduced or self.uiState
+    self:_syncCraftJobs()
 end
 
 function Coordinator:redraw()

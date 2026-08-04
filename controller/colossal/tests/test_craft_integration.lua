@@ -215,4 +215,36 @@ return {
         coordinator:redraw()
         T.truthy(true, "committing without a service records an error rather than crashing")
     end},
+    {name="a committed job appears in the job list immediately",run=function()
+        -- The list is what the operator looks at after pressing Enter. Asserting only
+        -- that the service received the job is what let this ship broken.
+        local coordinator, deps = build({["minecraft:oak_log"]=64})
+        coordinator:command({type="OPEN_PAGE", page="crafting"})
+        coordinator:command({type="SYNC_CRAFT_RESULTS",
+            results={{item="minecraft:chest", display_name="Chest", quantity=0}}})
+        coordinator:command({type="OPEN_CRAFT_QUANTITY"})
+        coordinator:command({type="PLAN_CRAFT"})
+        coordinator:command({type="COMMIT_CRAFT"})
+        coordinator:redraw()
+        local state = coordinator:viewModel().ui
+        T.equal(#deps.crafts.jobs, 1, "the service has the job")
+        T.equal(state.craft_job_count, 1, "and the operator can see it")
+        T.equal(state.craft_jobs[1].item, "minecraft:chest")
+    end},
+    {name="the job list keeps up as a job progresses",run=function()
+        local coordinator, deps = build({["minecraft:oak_log"]=64})
+        deps.crafts:enqueue("minecraft:chest", 1, {})
+        coordinator:redraw()
+        T.equal(coordinator:viewModel().ui.craft_job_count, 1)
+        deps.crafts.jobs[1].state = "STAGING"
+        coordinator:redraw()
+        T.equal(coordinator:viewModel().ui.craft_jobs[1].state, "STAGING",
+            "a stale list would show the job stuck at QUEUED forever")
+    end},
+    {name="an empty job list is still reported after a redraw",run=function()
+        local coordinator = build({})
+        coordinator:redraw()
+        T.equal(coordinator:viewModel().ui.craft_job_count, 0)
+    end},
+
 }

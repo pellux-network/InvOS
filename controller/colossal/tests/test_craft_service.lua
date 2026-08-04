@@ -214,24 +214,35 @@ return {
         T.equal(job.state, "BLOCKED")
         T.equal(job.reason.code, "INGREDIENT_MISMATCH")
     end},
-    {name="a finished job delivers to Pickup by default",run=function()
-        local buffer = fakeBuffer()
+    {name="a finished job delivers to Pickup as an ordinary retrieval",run=function()
+        -- Output reaches storage during staging purges, so the buffer never holds the
+        -- whole result. Delivery goes through the request pipeline, which can.
+        local requests = fakeRequests()
         local craft = service({plan({chestStep()},
-            {{item="minecraft:oak_planks", count=8}})}, {buffer=buffer})
+            {{item="minecraft:oak_planks", count=8}})}, {requests=requests})
         local queued = craft:enqueue("minecraft:chest", 1)
-        run(craft, context(), 12)
+        run(craft, context(), 14)
         T.equal(craft:get(queued.id).state, "COMPLETE")
-        T.equal(#buffer.deliveries, 1)
-        T.equal(buffer.deliveries[1].to, "pickup")
-        T.equal(buffer.deliveries[1].item, "minecraft:chest")
+        local delivery
+        for _, request in ipairs(requests.created) do
+            if request.destination_role == nil then delivery = request end
+        end
+        T.truthy(delivery, "a delivery request must be raised")
+        T.equal(delivery.requested, 1)
+        T.equal(delivery.owner, "craft-1", "delivery is still owned by the job")
     end},
-    {name="a job can be told to deliver into storage instead",run=function()
-        local buffer = fakeBuffer()
+    {name="delivering into storage needs no move at all",run=function()
+        -- The result is already in storage by then, so storage delivery is a no-op.
+        local requests = fakeRequests()
         local craft = service({plan({chestStep()},
-            {{item="minecraft:oak_planks", count=8}})}, {buffer=buffer})
-        craft:enqueue("minecraft:chest", 1, {destination="storage"})
-        run(craft, context(), 12)
-        T.equal(buffer.deliveries[1].to, "storage")
+            {{item="minecraft:oak_planks", count=8}})}, {requests=requests})
+        local queued = craft:enqueue("minecraft:chest", 1, {destination="storage"})
+        run(craft, context(), 14)
+        T.equal(craft:get(queued.id).state, "COMPLETE")
+        for _, request in ipairs(requests.created) do
+            T.equal(request.destination_role, "craft_buffer",
+                "only ingredient withdrawals, no delivery move")
+        end
     end},
     {name="a multistep job crafts leaf-first and delivers once",work=true,run=function()
         local buffer = fakeBuffer()
@@ -244,7 +255,6 @@ return {
         T.equal(#link.sent, 2, "one turtle command per craft step")
         T.equal(link.sent[1].result.name, "minecraft:oak_planks", "leaf first")
         T.equal(link.sent[2].result.name, "minecraft:chest")
-        T.equal(#buffer.deliveries, 1, "only the final output is delivered")
     end},
     {name="a queued job whose plan materially changed asks before running",run=function()
         local first = plan({chestStep()}, {{item="minecraft:oak_planks", count=8}},

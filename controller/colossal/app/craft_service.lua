@@ -199,15 +199,18 @@ local function requiredFor(step)
     return required
 end
 
--- Group the resolved cells by item, in the order the cells appear, so the turtle can
--- suck each ingredient once and distribute it. per_cell is the batch multiplier: every
--- vanilla grid cell consumes exactly one item per craft.
-local function turtleSteps(step)
+-- Group the resolved cells by item, in the order the cells appear.
+--
+-- per_cell is how many crafts THIS call performs, not the step's maximum batch. Every
+-- vanilla grid cell consumes exactly one item per craft, so a call that crafts 2 needs 2
+-- items per cell. Sending the maximum instead told the turtle to stage 64 logs for a
+-- two-craft step, which it could not satisfy.
+local function turtleSteps(step, runs)
     local order, byItem = {}, {}
     for cell, itemId in ipairs(step.cells or {}) do
         if itemId then
             if not byItem[itemId] then
-                byItem[itemId] = {expect=itemId, cells={}, per_cell=step.batch}
+                byItem[itemId] = {expect=itemId, cells={}, per_cell=runs}
                 order[#order + 1] = byItem[itemId]
             end
             local target = byItem[itemId].cells
@@ -307,21 +310,26 @@ function CraftService:_advanceStaging(job, context)
     self:_state(job, "CRAFTING")
 end
 
+-- One turtle command per step: the planner splits a large craft into one step per call,
+-- so each command is preceded by its own staging and the buffer holds exactly that
+-- call's ingredients when it runs.
 function CraftService:_advanceCrafting(job, context)
     local step = job.plan.steps[job.step_index]
     if not job.sent_at then
         local command = {
-            op="craft", job=job.id, steps=turtleSteps(step),
+            op="craft", job=job.id, steps=turtleSteps(step, step.crafts),
             result={name=step.item, count=step.produced},
         }
         local sent = self.link:send(command)
         if not sent then
-            self:_block(job, {code="TURTLE_UNREACHABLE", message="The crafting turtle did not accept the job"})
+            self:_block(job, {code="TURTLE_UNREACHABLE",
+                message="The crafting turtle did not accept the job"})
             return
         end
         job.sent_at = self.clock()
         return
     end
+
     local reply = self.link:poll()
     if not reply then
         if (self.clock() - job.sent_at) > self.turtleTimeout then
@@ -349,24 +357,44 @@ function CraftService:_advanceCollecting(job)
     end
 end
 
+-- The result does not sit waiting in the buffer. Each step's staging purges whatever the
+-- next call does not need, so output produced by an earlier call is already in storage by
+-- the time the last call runs. Delivery therefore empties the buffer first and then, if
+-- the operator wants it in Pickup, moves it there as an ordinary retrieval -- the same
+-- pipeline any other request uses, and the only one that can see the whole amount.
 function CraftService:_advanceDelivering(job, context)
-    local final = job.plan.steps[#job.plan.steps]
-    local delivered = self.buffer:deliver(context, final.item, job.quantity, job.destination)
-    if delivered.state == "BLOCKED" then
-        self:_block(job, delivered.reason or
-            {code="DELIVERY_BLOCKED", message="The result could not be delivered"})
-        return
-    end
-    if delivered.state ~= "DONE" then return end
-    -- Leftovers and byproducts go back to storage as the job's final act, so the next
-    -- job always starts from a known-clean buffer.
     local cleared = self.buffer:drain(context, {})
     if cleared.state == "BLOCKED" then
         self:_block(job, cleared.reason or
-            {code="DRAIN_FAILED", message="Leftovers could not be returned to storage"})
+            {code="DRAIN_FAILED", message="The buffer could not be emptied to storage"})
         return
     end
     if cleared.state ~= "DONE" then return end
+
+    if job.destination == "storage" then
+        self.alerts:resolve("craft_blocked:" .. job.id)
+        self:_state(job, "COMPLETE")
+        return
+    end
+
+    if not job.delivery_request then
+        local created = self.requests:create({key=Identity.key(job.item, nil),
+            name=job.item, display_name=job.item}, job.quantity,
+            {owner=job.id})
+        job.delivery_request = created.id
+        return
+    end
+    local request = self.requests:get(job.delivery_request)
+    if not request then
+        self:_block(job, {code="DELIVERY_LOST", message="The delivery request vanished"})
+        return
+    end
+    if request.state == "FAILED" or request.state == "CANCELLED" then
+        self:_block(job, {code="DELIVERY_FAILED",
+            message="The result could not be delivered to Pickup"})
+        return
+    end
+    if request.state ~= "COMPLETE" then return end
     self.alerts:resolve("craft_blocked:" .. job.id)
     self:_state(job, "COMPLETE")
 end

@@ -18,15 +18,24 @@ local function fakeTurtle(bufferSlots, options)
         if not entry then return nil end
         return {name = entry.name, count = entry.count}
     end
+    -- A turtle slot holds at most one stack. Modelling that matters: without it the fake
+    -- accepts 128 planks in one slot and a real turtle does not, which is exactly the
+    -- kind of gap that lets a batching bug reach the game.
+    local STACK = 64
     function api.suckDown(limit)
-        -- Take from the lowest occupied buffer slot, exactly as CC does.
+        -- Takes from the lowest occupied buffer slot, from one slot per call, exactly as
+        -- CC does, and never beyond what the selected slot can still hold.
+        local target = api.slots[api.selected]
+        local space = STACK - (target and target.count or 0)
+        if space <= 0 then return false end
         for index, entry in ipairs(api.buffer) do
             if entry and entry.count > 0 then
-                local taken = math.min(limit or entry.count, entry.count)
+                if target and target.name ~= entry.name then return false end
+                local taken = math.min(limit or entry.count, entry.count, space)
+                if taken <= 0 then return false end
                 entry.count = entry.count - taken
                 if entry.count == 0 then api.buffer[index] = false end
-                local target = api.slots[api.selected]
-                if target and target.name == entry.name then target.count = target.count + taken
+                if target then target.count = target.count + taken
                 else api.slots[api.selected] = {name = entry.name, count = taken} end
                 return true
             end
@@ -38,7 +47,9 @@ local function fakeTurtle(bufferSlots, options)
         if not from or from.count < count then return false end
         from.count = from.count - count
         local target = api.slots[slot]
-        if target and target.name == from.name then target.count = target.count + count
+        if target and target.name ~= from.name then return false end
+        if (target and target.count or 0) + count > STACK then return false end
+        if target then target.count = target.count + count
         else api.slots[slot] = {name = from.name, count = count} end
         if from.count == 0 then api.slots[api.selected] = nil end
         return true
@@ -190,10 +201,60 @@ return {
     end},
     {name="an unexpected error still empties the turtle",run=function()
         local api = fakeTurtle({{name="minecraft:oak_planks", count=8}})
-        api.transferTo = function() error("peripheral exploded") end
+        local real = api.getItemDetail
+        local calls = 0
+        api.getItemDetail = function(slot)
+            calls = calls + 1
+            if calls > 2 then error("peripheral exploded") end
+            return real(slot)
+        end
         local result = Executor.new({turtle=api}):handle(chestCommand())
         T.equal(result.ok, false)
         T.equal(result.code, "EXECUTOR_ERROR")
         T.equal(held(api), 0, "items must never be stranded where nothing can see them")
     end},
+    {name="a full-stack batch across several cells does not overflow one slot",run=function()
+        -- 500 sticks plans as batch=64 over two plank cells, so the step asks for 128
+        -- planks. Staging them into one slot first cannot work: a slot holds 64.
+        local api = fakeTurtle({{name="minecraft:oak_planks", count=128}})
+        local result = Executor.new({turtle=api}):handle({op="craft", job="craft-1",
+            steps={{expect="minecraft:oak_planks", cells={1,2}, per_cell=64}},
+            result={name="minecraft:stick", count=256}})
+        T.equal(result.ok, true, "a full batch must stage without overflowing a slot")
+        T.equal(api.crafts, 1)
+    end},
+    {name="each cell is filled to the batch size",run=function()
+        local api = fakeTurtle({{name="minecraft:oak_planks", count=128}})
+        local executor = Executor.new({turtle=api})
+        local failure = executor:_stage({expect="minecraft:oak_planks", cells={1,2}, per_cell=64})
+        T.equal(failure, nil)
+        T.equal(api.slots[1].count, 64)
+        T.equal(api.slots[2].count, 64)
+    end},
+    {name="an ingredient spread across several buffer slots is still gathered",run=function()
+        -- The buffer holds one item across several stacks, which is what 250 planks
+        -- actually looks like in a chest.
+        local api = fakeTurtle({
+            {name="minecraft:oak_planks", count=64},
+            {name="minecraft:oak_planks", count=64},
+        })
+        local executor = Executor.new({turtle=api})
+        local failure = executor:_stage({expect="minecraft:oak_planks", cells={1,2}, per_cell=64})
+        T.equal(failure, nil, "a cell must be filled from more than one buffer stack")
+        T.equal(api.slots[1].count, 64)
+        T.equal(api.slots[2].count, 64)
+    end},
+    {name="every cell is verified, not just the first",run=function()
+        local api = fakeTurtle({
+            {name="minecraft:oak_planks", count=1},
+            {name="minecraft:cobblestone", count=1},
+        })
+        local result = Executor.new({turtle=api}):handle({op="craft", job="craft-1",
+            steps={{expect="minecraft:oak_planks", cells={1,2}, per_cell=1}},
+            result={name="minecraft:stick", count=4}})
+        T.equal(result.ok, false, "the second cell got the wrong item")
+        T.equal(result.code, "INGREDIENT_MISMATCH")
+        T.equal(held(api), 0)
+    end},
+
 }

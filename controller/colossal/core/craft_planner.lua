@@ -241,11 +241,30 @@ function resolve(state, itemId, needed, depth)
         cells[index] = reference ~= 0 and chosenFor[reference] or false
     end
 
-    state.steps[#state.steps + 1] = {
-        item=itemId, recipe_id=body.id, shaped=body.shaped == true,
-        crafts=crafts, batch=batch, calls=ceilDiv(crafts, batch),
-        produced=produced, per_craft=perCraft, consumes=consumes, cells=cells,
-    }
+    -- One step per turtle call, rather than one step per output with a call count.
+    --
+    -- turtle.craft() runs at most `batch` times per call, and every call has to start
+    -- from a buffer holding only that call's ingredients: suckDown takes from the
+    -- buffer's lowest occupied slot, so anything else in there -- including the previous
+    -- call's own output -- gets sucked into the grid instead of the ingredient. Splitting
+    -- here means each step gets its own staging, which is what keeps that true.
+    local remaining = crafts
+    while remaining > 0 do
+        local runs = math.min(batch, remaining)
+        local perStep = {}
+        for index, entry in ipairs(consumes) do
+            -- consumes was accumulated over the whole run of crafts, so scale it back
+            -- to this call. Integer by construction: it is runs * cells-per-ingredient.
+            perStep[index] = {item=entry.item,
+                count=math.floor(entry.count / crafts + 0.5) * runs}
+        end
+        state.steps[#state.steps + 1] = {
+            item=itemId, recipe_id=body.id, shaped=body.shaped == true,
+            crafts=runs, batch=batch, calls=1,
+            produced=runs * perCraft, per_craft=perCraft, consumes=perStep, cells=cells,
+        }
+        remaining = remaining - runs
+    end
     return true
 end
 

@@ -194,18 +194,36 @@ return {
         })
         local plan = CraftPlanner.plan({item="minecraft:oak_log", quantity=64},
             context({["minecraft:bucket"]=64}, {repo=repo}))
-        local step = stepFor(plan, "minecraft:oak_log")
-        T.equal(step.batch, 16, "bucket stacks to 16, so a craft call can only batch 16")
-        T.equal(step.crafts, 64)
-        T.equal(step.calls, 4, "64 crafts at 16 per call")
+        -- Steps are one turtle call each, so 64 crafts at batch 16 is four steps.
+        local steps, total = {}, 0
+        for _, entry in ipairs(plan.steps) do
+            if entry.item == "minecraft:oak_log" then
+                steps[#steps + 1] = entry
+                total = total + entry.crafts
+                T.equal(entry.batch, 16, "bucket stacks to 16, so a call can batch 16")
+                T.equal(entry.calls, 1, "every step is exactly one turtle call")
+                T.truthy(entry.crafts <= 16, "a step never asks for more than one call")
+            end
+        end
+        T.equal(#steps, 4, "64 crafts at 16 per call is four steps")
+        T.equal(total, 64)
     end},
     {name="batch size is capped at 64 even for large stacks",run=function()
         local plan = CraftPlanner.plan({item="minecraft:chest", quantity=200},
             context({["minecraft:oak_planks"]=99999}))
-        local step = stepFor(plan, "minecraft:chest")
-        T.equal(step.batch, 64)
-        T.equal(step.crafts, 200)
-        T.equal(step.calls, 4, "200 crafts at 64 per call rounds up to 4")
+        local steps, total, produced = {}, 0, 0
+        for _, entry in ipairs(plan.steps) do
+            if entry.item == "minecraft:chest" then
+                steps[#steps + 1] = entry
+                total = total + entry.crafts
+                produced = produced + entry.produced
+                T.equal(entry.batch, 64)
+                T.truthy(entry.crafts <= 64, "a step never exceeds one call")
+            end
+        end
+        T.equal(#steps, 4, "200 crafts at 64 per call is four steps")
+        T.equal(total, 200, "the split preserves the total craft count")
+        T.equal(produced, 200, "and the total produced")
     end},
     {name="a cyclic recipe pair terminates instead of recursing forever",run=function()
         local plan = CraftPlanner.plan({item="minecraft:iron_block", quantity=1},
