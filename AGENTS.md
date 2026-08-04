@@ -4,7 +4,9 @@
 
 This repository contains a search-first CC:Tweaked wired-inventory storage terminal backed by one or more Colossal Chests. Version 1 supports Drop-off imports, pooled NBT-aware indexing, exact retrieval requests, a controller UI, and a resizable public monitor.
 
-Crafting is specified in `docs/superpowers/specs/2026-08-04-crafting-system-design.md` and being built in four stages. Stages 1 and 2 are merged: the recipe pack, `core/recipe_repo.lua`, `core/craft_prefs.lua`, and `core/craft_planner.lua`. None of it is wired into `main.lua` yet — nothing constructs those modules until stage 3 adds the craft service — so no crafting behaviour is reachable from the terminal and nothing new runs on the live computer.
+Crafting is specified in `docs/superpowers/specs/2026-08-04-crafting-system-design.md` and being built in four stages. Stages 1 to 3 are merged: the recipe pack, `core/recipe_repo.lua`, `core/craft_prefs.lua`, `core/craft_planner.lua`, `app/craft_service.lua`, `app/craft_buffer.lua`, `app/turtle_link.lua`, and the turtle firmware under `turtle/`.
+
+Crafting is wired into `main.lua` but stays off unless both `craft_buffer` and `turtle` are bound in config; without them the craft service is never constructed and every existing behaviour is unchanged. Stage 4 adds the Crafting page and the crafting monitor, so nothing is reachable from the terminal yet.
 
 Operators drive recovery from the terminal: retry and cancel on the Requests page, acknowledge on the Alerts page, a two-key confirmed release for a recovery that cannot prove what an interrupted transfer moved, and a global pause. `controller/startup.lua` supervises the runtime with a capped restart backoff.
 
@@ -16,6 +18,7 @@ Operators drive recovery from the terminal: retry and cancel on the Requests pag
 - `controller/colossal/core/` contains inventory scanning, indexing, planning, transfers, reconciliation, and registry logic.
 - `controller/colossal/shared/` contains runtime, codec, and durable-store helpers.
 - `controller/colossal/recipes/` holds the generated crafting recipe pack. It is deployed like code, never hand-edited; regenerate it with `tools/recipe_import.py` and see `docs/operations.md`. Hand-written recipes go in `colossal/data/custom_recipes.lua` instead, which takes precedence over it.
+- `turtle/` is the crafting turtle's own deployable tree, with its own `deployment_manifest.lua`. It is a second live computer: never deploy controller files to it, and never deploy its files to the controller. Both manifests define a module named `deployment_manifest`, so tests must load one of them by explicit path rather than by `require`, and must not prepend the turtle tree to `package.path`.
 - `tools/` holds host-side build tooling that is never deployed. Its Python tests run with `python -m unittest test_recipe_pack` from `tools/`.
 - `controller/colossal/tests/` contains the host-runnable Lua suite and must never be deployed.
 - `controller/colossal/deployment_manifest.lua` is the exact runtime deployment allow-list.
