@@ -14,17 +14,31 @@ local M={files={
     "colossal/app/search.lua",
     "colossal/app/setup.lua",
     "colossal/app/ui.lua",
+    "colossal/core/craft_prefs.lua",
     "colossal/core/identity.lua",
     "colossal/core/index.lua",
     "colossal/core/inventory_adapter.lua",
     "colossal/core/planner.lua",
     "colossal/core/reconciliation.lua",
+    "colossal/core/recipe_repo.lua",
     "colossal/core/registry.lua",
     "colossal/core/scanner.lua",
     "colossal/core/transfer.lua",
     "colossal/shared/codec.lua",
     "colossal/shared/runtime.lua",
     "colossal/shared/store.lua",
+    -- The generated crafting recipe pack. These are build artifacts, not mutable
+    -- state, which is why they live outside colossal/data/ and ship like code.
+    -- Regenerate with tools/recipe_import.py; never hand-edit.
+    -- The shard list must match the converter's --shards default (4). Changing one
+    -- without the other either strands a shard on the host or names a missing file.
+    "colossal/recipes/items.lua",
+    "colossal/recipes/index.lua",
+    "colossal/recipes/tags.lua",
+    "colossal/recipes/pack_01.lua",
+    "colossal/recipes/pack_02.lua",
+    "colossal/recipes/pack_03.lua",
+    "colossal/recipes/pack_04.lua",
 }}
 
 local listed={};for _,path in ipairs(M.files) do listed[path]=true end
