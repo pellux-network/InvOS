@@ -221,8 +221,20 @@ Resolving a target `(identity, quantity)`:
    cycles, and this is where the cycles are.
 3. **Resolve tags against a running reservation ledger.** Availability is always
    `live_quantity - already_reserved_by_this_plan`. Without the ledger, two branches of the
-   tree both see the same 30 planks and both claim them. Selection order: pinned preference if
-   it is in stock, else most-stocked, tie-broken by item ID.
+   tree both see the same 30 planks and both claim them.
+
+   Candidates rank by: a pin that is actually available, then most-stocked, then craftable at
+   all, then item ID. **Rank order alone is not sufficient**, so the planner tries candidates
+   in that order and keeps the first that genuinely resolves, rolling the ledger back between
+   attempts.
+
+   The reason is concrete, and was found by running against the real pack rather than a
+   fixture. Every one of the eight vanilla plank types is craftable, so when all are out of
+   stock a rank-ordered choice picks `acacia_planks` alphabetically and the craft fails —
+   with oak logs sitting in storage and `oak_planks` reachable the whole time. Ranking can
+   only see what is craftable in principle, never what is craftable from the stock on hand.
+   Trying candidates is what closes that gap. A member already in stock still ranks first and
+   succeeds immediately, so the search only does real work in the case that was broken.
 
    **Alternation lists resolve the same way.** 12 vanilla recipes give an ingredient as a list
    such as `[{"item": "..."}, {"tag": "..."}]`. The converter flattens each list to the union

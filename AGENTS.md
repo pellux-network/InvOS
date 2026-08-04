@@ -4,7 +4,7 @@
 
 This repository contains a search-first CC:Tweaked wired-inventory storage terminal backed by one or more Colossal Chests. Version 1 supports Drop-off imports, pooled NBT-aware indexing, exact retrieval requests, a controller UI, and a resizable public monitor.
 
-Crafting is specified in `docs/superpowers/specs/2026-08-04-crafting-system-design.md` and being built in four stages. Stage 1 (the recipe pack, `core/recipe_repo.lua`, and `core/craft_prefs.lua`) is merged but not yet wired into `main.lua`; nothing constructs those modules until stage 2 adds the craft planner. No crafting behaviour is reachable from the terminal yet.
+Crafting is specified in `docs/superpowers/specs/2026-08-04-crafting-system-design.md` and being built in four stages. Stages 1 and 2 are merged: the recipe pack, `core/recipe_repo.lua`, `core/craft_prefs.lua`, and `core/craft_planner.lua`. None of it is wired into `main.lua` yet — nothing constructs those modules until stage 3 adds the craft service — so no crafting behaviour is reachable from the terminal and nothing new runs on the live computer.
 
 Operators drive recovery from the terminal: retry and cancel on the Requests page, acknowledge on the Alerts page, a two-key confirmed release for a recovery that cannot prove what an interrupted transfer moved, and a global pause. `controller/startup.lua` supervises the runtime with a capped restart backoff.
 
