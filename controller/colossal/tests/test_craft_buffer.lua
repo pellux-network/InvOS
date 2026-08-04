@@ -6,6 +6,15 @@ local TurtleLink = require("app.turtle_link")
 local TurtleManifest = dofile("../turtle/deployment_manifest.lua")
 local T = require("tests.mock_cc")
 
+-- A link whose modem opens and whose turtle resolves, so tests can focus on the inbox.
+local function workingLink()
+    return TurtleLink.new({
+        rednet = {send=function() return true end, receive=function() return nil end,
+            isOpen=function() return true end, open=function() return true end},
+        peripheral = {call=function() return 7 end, getType=function() return "modem" end},
+        name = "turtle_2"})
+end
+
 local function bufferContext(slots, health)
     return {
         craft_buffer = {node_id="craft_buffer", peripheral_name="buffer",
@@ -202,20 +211,47 @@ return {
         T.contains(reason, "not reachable")
         T.equal(link.cachedId, nil, "a rebuilt turtle must not be retried at a dead ID")
     end},
-    {name="polling returns nothing until a reply arrives",run=function()
-        local replies = {}
-        local link = TurtleLink.new({
-            rednet = {send=function() return true end,
-                receive=function() return table.remove(replies, 1), {ok=true} end,
-                isOpen=function() return true end, open=function() return true end},
-            peripheral = {call=function() return 7 end,
-                getType=function() return "modem" end}, name = "turtle_2"})
+    {name="a reply handed in by the event loop is returned by poll",run=function()
+        local link = workingLink()
         T.equal(link:poll(), nil, "nothing is pending yet")
         link:send({op="craft", job="craft-1"})
-        replies[1] = 7
+        T.equal(link:poll(), nil, "no reply has arrived")
+        T.equal(link:deliver(7, {ok=true, job="craft-1"}, "pellstore-craft"), true)
         local reply = link:poll()
         T.equal(reply.ok, true)
         T.equal(link:poll(), nil, "a reply is consumed once")
+    end},
+    {name="a reply that arrives between polls is not lost",run=function()
+        -- This is the failure that stalled a live craft: the reply landed while the work
+        -- loop was busy elsewhere, so rednet.receive never saw it and the job timed out.
+        local link = workingLink()
+        link:send({op="craft", job="craft-1"})
+        for _ = 1, 5 do link:poll() end
+        link:deliver(7, {ok=true}, "pellstore-craft")
+        for _ = 1, 5 do
+            local reply = link:poll()
+            if reply then T.equal(reply.ok, true); return end
+        end
+        T.truthy(false, "the reply must survive until it is polled")
+    end},
+    {name="a message on another protocol is ignored",run=function()
+        local link = workingLink()
+        link:send({op="craft", job="craft-1"})
+        T.equal(link:deliver(7, {ok=true}, "some-other-protocol"), false)
+        T.equal(link:poll(), nil)
+    end},
+    {name="a message from another computer is ignored",run=function()
+        local link = workingLink()
+        link:send({op="craft", job="craft-1"})
+        T.equal(link:deliver(99, {ok=true}, "pellstore-craft"), false)
+        T.equal(link:poll(), nil)
+    end},
+    {name="a new job never sees a stale reply",run=function()
+        local link = workingLink()
+        link:send({op="craft", job="craft-1"})
+        link:deliver(7, {ok=true, job="craft-1"}, "pellstore-craft")
+        link:send({op="craft", job="craft-2"})
+        T.equal(link:poll(), nil, "the previous job's reply must not settle this one")
     end},
 
     -- Turtle deployment manifest

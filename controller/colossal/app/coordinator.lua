@@ -566,6 +566,15 @@ function Coordinator:handle(event)
         self:_refreshLifecycle(); self.dirty=true
     elseif name == "monitor_resize" or name == "term_resize" then
         self.dirty=true; self:redraw()
+    elseif name == "rednet_message" then
+        -- The turtle's reply lands here, on the only loop that sees every event. The
+        -- craft service reads it from the link's inbox on its next tick.
+        local link = self.deps.turtle_link
+        if link and type(link.deliver) == "function" then
+            local ok, reason = pcall(link.deliver, link, event[2], event[3], event[4])
+            if not ok then self:_recordError("turtle link", reason) end
+            self.dirty = true
+        end
     end
     local ok, command = pcall(self.keymap.command, event, self.uiState)
     if not ok then self:_recordError("keymap", command); return end
