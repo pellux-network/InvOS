@@ -95,6 +95,118 @@ def read_lang(jar):
     return {}
 
 
+# --------------------------------------------------------------- whole-pack scan
+#
+# Reading one namespace out of one jar is the vanilla case. A modpack is different: the
+# craftable set is spread across every mod jar, under each mod's own namespace, and no
+# single jar owns the item tags that recipes refer to.
+
+RECIPE_RE = re.compile(r"^data/([a-z0-9_.-]+)/recipes/(.+)\.json$")
+ITEM_TAG_RE = re.compile(r"^data/([a-z0-9_.-]+)/tags/items/(.+)\.json$")
+LANG_RE = re.compile(r"^assets/([a-z0-9_.-]+)/lang/en_us\.json$")
+
+
+def read_jar(jar):
+    """Return (recipes, tags, lang, malformed_count) for every namespace in one jar.
+
+    A single unparseable file is counted rather than raised. Across several hundred mod
+    jars there is usually at least one, and abandoning the whole import over a recipe the
+    converter would have skipped anyway is worse than reporting it.
+    """
+    recipes, tags, lang, malformed = {}, {}, {}, 0
+    for name in jar.namelist():
+        recipe = RECIPE_RE.match(name)
+        tag = ITEM_TAG_RE.match(name)
+        language = LANG_RE.match(name)
+        if not (recipe or tag or language):
+            continue
+        try:
+            body = json.loads(jar.read(name))
+        except (ValueError, UnicodeDecodeError):
+            malformed += 1
+            continue
+        if recipe:
+            recipes["%s:%s" % (recipe.group(1), recipe.group(2))] = body
+        elif tag:
+            tags["%s:%s" % (tag.group(1), tag.group(2))] = {
+                "replace": bool(body.get("replace", False)),
+                "values": body.get("values", []) or [],
+            }
+        else:
+            lang.update(body)
+    return recipes, tags, lang, malformed
+
+
+def merge_tags(accumulated, incoming):
+    """Fold one jar's item tags into the running set.
+
+    Tags accumulate. A tag like forge:ingots/iron is contributed to by every mod that adds
+    an iron ingot and owned by none of them, so assigning instead of extending keeps only
+    whichever jar happened to be read last -- and every recipe using that tag then resolves
+    to a single item. Only an explicit "replace": true discards earlier contributions,
+    which is exactly what it means in a datapack.
+    """
+    for key, entry in incoming.items():
+        if entry["replace"]:
+            accumulated[key] = list(entry["values"])
+        else:
+            accumulated.setdefault(key, []).extend(entry["values"])
+    return accumulated
+
+
+def jar_paths(sources):
+    """Expand a list of directories and/or jar files into a sorted list of jar paths.
+
+    The mods directory is not the whole story: Forge itself ships the `forge:*` item tags
+    (forge:ingots/iron and 192 others) from its own jar under libraries/, and thousands of
+    modded recipes reference them. Leaving it out does not fail -- every one of those tags
+    silently resolves to no items, and the recipes using them become uncraftable.
+    """
+    paths = []
+    for source in sources:
+        if os.path.isdir(source):
+            found = sorted(name for name in os.listdir(source) if name.endswith(".jar"))
+            if not found:
+                raise SystemExit("no .jar files in %s" % source)
+            paths.extend(os.path.join(source, name) for name in found)
+        elif os.path.isfile(source):
+            paths.append(source)
+        else:
+            raise SystemExit("not a directory or file: %s" % source)
+    return paths
+
+
+def read_mods(sources):
+    """Scan every jar named by `sources`. Returns (recipes, tags, lang, report).
+
+    Jars are read in sorted order so a repeated run produces byte-identical output; when
+    two jars define the same recipe id the later one wins, which is reported rather than
+    silently resolved.
+    """
+    if isinstance(sources, str):
+        sources = [sources]
+    recipes, tags, lang = {}, {}, {}
+    report = {"jars": 0, "unreadable": [], "malformed": 0, "collisions": 0}
+    for path in jar_paths(sources):
+        name = os.path.basename(path)
+        try:
+            archive = zipfile.ZipFile(path)
+        except (zipfile.BadZipFile, OSError):
+            report["unreadable"].append(name)
+            continue
+        with archive:
+            found, jarTags, jarLang, malformed = read_jar(archive)
+        report["jars"] += 1
+        report["malformed"] += malformed
+        for key, body in found.items():
+            if key in recipes:
+                report["collisions"] += 1
+            recipes[key] = body
+        merge_tags(tags, jarTags)
+        lang.update(jarLang)
+    return recipes, tags, lang, report
+
+
 def prune_stale_shards(out_dir, shard_count):
     """Remove pack_NN.lua files left behind by a previous run with more shards.
 
@@ -115,17 +227,55 @@ def prune_stale_shards(out_dir, shard_count):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--jar", required=True, help="server or mod jar to read")
+    parser.add_argument("--jar", help="server or mod jar to read")
+    parser.add_argument("--mods", nargs="+", metavar="PATH",
+                        help="directories and/or jar files to scan, across every "
+                             "namespace. Pass the mods directory AND the Forge universal "
+                             "jar: Forge owns the forge:* item tags that modded recipes "
+                             "refer to. Combine with --jar to include vanilla.")
     parser.add_argument("--out", required=True, help="output directory for the pack")
-    parser.add_argument("--namespace", default="minecraft")
+    parser.add_argument("--namespace", default="minecraft",
+                        help="which namespace --jar is read for (ignored by --mods)")
     parser.add_argument("--shards", type=int, default=4)
     args = parser.parse_args()
 
-    with open_data_jar(args.jar, args.namespace) as jar:
-        recipes, tags = read_namespace(jar, args.namespace)
-        if not recipes:
-            raise SystemExit("no recipes found for namespace %s" % args.namespace)
-        lang = read_lang(jar)
+    if not args.jar and not args.mods:
+        raise SystemExit("nothing to read: pass --jar, --mods, or both")
+
+    recipes, tags, lang = {}, {}, {}
+
+    # Vanilla first, so a mod jar that deliberately overrides a vanilla recipe id wins.
+    if args.jar:
+        with open_data_jar(args.jar, args.namespace) as jar:
+            found, jarTags = read_namespace(jar, args.namespace)
+            if not found:
+                raise SystemExit("no recipes found for namespace %s" % args.namespace)
+            recipes.update(found)
+            merge_tags(tags, {key: {"replace": False, "values": values}
+                              for key, values in jarTags.items()})
+            lang.update(read_lang(jar))
+        print("%s: %d recipes" % (os.path.basename(args.jar), len(recipes)))
+
+    if args.mods:
+        modRecipes, modTags, modLang, report = read_mods(args.mods)
+        for key, body in modRecipes.items():
+            recipes[key] = body
+        merge_tags(tags, {key: {"replace": False, "values": values}
+                          for key, values in modTags.items()})
+        lang.update(modLang)
+        print("%d jars scanned, %d recipes, %d item tags" % (
+            report["jars"], len(modRecipes), len(modTags)))
+        if report["unreadable"]:
+            print("  %d unreadable: %s" % (len(report["unreadable"]),
+                                           ", ".join(report["unreadable"][:5])))
+        if report["malformed"]:
+            print("  %d malformed json files skipped" % report["malformed"])
+        if report["collisions"]:
+            print("  %d recipe ids defined more than once; the last jar won"
+                  % report["collisions"])
+
+    if not recipes:
+        raise SystemExit("no recipes found")
 
     try:
         pack = build_pack(recipes, tags, lang, shard_count=args.shards)
@@ -150,6 +300,12 @@ def main():
         len(pack["tags"]["tags"]),
         len(pack["items"]["ids"]),
     ))
+
+    skipped = pack.get("skipped") or {}
+    if skipped:
+        print("%d recipes left out, by cause:" % sum(skipped.values()))
+        for reason in sorted(skipped, key=lambda name: -skipped[name]):
+            print("  %-22s %d" % (reason, skipped[reason]))
 
 
 if __name__ == "__main__":

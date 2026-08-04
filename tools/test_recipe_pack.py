@@ -193,6 +193,106 @@ class ConvertRecipeTest(unittest.TestCase):
             self.converter.convert("minecraft:widget", recipe)
 
 
+class UnrepresentableIngredientTest(unittest.TestCase):
+    """Vanilla only ever writes {"item":...}, {"tag":...} or a list of those. A modpack
+    does not, and a recipe the pack cannot represent faithfully must be left out rather
+    than approximated -- crafting it would consume the wrong items."""
+
+    def setUp(self):
+        self.converter = Converter()
+
+    def shaped(self, ingredient, result=None):
+        return {
+            "type": "minecraft:crafting_shaped",
+            "pattern": ["#"],
+            "key": {"#": ingredient},
+            "result": result or {"item": "minecraft:widget"},
+        }
+
+    def test_an_nbt_constrained_ingredient_is_refused(self):
+        # forge:nbt and forge:partial_nbt demand a specific variant. Ingredient matching
+        # in the controller is deliberately NBT-free, so honouring this is impossible and
+        # ignoring it would craft from the wrong stack.
+        recipe = self.shaped({"type": "forge:nbt", "item": "mod:tool",
+                              "nbt": {"Damage": 0}})
+        with self.assertRaises(ValueError):
+            self.converter.convert("mod:x", recipe)
+
+    def test_an_ingredient_with_neither_item_nor_tag_is_refused(self):
+        with self.assertRaises(ValueError):
+            self.converter.convert("mod:x", self.shaped({"type": "mod:custom_matcher"}))
+
+    def test_a_pattern_symbol_missing_from_the_key_is_refused(self):
+        recipe = {
+            "type": "minecraft:crafting_shaped",
+            "pattern": ["#%"],
+            "key": {"#": {"item": "minecraft:stick"}},
+            "result": {"item": "minecraft:widget"},
+        }
+        with self.assertRaises(ValueError):
+            self.converter.convert("mod:x", recipe)
+
+    def test_an_nbt_bearing_result_is_refused(self):
+        recipe = self.shaped({"item": "minecraft:stick"},
+                             result={"item": "mod:tool", "nbt": {"Energy": 0}})
+        with self.assertRaises(ValueError):
+            self.converter.convert("mod:x", recipe)
+
+    def test_an_alternation_containing_an_unrepresentable_option_is_refused(self):
+        recipe = self.shaped([{"item": "minecraft:stick"},
+                              {"type": "forge:nbt", "item": "mod:tool", "nbt": {}}])
+        with self.assertRaises(ValueError):
+            self.converter.convert("mod:x", recipe)
+
+    def test_a_plain_typed_item_ingredient_is_still_accepted(self):
+        # Mods routinely write the explicit {"type":"minecraft:item"} form for something
+        # entirely ordinary. Refusing that would drop thousands of good recipes.
+        body = self.converter.convert(
+            "mod:x", self.shaped({"type": "minecraft:item", "item": "minecraft:stick"}))
+        self.assertIsNotNone(body)
+
+
+class SkippedRecipeReportingTest(unittest.TestCase):
+    """One unrepresentable recipe among tens of thousands must not abandon the import."""
+
+    def test_a_bad_recipe_is_skipped_and_its_neighbours_still_convert(self):
+        recipes = {
+            "mod:good": {"type": "minecraft:crafting_shapeless",
+                         "ingredients": [{"item": "minecraft:stick"}],
+                         "result": {"item": "mod:good"}},
+            "mod:bad": {"type": "minecraft:crafting_shapeless",
+                        "ingredients": [{"type": "mod:matcher"}],
+                        "result": {"item": "mod:bad"}},
+            "mod:also_good": {"type": "minecraft:crafting_shapeless",
+                              "ingredients": [{"item": "minecraft:stone"}],
+                              "result": {"item": "mod:also_good"}},
+        }
+        pack = build_pack(recipes, {}, {})
+        converted = sum(len(bodies) for bodies in pack["shards"].values())
+        self.assertEqual(converted, 2)
+        self.assertEqual(sum(pack["skipped"].values()), 1)
+
+    def test_skips_are_reported_by_reason(self):
+        recipes = {
+            "mod:oversized": {"type": "minecraft:crafting_shaped",
+                              "pattern": ["####"],
+                              "key": {"#": {"item": "minecraft:stick"}},
+                              "result": {"item": "mod:oversized"}},
+            "mod:nbt": {"type": "minecraft:crafting_shapeless",
+                        "ingredients": [{"item": "mod:tool", "nbt": {}}],
+                        "result": {"item": "mod:nbt"}},
+        }
+        pack = build_pack(recipes, {}, {})
+        self.assertEqual(sum(pack["skipped"].values()), 2)
+        self.assertEqual(len(pack["skipped"]), 2, "each cause is counted separately")
+
+    def test_a_clean_pack_reports_no_skips(self):
+        recipes = {"mod:good": {"type": "minecraft:crafting_shapeless",
+                                "ingredients": [{"item": "minecraft:stick"}],
+                                "result": {"item": "mod:good"}}}
+        self.assertEqual(build_pack(recipes, {}, {})["skipped"], {})
+
+
 class LuaValueTest(unittest.TestCase):
     def test_renders_scalars(self):
         self.assertEqual(lua_value(7), "7")

@@ -7,6 +7,18 @@ calling functions. tools/recipe_import.py is the thin CLI wrapper.
 import warnings
 
 
+class Unconvertible(ValueError):
+    """A recipe the pack cannot represent faithfully.
+
+    A ValueError so the strict single-recipe contract callers already rely on is
+    unchanged; `reason` lets a bulk import report what it left out and why.
+    """
+
+    def __init__(self, message, reason):
+        super().__init__(message)
+        self.reason = reason
+
+
 def _tag_entry_id(entry):
     """A tag value is either a plain string or {"id": ..., "required": ...}."""
     if isinstance(entry, dict):
@@ -98,11 +110,28 @@ class Converter:
         self._alt_by_signature = {}
 
     def _reference(self, ingredient):
-        """Resolve one ingredient to a pack reference: an item index, or a tag name."""
+        """Resolve one ingredient to a pack reference: an item index, or a tag name.
+
+        Vanilla only ever writes {"item":...}, {"tag":...} or a list of those. Mods add
+        custom ingredient types, and anything this cannot represent faithfully is refused
+        rather than approximated: a recipe converted by ignoring the constraint it
+        actually carries would craft from the wrong stack.
+        """
         if isinstance(ingredient, list):
             return self._alternation(ingredient)
+        if not isinstance(ingredient, dict):
+            raise Unconvertible("ingredient is not an object", "malformed_ingredient")
+        if "nbt" in ingredient:
+            # forge:nbt and forge:partial_nbt demand a specific variant. Ingredient
+            # matching in the controller is deliberately NBT-free, so this cannot be
+            # honoured and must not be silently widened to "any variant".
+            raise Unconvertible("ingredient constrains NBT", "nbt_ingredient")
         if "tag" in ingredient:
             return ingredient["tag"]
+        if "item" not in ingredient:
+            raise Unconvertible(
+                "ingredient has neither item nor tag (type=%r)" % ingredient.get("type"),
+                "custom_ingredient")
         return self.items.index(ingredient["item"])
 
     def _alternation(self, options):
@@ -110,10 +139,19 @@ class Converter:
         ambiguity mechanism instead of two. Identical lists share a tag."""
         members = []
         for option in options:
+            if not isinstance(option, dict):
+                raise Unconvertible("alternation option is not an object",
+                                    "malformed_ingredient")
+            if "nbt" in option:
+                raise Unconvertible("alternation option constrains NBT", "nbt_ingredient")
             if "tag" in option:
                 members.append("#" + option["tag"])
-            else:
+            elif "item" in option:
                 members.append(option["item"])
+            else:
+                raise Unconvertible(
+                    "alternation option has neither item nor tag (type=%r)"
+                    % option.get("type"), "custom_ingredient")
         signature = tuple(members)
         existing = self._alt_by_signature.get(signature)
         if existing is not None:
@@ -128,9 +166,15 @@ class Converter:
         if kind not in CRAFTABLE_TYPES:
             return None
         result = recipe.get("result") or {}
+        if not isinstance(result, dict):
+            raise Unconvertible("result is not an object", "malformed_result")
         output_id = result.get("item")
         if not output_id:
             return None
+        if "nbt" in result:
+            # The output is a specific variant. The controller identifies the crafted item
+            # by plain id, so it could neither verify nor deliver this correctly.
+            raise Unconvertible("result carries NBT", "nbt_result")
         body = {
             "id": recipe_id,
             "output": self.items.index(output_id),
@@ -169,6 +213,10 @@ class Converter:
             for column, symbol in enumerate(line):
                 if symbol == " ":
                     continue
+                if symbol not in key:
+                    raise Unconvertible(
+                        "pattern uses %r but the key does not define it" % symbol,
+                        "missing_key")
                 grid[row * 3 + column] = self._reference(key[symbol])
         return grid
 
@@ -211,9 +259,18 @@ def build_pack(recipes, raw_tags, lang, shard_count=4):
     converter = Converter()
     flat_tags = flatten_tags(raw_tags)
 
-    bodies = []
+    # A whole-modpack import reads tens of thousands of recipes, and a handful will always
+    # be shapes this cannot represent. Abandoning the run over one of them is far worse
+    # than leaving it out and saying so, so the strict per-recipe contract is kept and the
+    # tolerance lives here, where the count is visible.
+    bodies, skipped = [], {}
     for recipe_id in sorted(recipes):
-        body = converter.convert(recipe_id, recipes[recipe_id])
+        try:
+            body = converter.convert(recipe_id, recipes[recipe_id])
+        except ValueError as exc:
+            reason = getattr(exc, "reason", "invalid_recipe")
+            skipped[reason] = skipped.get(reason, 0) + 1
+            continue
         if body is not None:
             bodies.append(body)
 
@@ -265,6 +322,7 @@ def build_pack(recipes, raw_tags, lang, shard_count=4):
         "tags": {"schema": 1, "tags": tags},
         "shards": shards,
         "shard_count": shard_count,
+        "skipped": skipped,
     }
 
 
