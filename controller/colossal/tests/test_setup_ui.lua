@@ -58,4 +58,36 @@ return {
         T.equal(nextState.query,"stone")
         T.equal(effect.type,"CANCEL_SETUP")
     end},
+    {name="every wizard step has its own title and prompt",run=function()
+        -- A step with no entry falls back to a generic inventory line, which is wrong on
+        -- the turtle and monitor steps and reads as if it is asking for a chest again.
+        local generic = "wired peripheral for this role"
+        for step = 1, 10 do
+            local surface = T.recordingSurface(51, 19)
+            local ui = UI.new(surface)
+            local state = UI.initialState()
+            state.mode, state.page, state.setup_step = "setup", "setup", step
+            state.setup_choices = {{label="something", detail="x"}}
+            state.setup_choice_count = 1
+            ui:render(state, {})
+            local text = surface.allText()
+            T.equal(text:find(generic, 1, true), nil, "step " .. step .. " has no prompt")
+            T.contains(text, tostring(step) .. " / 10", "step " .. step .. " progress")
+            T.equal(surface.writesOutsideBounds(), 0, "step " .. step .. " bounds")
+        end
+    end},
+    {name="the monitor steps do not call themselves inventories",run=function()
+        for _, step in ipairs({6, 7, 8}) do
+            local surface = T.recordingSurface(51, 19)
+            local ui = UI.new(surface)
+            local state = UI.initialState()
+            state.mode, state.page, state.setup_step = "setup", "setup", step
+            state.setup_choices = {{label="Skip", detail="leave unbound"}}
+            state.setup_choice_count = 1
+            ui:render(state, {})
+            T.equal(surface.allText():find("inventory", 1, true), nil,
+                "step " .. step .. " is not an inventory step")
+        end
+    end},
+
 }

@@ -626,9 +626,27 @@ end
 function UI:_setupWizard(state, model)
     local surface = self.surface
     local width, height = surface.getSize()
+    -- One title and one prompt per step. Both lists must cover every step: a missing
+    -- entry falls back to a generic "select an inventory" line, which is actively wrong
+    -- on the turtle and monitor steps and reads as if the wizard is asking again for a
+    -- chest it already has.
     local names = {
-        "Discover inventories", "Assign Drop-off", "Assign Pickup",
-        "Storage nodes", "Validate layout", "Review and enable",
+        "Discover inventories", "Assign Drop-off", "Assign Pickup", "Storage nodes",
+        "Craft buffer (optional)", "Crafting turtle (optional)",
+        "Main monitor (optional)", "Crafting monitor (optional)",
+        "Validate layout", "Review and enable",
+    }
+    local prompts = {
+        "Read-only discovery of the wired inventories on the network.",
+        "The inventory players deposit into, for importing.",
+        "The inventory retrievals are delivered to, for collecting.",
+        "Toggle which inventories pool together as storage.",
+        "The chest directly beneath the crafting turtle. Not Pickup.",
+        "The crafting turtle itself, not a chest.",
+        "The large status monitor. Skip to auto-detect.",
+        "The small monitor showing craft progress. Not a chest.",
+        "Read-only validation. Moves no items.",
+        "Save the configuration and start.",
     }
     fill(surface, 1, palette.gray)
     surface.setTextColor(palette.white)
@@ -639,7 +657,8 @@ function UI:_setupWizard(state, model)
     surface.setTextColor(palette.cyan)
     writeClipped(surface, 2, 3, names[state.setup_step or 1] or "Setup", width - 3)
     surface.setTextColor(palette.lightGray)
-    writeClipped(surface, 2, 4, "Select the exact wired inventory for this role.", width - 3)
+    writeClipped(surface, 2, 4, prompts[state.setup_step or 1] or
+        "Select the exact wired peripheral for this role.", width - 3)
     local choices = state.setup_choices or {}
     if #choices == 0 then
         writeClipped(surface, 2, 6, "No choices on this step", width - 3)
