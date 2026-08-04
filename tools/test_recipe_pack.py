@@ -72,5 +72,89 @@ class DisplayNamesTest(unittest.TestCase):
         self.assertEqual(names, ["mod:widget"])
 
 
+from recipe_pack import Converter
+
+
+class ConvertRecipeTest(unittest.TestCase):
+    def setUp(self):
+        self.converter = Converter()
+
+    def test_shaped_recipe_expands_to_a_nine_cell_grid(self):
+        recipe = {
+            "type": "minecraft:crafting_shaped",
+            "pattern": ["##", "##"],
+            "key": {"#": {"tag": "minecraft:planks"}},
+            "result": {"item": "minecraft:crafting_table"},
+        }
+        converted = self.converter.convert("minecraft:crafting_table", recipe)
+        self.assertTrue(converted["shaped"])
+        self.assertEqual(converted["count"], 1)
+        self.assertEqual(
+            converted["grid"],
+            ["minecraft:planks", "minecraft:planks", 0,
+             "minecraft:planks", "minecraft:planks", 0,
+             0, 0, 0],
+        )
+
+    def test_shaped_pattern_is_left_aligned_into_the_grid(self):
+        recipe = {
+            "type": "minecraft:crafting_shaped",
+            "pattern": ["X", "#"],
+            "key": {"X": {"item": "minecraft:coal"}, "#": {"item": "minecraft:stick"}},
+            "result": {"item": "minecraft:torch", "count": 4},
+        }
+        converted = self.converter.convert("minecraft:torch", recipe)
+        coal = self.converter.items.index("minecraft:coal")
+        stick = self.converter.items.index("minecraft:stick")
+        self.assertEqual(converted["count"], 4)
+        self.assertEqual(converted["grid"], [coal, 0, 0, stick, 0, 0, 0, 0, 0])
+
+    def test_shapeless_recipe_keeps_an_ingredient_list(self):
+        recipe = {
+            "type": "minecraft:crafting_shapeless",
+            "ingredients": [{"item": "minecraft:oak_log"}],
+            "result": {"item": "minecraft:oak_planks", "count": 4},
+        }
+        converted = self.converter.convert("minecraft:oak_planks", recipe)
+        self.assertFalse(converted["shaped"])
+        self.assertEqual(converted["count"], 4)
+        self.assertEqual(len(converted["ingredients"]), 1)
+
+    def test_alternation_list_becomes_a_synthetic_tag(self):
+        recipe = {
+            "type": "minecraft:crafting_shapeless",
+            "ingredients": [[{"item": "minecraft:gold_ingot"}, {"tag": "minecraft:planks"}]],
+            "result": {"item": "minecraft:widget"},
+        }
+        converted = self.converter.convert("minecraft:widget", recipe)
+        reference = converted["ingredients"][0]
+        self.assertEqual(reference, "@alt:1")
+        self.assertIn("@alt:1", self.converter.synthetic_tags)
+        self.assertEqual(
+            self.converter.synthetic_tags["@alt:1"],
+            ["minecraft:gold_ingot", "#minecraft:planks"],
+        )
+
+    def test_identical_alternations_reuse_one_synthetic_tag(self):
+        recipe = {
+            "type": "minecraft:crafting_shapeless",
+            "ingredients": [
+                [{"item": "minecraft:a"}, {"item": "minecraft:b"}],
+                [{"item": "minecraft:a"}, {"item": "minecraft:b"}],
+            ],
+            "result": {"item": "minecraft:widget"},
+        }
+        converted = self.converter.convert("minecraft:widget", recipe)
+        self.assertEqual(converted["ingredients"], ["@alt:1", "@alt:1"])
+        self.assertEqual(len(self.converter.synthetic_tags), 1)
+
+    def test_unsupported_recipe_types_are_skipped(self):
+        for kind in ("minecraft:smelting", "minecraft:stonecutting",
+                     "minecraft:smithing", "minecraft:crafting_special_repairitem"):
+            self.assertIsNone(
+                self.converter.convert("x", {"type": kind, "result": {"item": "y"}})
+            )
+
+
 if __name__ == "__main__":
     unittest.main()
