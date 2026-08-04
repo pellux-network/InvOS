@@ -17,6 +17,11 @@ local function fakeBuffer(contents)
     function value:drain(_, keep)
         self.drains[#self.drains + 1] = keep
         if self.blocked == "drain" then return {state="BLOCKED", reason={code="DRAIN"}} end
+        if self.working and self.working > 0 then
+            -- A real drain takes several ticks and asks for a rescan between them.
+            self.working = self.working - 1
+            return {state="WORKING", rescan={"craft_buffer"}}
+        end
         local kept = {}
         for item, count in pairs(self.contents) do
             if keep[item] then kept[item] = math.min(count, keep[item]) end
@@ -477,6 +482,25 @@ return {
         local job = craft:get(queued.id)
         T.equal(job.state, "BLOCKED")
         T.equal(job.reason.code, "OUTPUT_MISSING")
+    end},
+
+    {name="a drain that needs several ticks asks for a rescan between them",run=function()
+        -- The importer moves items out, which makes the snapshot stale immediately. With
+        -- no refresh the same slots are offered again and it reports moving nothing,
+        -- blocking with "Storage accepted no items" after the work already succeeded.
+        local buffer = fakeBuffer({["minecraft:cobblestone"]=64})
+        buffer.working = 2
+        local craft = service({plan({chestStep()},
+            {{item="minecraft:oak_planks", count=8}})}, {buffer=buffer})
+        craft:enqueue("minecraft:chest", 1)
+        local asked = false
+        for _ = 1, 6 do
+            local result = craft:tick(context())
+            for _, name in ipairs((result or {}).rescan or {}) do
+                if name == "craft_buffer" then asked = true end
+            end
+        end
+        T.equal(asked, true, "an in-progress drain must refresh before its next pass")
     end},
 
 }
