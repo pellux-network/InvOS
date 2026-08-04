@@ -119,8 +119,20 @@ function CraftBuffer:drain(context, keep)
         return {state="BLOCKED", reason={code="BUFFER_UNAVAILABLE",
             message="The craft buffer is not ready"}}
     end
+    -- Having nothing left to move is not the same as being finished. The importer's last
+    -- pass physically moves the items and only then goes to VERIFYING, so by the time the
+    -- buffer is rescanned there is no excess left while a transfer is still open. Reporting
+    -- DONE there abandons the importer mid-cycle: its journal is never retired -- and the
+    -- journal belongs to the transfer service every other service shares -- while status()
+    -- reports VERIFYING for good, which tells the coordinator a transfer is permanently in
+    -- flight and stops every service, crafting or not, from ever planning again.
+    --
+    -- Only TRANSFERRING and VERIFYING hold an open journal. Every other state has already
+    -- retired it, so there is nothing left to settle.
+    local inner = self:status().state
+    local settling = inner == "TRANSFERRING" or inner == "VERIFYING"
     local excess = self:_excess(context, keep or {})
-    if #excess == 0 then return {state="DONE"} end
+    if #excess == 0 and not settling then return {state="DONE"} end
 
     local ok, result = pcall(self.imports.tick, self.imports, self:_importContext(context, excess))
     if not ok then

@@ -357,6 +357,34 @@ return {
         T.equal(settling.state, "WORKING")
         T.equal(settling.inner, "COMPLETE", "a settled pass is where a rescan belongs")
     end},
+    {name="a drain lets its importer finish verifying even with nothing left to move",run=function()
+        -- The last pass physically moves the items and only then goes to VERIFYING, so the
+        -- rescan that follows makes the buffer look empty. Reporting DONE there strands the
+        -- importer mid-verification: its journal is never retired -- and the journal belongs
+        -- to the transfer service every other service shares -- while status() reports
+        -- VERIFYING forever, which tells the coordinator a transfer is permanently in flight
+        -- and stops every service, not just crafting, from ever planning again.
+        local imports = {state="VERIFYING", ticks=0}
+        function imports:status() return {state=self.state} end
+        function imports:tick()
+            self.ticks = self.ticks + 1
+            self.state = "COMPLETE"
+            return {state=self.state}
+        end
+        local craft = CraftBuffer.new({imports=imports, adapter=fakeAdapter()})
+        local settling = craft:drain(bufferContext({}), {})
+        T.equal(settling.state, "WORKING", "an unsettled importer is not a finished drain")
+        T.equal(imports.ticks, 1, "it must be ticked so its journal is retired")
+        T.equal(craft:drain(bufferContext({}), {}).state, "DONE", "and DONE once it settles")
+    end},
+    {name="an empty buffer with an idle importer is done immediately",run=function()
+        local imports = {ticks=0}
+        function imports:status() return {state="IDLE"} end
+        function imports:tick() self.ticks = self.ticks + 1; return {state="IDLE"} end
+        local craft = CraftBuffer.new({imports=imports, adapter=fakeAdapter()})
+        T.equal(craft:drain(bufferContext({}), {}).state, "DONE")
+        T.equal(imports.ticks, 0, "nothing to settle and nothing to move")
+    end},
     {name="a buffer with no importer status reports idle rather than erroring",run=function()
         local craft = CraftBuffer.new({imports = {tick = function() end},
             adapter = fakeAdapter()})
