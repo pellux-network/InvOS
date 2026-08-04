@@ -156,5 +156,91 @@ class ConvertRecipeTest(unittest.TestCase):
             )
 
 
+from recipe_pack import lua_value, build_pack, render_pack
+
+
+class LuaValueTest(unittest.TestCase):
+    def test_renders_scalars(self):
+        self.assertEqual(lua_value(7), "7")
+        self.assertEqual(lua_value(True), "true")
+        self.assertEqual(lua_value("hi"), '"hi"')
+
+    def test_escapes_quotes_and_backslashes(self):
+        self.assertEqual(lua_value('a"b\\c'), '"a\\"b\\\\c"')
+
+    def test_renders_arrays_and_string_keyed_tables(self):
+        self.assertEqual(lua_value([1, 2]), "{1,2}")
+        self.assertEqual(lua_value({"a": 1}), '{["a"]=1}')
+
+    def test_table_keys_are_sorted_for_reproducible_output(self):
+        self.assertEqual(lua_value({"b": 1, "a": 2}), '{["a"]=2,["b"]=1}')
+
+
+class BuildPackTest(unittest.TestCase):
+    def setUp(self):
+        self.recipes = {
+            "minecraft:chest": {
+                "type": "minecraft:crafting_shaped",
+                "pattern": ["###", "# #", "###"],
+                "key": {"#": {"tag": "minecraft:planks"}},
+                "result": {"item": "minecraft:chest"},
+            },
+            "minecraft:stick": {
+                "type": "minecraft:crafting_shapeless",
+                "ingredients": [{"tag": "minecraft:planks"}, {"tag": "minecraft:planks"}],
+                "result": {"item": "minecraft:stick", "count": 4},
+            },
+            "minecraft:skipped": {
+                "type": "minecraft:smelting",
+                "result": {"item": "minecraft:iron_ingot"},
+            },
+        }
+        self.tags = {"minecraft:planks": ["minecraft:oak_planks", "minecraft:birch_planks"]}
+        self.lang = {"item.minecraft.chest": "Chest", "item.minecraft.stick": "Stick"}
+
+    def test_drops_uncraftable_recipe_types(self):
+        pack = build_pack(self.recipes, self.tags, self.lang, shard_count=2)
+        ids = sorted(r["id"] for shard in pack["shards"].values() for r in shard)
+        self.assertEqual(ids, ["minecraft:chest", "minecraft:stick"])
+
+    def test_outputs_are_sorted_item_indices(self):
+        pack = build_pack(self.recipes, self.tags, self.lang, shard_count=2)
+        self.assertEqual(pack["index"]["outputs"], sorted(pack["index"]["outputs"]))
+        self.assertEqual(len(pack["index"]["outputs"]), 2)
+
+    def test_tag_members_are_stored_as_item_indices(self):
+        pack = build_pack(self.recipes, self.tags, self.lang, shard_count=2)
+        members = pack["tags"]["tags"]["minecraft:planks"]
+        ids = pack["items"]["ids"]
+        self.assertEqual(
+            sorted(ids[index - 1] for index in members),
+            ["minecraft:birch_planks", "minecraft:oak_planks"],
+        )
+
+    def test_only_tags_actually_referenced_are_emitted(self):
+        tags = dict(self.tags)
+        tags["minecraft:unused"] = ["minecraft:dirt"]
+        pack = build_pack(self.recipes, tags, self.lang, shard_count=2)
+        self.assertNotIn("minecraft:unused", pack["tags"]["tags"])
+
+    def test_every_recipe_lands_in_the_shard_its_output_maps_to(self):
+        pack = build_pack(self.recipes, self.tags, self.lang, shard_count=2)
+        for shard_number, bodies in pack["shards"].items():
+            for body in bodies:
+                self.assertEqual(1 + (body["output"] % 2), shard_number)
+
+    def test_rendered_pack_is_valid_lua_returning_a_table(self):
+        pack = build_pack(self.recipes, self.tags, self.lang, shard_count=2)
+        rendered = render_pack(pack)
+        self.assertIn("items.lua", rendered)
+        self.assertIn("index.lua", rendered)
+        self.assertIn("tags.lua", rendered)
+        self.assertIn("pack_01.lua", rendered)
+        for name, text in rendered.items():
+            self.assertTrue(text.startswith("-- generated"), name)
+            self.assertIn("return {", text)
+            self.assertNotIn("//", text)
+
+
 if __name__ == "__main__":
     unittest.main()
