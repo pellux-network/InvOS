@@ -503,4 +503,19 @@ return {
         T.equal(asked, true, "an in-progress drain must refresh before its next pass")
     end},
 
+    {name="the service reports a drain transfer, not just the job state",run=function()
+        local buffer = fakeBuffer()
+        function buffer:status() return {state = self.innerState or "IDLE"} end
+        local craft = service({plan({chestStep()},
+            {{item="minecraft:oak_planks", count=8}})}, {buffer=buffer})
+        craft:enqueue("minecraft:chest", 1)
+        run(craft, context(), 3)
+        buffer.innerState = "TRANSFERRING"
+        T.equal(craft:status().state, "TRANSFERRING",
+            "an in-flight drain must claim the transfer machinery")
+        T.equal(craft:status().draining, true)
+        buffer.innerState = "IDLE"
+        T.truthy(craft:status().state ~= "TRANSFERRING", "and release it when done")
+    end},
+
 }

@@ -91,6 +91,24 @@ function CraftBuffer:_importContext(context, excess)
     return synthetic
 end
 
+-- The state of the private importer that moves items out of the buffer.
+--
+-- The coordinator grants a service exclusive use of the transfer machinery while it is
+-- TRANSFERRING or VERIFYING, and it reads that from the service's status(). A craft job
+-- reports its own states, so a transfer running inside the drain was invisible: the main
+-- Drop-off importer could be started alongside it, two transfers sharing one journal and
+-- both measuring aggregate storage deltas. That surfaces as items being credited to the
+-- wrong step.
+function CraftBuffer:status()
+    local imports = self.imports
+    if type(imports) ~= "table" or type(imports.status) ~= "function" then
+        return {state="IDLE"}
+    end
+    local ok, value = pcall(imports.status, imports)
+    if not ok or type(value) ~= "table" then return {state="IDLE"} end
+    return value
+end
+
 function CraftBuffer:drain(context, keep)
     local node = bufferNode(context)
     if not node then

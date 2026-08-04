@@ -397,11 +397,22 @@ function Coordinator:_automationStep(now)
         for _,entry in ipairs(entries) do if entry[1]==self.verificationGate.service then selected=entry end end
         self.verificationGate=nil
     else
+        -- Never begin planning a new transfer while one is already in flight. Planning
+        -- gates a rescan and then issues moves, and two services doing that at once share
+        -- one journal while each measures aggregate storage deltas the other is changing,
+        -- which shows up as items credited to the wrong step. Deferring costs a tick.
+        local inFlight = false
         for _,entry in ipairs(entries) do
-            if (entry[1]=="imports" or entry[1]=="requests" or entry[1]=="crafts") and
-                serviceState(entry[1],entry[2])=="PLANNING" then
-                self:_setVerificationGate(entry[1],self:_preflightNames(entry[1]),"planning")
-                return
+            local state=serviceState(entry[1],entry[2])
+            if state=="TRANSFERRING" or state=="VERIFYING" then inFlight=true;break end
+        end
+        if not inFlight then
+            for _,entry in ipairs(entries) do
+                if (entry[1]=="imports" or entry[1]=="requests" or entry[1]=="crafts") and
+                    serviceState(entry[1],entry[2])=="PLANNING" then
+                    self:_setVerificationGate(entry[1],self:_preflightNames(entry[1]),"planning")
+                    return
+                end
             end
         end
         for _,entry in ipairs(entries) do

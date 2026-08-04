@@ -175,4 +175,22 @@ return {
             "the craft service must be able to force a rescan")
     end},
 
+    {name="no service starts planning while another has a transfer in flight",run=function()
+        -- Two services planning and issuing moves at once share one journal while each
+        -- measures aggregate storage deltas the other is changing, which surfaces as
+        -- items credited to the wrong step.
+        local planner = stubService("PLANNING")
+        local mover = stubService("TRANSFERRING")
+        local coordinator = build({imports=planner, crafts=mover, configured=true})
+        for _ = 1, 20 do coordinator:workStep(1000) end
+        T.equal(planner.calls.ticks, 0, "the planning service must wait its turn")
+        T.truthy(mover.calls.ticks > 0, "the in-flight transfer must keep advancing")
+    end},
+    {name="planning resumes once nothing is in flight",run=function()
+        local planner = stubService("PLANNING")
+        local coordinator = build({imports=planner, configured=true})
+        for _ = 1, 30 do coordinator:workStep(1000) end
+        T.truthy(planner.calls.ticks > 0, "with nothing in flight it must proceed")
+    end},
+
 }
