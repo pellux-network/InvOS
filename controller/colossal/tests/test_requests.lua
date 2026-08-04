@@ -161,4 +161,76 @@ return {
         result=requests:tick(ctx);T.equal(result.state,"COMPLETE")
         T.equal(transfer.execute_calls,1);T.equal(transfer.retire_calls,1)
     end},
+    {name="a request defaults to Pickup exactly as before",run=function()
+        local seen
+        local requests=service({{plan={planned(1)}}},{{state="COMPLETE",moved=1}},{
+            planner={planRetrieval=function(_,_,_,destination)
+                seen=destination; return {planned(1)},0 end}})
+        requests:create({key=stone},1)
+        local ctx=context(); ctx.pickup={peripheral_name="pickup",health="READY"}
+        advance(requests,ctx)
+        T.equal(seen.peripheral_name,"pickup","the planner is handed the Pickup node")
+    end},
+    {name="a request can target the craft buffer instead",run=function()
+        local seen
+        local requests=service({{plan={planned(1)}}},{{state="COMPLETE",moved=1}},{
+            planner={planRetrieval=function(_,_,_,destination)
+                seen=destination; return {planned(1)},0 end}})
+        requests:create({key=stone},1,{destination_role="craft_buffer",owner="craft-1"})
+        local ctx=context()
+        ctx.pickup={peripheral_name="pickup",health="READY"}
+        ctx.craft_buffer={peripheral_name="buffer",health="READY"}
+        advance(requests,ctx)
+        T.equal(seen.peripheral_name,"buffer","the planner is handed the buffer node")
+    end},
+    {name="a craft-owned request records its owner and destination",run=function()
+        local requests=service({{plan={planned(1)}}},{{state="COMPLETE",moved=1}})
+        local created=requests:create({key=stone},1,{destination_role="craft_buffer",owner="craft-7"})
+        T.equal(created.owner,"craft-7")
+        T.equal(created.destination_role,"craft_buffer")
+        local plain=requests:create({key=stone},1)
+        T.equal(plain.owner,nil)
+        T.equal(plain.destination_role,"pickup")
+    end},
+    {name="craft-owned requests do not pollute usage statistics",run=function()
+        local recorded={}
+        local requests=service({{plan={planned(1)}}},{{state="COMPLETE",moved=1}},{
+            record_usage=function(key) recorded[#recorded+1]=key end})
+        requests:create({key=stone},1,{destination_role="craft_buffer",owner="craft-1"})
+        T.equal(#recorded,0,"a recipe consuming an item is not a person asking for it")
+        requests:create({key=stone},1)
+        T.equal(#recorded,1,"an operator request still counts")
+    end},
+    {name="zero movement into the buffer blocks with a buffer-specific code",run=function()
+        local requests,_,alerts=service({{plan={planned(1)}}},{{state="COMPLETE",moved=0}},{})
+        requests:create({key=stone},1,{destination_role="craft_buffer",owner="craft-1"})
+        local ctx=context()
+        ctx.craft_buffer={peripheral_name="buffer",health="READY"}
+        local request=advance(requests,ctx)
+        T.equal(request.state,"BLOCKED")
+        T.equal(request.reason.code,"BUFFER_FULL")
+        T.truthy(alerts:active()[1])
+    end},
+    {name="zero movement into Pickup still blocks with PICKUP_FULL",run=function()
+        local requests=service({{plan={planned(1)}}},{{state="COMPLETE",moved=0}},{})
+        requests:create({key=stone},1)
+        local ctx=context(); ctx.pickup={peripheral_name="pickup",health="READY"}
+        local request=advance(requests,ctx)
+        T.equal(request.state,"BLOCKED")
+        T.equal(request.reason.code,"PICKUP_FULL")
+    end},
+    {name="a full destination waits for explicit retry, not a generation change",run=function()
+        local requests=service({{plan={planned(1)}},{plan={planned(1)}}},
+            {{state="COMPLETE",moved=0}},{})
+        requests:create({key=stone},1,{destination_role="craft_buffer",owner="craft-1"})
+        local ctx=context()
+        ctx.craft_buffer={peripheral_name="buffer",health="READY"}
+        advance(requests,ctx)
+        local later=context(99)
+        later.craft_buffer={peripheral_name="buffer",health="READY"}
+        later.now=10000000
+        local request=requests:tick(later)
+        T.equal(request.state,"BLOCKED","a scan is not evidence the buffer drained")
+    end},
+
 }
