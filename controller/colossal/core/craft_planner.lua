@@ -201,9 +201,14 @@ function resolve(state, itemId, needed, depth)
     local crafts = ceilDiv(needed, perCraft)
     state.seen[itemId] = true
     local satisfied, consumes, batch = true, {}, BATCH_CAP
+    -- Which concrete item each reference resolved to, so the step can carry the actual
+    -- grid placement. The turtle needs cells, and this is the only place that knows how
+    -- a tag was resolved.
+    local chosenFor = {}
     for _, reference in ipairs(order) do
         local amount = crafts * counts[reference]
         local ingredient, resolved = resolveIngredient(state, reference, amount, depth + 1)
+        chosenFor[reference] = ingredient
         if not ingredient then
             -- An unresolvable tag has no concrete item to name, so report the tag.
             recordShortfall(state, tostring(reference), amount)
@@ -225,10 +230,21 @@ function resolve(state, itemId, needed, depth)
     if batch < 1 then batch = 1 end
     local produced = crafts * perCraft
     state.surplus[itemId] = (state.surplus[itemId] or 0) + (produced - needed)
+
+    -- Resolved grid placement. For a shaped recipe the index is the 3x3 cell, with
+    -- false for an empty one; for a shapeless recipe it is just the ingredient order.
+    -- turtle.craft() reads turtle slots 1-3, 5-7 and 9-11 as the grid, so carrying
+    -- position here means the turtle never has to know a recipe.
+    local sourceCells = body.shaped and body.grid or body.ingredients
+    local cells = {}
+    for index, reference in ipairs(sourceCells or {}) do
+        cells[index] = reference ~= 0 and chosenFor[reference] or false
+    end
+
     state.steps[#state.steps + 1] = {
         item=itemId, recipe_id=body.id, shaped=body.shaped == true,
         crafts=crafts, batch=batch, calls=ceilDiv(crafts, batch),
-        produced=produced, per_craft=perCraft, consumes=consumes,
+        produced=produced, per_craft=perCraft, consumes=consumes, cells=cells,
     }
     return true
 end

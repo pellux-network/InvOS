@@ -86,13 +86,16 @@ function M.planImport(source, storageSnapshots)
         reason("STORAGE_FULL", "Healthy storage capacity is full for this item", true)
 end
 
-function M.planRetrieval(identityKey, requested, index, pickup)
+-- The destination is any non-storage node: Pickup for an operator retrieval, the craft
+-- buffer for a crafting withdrawal. Only its health and peripheral name are read, so
+-- one retrieval path serves both.
+function M.planRetrieval(identityKey, requested, index, destination)
     if type(identityKey) ~= "string" or type(requested) ~= "number" or requested < 1 or
         requested % 1 ~= 0 then
         return {}, requested or 0, reason("INVALID_REQUEST", "Requested quantity is invalid", false)
     end
-    if type(pickup) ~= "table" or pickup.health ~= "READY" then
-        return {}, requested, reason("PICKUP_UNAVAILABLE", "Pickup is not ready", true)
+    if type(destination) ~= "table" or destination.health ~= "READY" then
+        return {}, requested, reason("PICKUP_UNAVAILABLE", "Destination is not ready", true)
     end
 
     local remaining, plan = requested, {}
@@ -104,7 +107,7 @@ function M.planRetrieval(identityKey, requested, index, pickup)
                 source_slot = source.slot,
                 source_epoch = source.epoch,
                 source_pre_count = source.count,
-                destination_name = pickup.peripheral_name,
+                destination_name = destination.peripheral_name,
                 identity_key = identityKey,
                 limit = amount,
             }

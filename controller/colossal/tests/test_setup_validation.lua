@@ -18,6 +18,17 @@ local function deps(inventories,overrides)
 end
 local function issue(report,code)for _,value in ipairs(report.issues)do if value.code==code then return value end end end
 
+-- A minimal valid configured installation, for exercising validateConfig directly.
+local function configured()
+    return {
+        schema=2, configured=true,
+        installation={computer_id=8, computer_label="ColossalStorage"},
+        dropoff={peripheral_name="drop"},
+        pickup={peripheral_name="pickup"},
+        storage={{id="storage_1", peripheral_name="big", label="Main", priority=1, enabled=true}},
+    }
+end
+
 return {
     {name="validation rejects Drop-off and Pickup role collision without transfers",run=function()
         local setup=Setup.new(deps({shared=inv(27),big=inv(3075)}))
@@ -67,4 +78,38 @@ return {
         local ok,reason=setup:commit(report)
         T.equal(ok,nil);T.contains(reason,"draft changed")
     end},
+    {name="configuration schema 1 stays loadable so the live install survives",run=function()
+        local value = configured()
+        value.schema = 1
+        T.equal(Setup.validateConfig(value), true)
+    end},
+    {name="configuration schema 2 accepts the crafting bindings",run=function()
+        local value = configured()
+        value.schema = 2
+        value.craft_buffer = {peripheral_name="buffer"}
+        value.turtle = {peripheral_name="turtle_2"}
+        value.monitors = {main="top", crafting="monitor_0"}
+        T.equal(Setup.validateConfig(value), true)
+    end},
+    {name="an unknown configuration schema is refused",run=function()
+        local value = configured()
+        value.schema = 3
+        T.equal(Setup.validateConfig(value), nil)
+    end},
+    {name="malformed crafting bindings are refused",run=function()
+        local cases = {
+            function(v) v.turtle = {peripheral_name=""} end,
+            function(v) v.turtle = {} end,
+            function(v) v.monitors = "top" end,
+            function(v) v.monitors = {main=""} end,
+            function(v) v.craft_buffer = {peripheral_name=""} end,
+        }
+        for index, mutate in ipairs(cases) do
+            local value = configured()
+            value.schema = 2
+            mutate(value)
+            T.equal(Setup.validateConfig(value), nil, "case " .. index)
+        end
+    end},
+
 }

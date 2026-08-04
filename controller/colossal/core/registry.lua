@@ -34,6 +34,26 @@ function Registry.validate(config)
         [config.dropoff.peripheral_name] = "dropoff",
         [config.pickup.peripheral_name] = "pickup",
     }
+
+    -- The craft buffer is optional: an installation without a crafting turtle stays
+    -- valid, and the controller must boot without one. When present it is entered into
+    -- bindings like any other role, which is what stops it being pointed at the chest
+    -- players collect from. That is not hypothetical here -- Pickup and the buffer are
+    -- both ironchests:diamond_chest, distinguished only by a trailing index.
+    if config.craft_buffer ~= nil then
+        if type(config.craft_buffer) ~= "table" or
+            type(config.craft_buffer.peripheral_name) ~= "string" or
+            config.craft_buffer.peripheral_name == "" then
+            return problem("INVALID_CRAFT_BUFFER", "Craft buffer binding is invalid")
+        end
+        local name = config.craft_buffer.peripheral_name
+        if bindings[name] then
+            return problem("DUPLICATE_BINDING", "peripheral " .. name ..
+                " is already bound as " .. bindings[name])
+        end
+        bindings[name] = "craft_buffer"
+    end
+
     local ids = {}
     for index, node in ipairs(config.storage) do
         if type(node.id) ~= "string" or node.id == "" then
@@ -70,6 +90,9 @@ function Registry:rebind(role, id, peripheralName)
     local candidate = copy(self.value)
     if role == "dropoff" or role == "pickup" then
         candidate[role].peripheral_name = peripheralName
+    elseif role == "craft_buffer" then
+        -- Unlike the other roles this one may not exist yet, so binding it creates it.
+        candidate.craft_buffer = {peripheral_name = peripheralName}
     elseif role == "storage" then
         local found = false
         for _, node in ipairs(candidate.storage) do
@@ -108,6 +131,9 @@ function Registry:reconcile(discovered, now)
         storage = {},
         discovered = {},
     }
+    if self.value.craft_buffer then
+        result.craft_buffer = roleState("craft_buffer", self.value.craft_buffer)
+    end
     for _, node in ipairs(self.value.storage) do
         bound[node.peripheral_name] = true
         local descriptor = byName[node.peripheral_name]

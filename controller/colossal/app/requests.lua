@@ -58,23 +58,33 @@ function Requests:_prune()
     self.ordered = kept
 end
 
-function Requests:create(identity, quantity)
+-- A retrieval delivers to Pickup unless told otherwise. Crafting reuses this same
+-- pipeline with the buffer as the destination, so there is one storage-withdrawal path
+-- rather than two that can drift apart. Omitting options reproduces prior behaviour
+-- exactly.
+function Requests:create(identity, quantity, options)
     assert(type(identity) == "table" and type(identity.key) == "string",
         "exact item identity is required")
     assert(type(quantity) == "number" and quantity >= 1 and quantity % 1 == 0,
         "request quantity must be a positive integer")
+    options = options or {}
     self.counter = self.counter + 1
     local request = {
         id=self.idGenerator(self.counter), kind="request", state="QUEUED",
         identity=copy(identity), requested=quantity, delivered=0, moved=0,
         display_name=identity.display_name or identity.name,
+        destination_role=options.destination_role or "pickup", owner=options.owner,
         attempts=0, created_at=self.clock(), updated_at=self.clock(),
     }
     self.ordered[#self.ordered + 1] = request
     self.byId[request.id] = request
-    -- Usage stats are a re-learnable cache, not core correctness, so a failure here
-    -- must never stop the request itself from being created.
-    if self.recordUsage then pcall(self.recordUsage, identity.key, request.created_at) end
+    -- Usage stats rank search results by what people ask for. A recipe consuming an
+    -- ingredient is not a person asking for it, so craft-owned requests are excluded.
+    -- Stats are a re-learnable cache, not core correctness, so a failure here must
+    -- never stop the request itself from being created.
+    if self.recordUsage and not request.owner then
+        pcall(self.recordUsage, identity.key, request.created_at)
+    end
     return copy(request)
 end
 
@@ -135,8 +145,9 @@ function Requests:tick(context)
         self:_state(request, "PLANNING")
     elseif request.state == "PLANNING" then
         local remaining = request.requested - request.delivered
+        local destination = context[request.destination_role or "pickup"]
         local plan, remainder, planReason = self.planner.planRetrieval(
-            request.identity.key, remaining, context.index, context.pickup)
+            request.identity.key, remaining, context.index, destination)
         request.plan_remainder = remainder
         if #plan == 0 then
             self:_block(request, context, planReason)
@@ -217,8 +228,17 @@ function Requests:tick(context)
             elseif request.delivered >= request.requested then
                 self:_state(request, "COMPLETE")
             elseif result.moved <= 0 then
-                self:_block(request, context, {code="PICKUP_FULL",
-                    message="Pickup accepted no items; make space and retry",retryable=true})
+                -- Zero movement is a deliberate stop awaiting operator retry, whichever
+                -- destination it was: `generation` advances on every scan and is never
+                -- evidence that the destination drained.
+                local full = {code="PICKUP_FULL",
+                    message="Pickup accepted no items; make space and retry", retryable=true}
+                if request.destination_role == "craft_buffer" then
+                    full = {code="BUFFER_FULL",
+                        message="Craft buffer accepted no items; clear it and retry",
+                        retryable=true}
+                end
+                self:_block(request, context, full)
             else
                 self:_state(request, "PARTIAL")
             end
@@ -226,7 +246,9 @@ function Requests:tick(context)
     elseif request.state == "PARTIAL" then
         self:_state(request, "PLANNING")
     elseif request.state == "BLOCKED" then
-        if not request.reason or request.reason.code~="PICKUP_FULL" then
+        -- A full destination never auto-retries, whichever destination it was.
+        local code = request.reason and request.reason.code
+        if code ~= "PICKUP_FULL" and code ~= "BUFFER_FULL" then
             local generationChanged = context.generation ~= request.blocked_generation
             local retryDue = (context.now or self.clock()) >= request.next_retry_at
             if generationChanged or retryDue then self:_state(request, "PLANNING") end

@@ -62,9 +62,30 @@ function Setup.validateAliases(value)
     return true
 end
 
+-- Schema 2 adds the crafting bindings (craft_buffer, turtle, monitors). Schema 1 stays
+-- valid rather than being migrated on read: the live install is a schema 1 file, and a
+-- config that fails to load drops the controller to SETUP_REQUIRED with its storage
+-- bindings gone. A schema 1 config simply has no crafting bindings, which is exactly
+-- what an installation without a turtle looks like. Setup writes schema 2 on next save.
 function Setup.validateConfig(value)
-    if type(value) ~= "table" or value.schema ~= 1 or type(value.configured) ~= "boolean" or
+    if type(value) ~= "table" or (value.schema ~= 1 and value.schema ~= 2) or
+        type(value.configured) ~= "boolean" or
         type(value.storage) ~= "table" then return nil, "configuration schema is invalid" end
+    if value.monitors ~= nil then
+        if type(value.monitors) ~= "table" then return nil, "monitor bindings are invalid" end
+        for _, key in ipairs({"main", "crafting"}) do
+            local name = value.monitors[key]
+            if name ~= nil and (type(name) ~= "string" or name == "") then
+                return nil, "monitor binding " .. key .. " is invalid"
+            end
+        end
+    end
+    if value.turtle ~= nil then
+        if type(value.turtle) ~= "table" or type(value.turtle.peripheral_name) ~= "string" or
+            value.turtle.peripheral_name == "" then
+            return nil, "crafting turtle binding is invalid"
+        end
+    end
     if not value.configured then return true end
     if type(value.installation) ~= "table" or type(value.installation.computer_id) ~= "number" or
         type(value.installation.computer_label) ~= "string" then

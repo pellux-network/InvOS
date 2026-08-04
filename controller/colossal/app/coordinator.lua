@@ -108,6 +108,9 @@ function Coordinator:_context(now)
     end
     context.dropoff=self:_snapshotForRole("dropoff")
     context.pickup=self:_snapshotForRole("pickup")
+    -- Absent on an installation with no crafting turtle, which is why every consumer
+    -- has to tolerate it being nil rather than assume a buffer exists.
+    context.craft_buffer=self:_snapshotForRole("craft_buffer")
     context.storage=storage
     context.index=self.index
     return context
@@ -234,7 +237,8 @@ end
 
 function Coordinator:_scanStep(now)
     if not self.configured then return false end
-    for name,service in pairs({recovery=self.deps.recovery,imports=self.deps.imports,requests=self.deps.requests}) do
+    for name,service in pairs({recovery=self.deps.recovery,imports=self.deps.imports,
+        requests=self.deps.requests,crafts=self.deps.crafts}) do
         local state
         if name~="requests" and service and type(service.status)=="function" then
             local value=service:status();state=value and value.state
@@ -317,7 +321,7 @@ end
 
 function Coordinator:topologyChangeSafe()
     local entries={{"recovery",self.deps.recovery},{"imports",self.deps.imports},
-        {"requests",self.deps.requests}}
+        {"requests",self.deps.requests},{"crafts",self.deps.crafts}}
     for _,entry in ipairs(entries) do
         local state=serviceState(entry[1],entry[2])
         if state=="TRANSFERRING" or state=="VERIFYING" or
@@ -351,11 +355,31 @@ function Coordinator:_setVerificationGate(serviceName,names,phase)
     self:requestRescan(names)
 end
 
+-- Which destination a retrieval is heading for depends on the request in flight, not on
+-- the service. Scanning Pickup for a craft withdrawal would gate on the wrong inventory
+-- and leave the buffer's snapshot stale at the moment the plan is made.
+function Coordinator:_requestDestinationRole()
+    local service=self.deps.requests
+    if not service or type(service.list)~="function" then return "pickup" end
+    local ok,listed=pcall(service.list,service)
+    if not ok then return "pickup" end
+    for _,request in ipairs(listed) do
+        if request.state~="COMPLETE" and request.state~="CANCELLED" and
+            request.state~="FAILED" then
+            return request.destination_role or "pickup"
+        end
+    end
+    return "pickup"
+end
+
 function Coordinator:_preflightNames(serviceName)
     local names={}
+    local destination=serviceName=="requests" and self:_requestDestinationRole() or nil
     for _,node in ipairs(self.nodes) do
-        local relevant=node.role=="storage" or serviceName=="requests" and node.role=="pickup" or
-            serviceName=="imports" and node.role=="dropoff"
+        local relevant=node.role=="storage" or
+            serviceName=="requests" and node.role==destination or
+            serviceName=="imports" and node.role=="dropoff" or
+            serviceName=="crafts" and node.role=="craft_buffer"
         if node.state~="DISABLED" and relevant then names[#names+1]=node.id end
     end
     return names
@@ -366,7 +390,7 @@ function Coordinator:_automationStep(now)
     local recoveryState=serviceState("recovery",self.deps.recovery)
     if not self.configured and (recoveryState=="IDLE" or recoveryState=="COMPLETE") then return end
     local entries={{"recovery",self.deps.recovery},{"imports",self.deps.imports},
-        {"requests",self.deps.requests}}
+        {"requests",self.deps.requests},{"crafts",self.deps.crafts}}
     local selected
     if self.verificationGate then
         if not self:_gateReady() then return end
@@ -374,7 +398,7 @@ function Coordinator:_automationStep(now)
         self.verificationGate=nil
     else
         for _,entry in ipairs(entries) do
-            if (entry[1]=="imports" or entry[1]=="requests") and
+            if (entry[1]=="imports" or entry[1]=="requests" or entry[1]=="crafts") and
                 serviceState(entry[1],entry[2])=="PLANNING" then
                 self:_setVerificationGate(entry[1],self:_preflightNames(entry[1]),"planning")
                 return
