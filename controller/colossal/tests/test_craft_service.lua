@@ -35,15 +35,27 @@ local function fakeBuffer(contents)
     return value
 end
 
+-- A successful craft drops its output into the buffer, the way a real turtle does. The
+-- service now checks that the output actually landed, so a link that reports success
+-- without producing anything is not a faithful stand-in.
 local function fakeLink(behaviour)
-    local value = {sent = {}, mode = behaviour or "ok", pending = false}
-    function value:send(command) self.sent[#self.sent + 1] = command; self.pending = true; return true end
+    local value = {sent = {}, mode = behaviour or "ok", pending = false, buffer = nil}
+    function value:send(command)
+        self.sent[#self.sent + 1] = command
+        self.result = command.result
+        self.pending = true
+        return true
+    end
     function value:poll()
         if not self.pending then return nil end
         if self.mode == "silent" then return nil end
         self.pending = false
         if self.mode == "mismatch" then
             return {ok=false, code="INGREDIENT_MISMATCH", message="expected oak_planks"}
+        end
+        if self.buffer and self.result then
+            self.buffer.contents[self.result.name] =
+                (self.buffer.contents[self.result.name] or 0) + (self.result.count or 1)
         end
         return {ok=true, crafted=self.crafted or 1}
     end
@@ -109,6 +121,8 @@ local function service(plans, extra)
         idGenerator = function(counter) return "craft-" .. counter end,
     }
     for key, value in pairs(extra or {}) do deps[key] = value end
+    -- The link drops its output into whichever buffer this service is using.
+    if type(deps.link) == "table" then deps.link.buffer = deps.buffer end
     local built = CraftService.new(deps)
     return built, deps, alerts, calls
 end
@@ -346,12 +360,27 @@ return {
         run(craft, context(), 3)
         T.truthy(craft:status().state ~= "IDLE")
     end},
-    {name="a non-empty buffer with no active job is reported on boot",run=function()
+    {name="a non-empty buffer with no active job is reported and returned",run=function()
         local buffer = fakeBuffer({["minecraft:oak_planks"]=8})
         local craft, _, alerts = service({plan({chestStep()})}, {buffer=buffer})
         craft:tick(context())
         T.truthy(alerts:active()[1], "stranded items must not be silent")
         T.equal(alerts:active()[1].details.code, "BUFFER_NOT_EMPTY")
+        T.truthy(#buffer.drains > 0, "and must be put back rather than left for a human")
+        T.equal(next(buffer.contents), nil, "the buffer ends empty")
+    end},
+    {name="the stranded alert clears once the buffer is empty",run=function()
+        local buffer = fakeBuffer({["minecraft:oak_planks"]=8})
+        local craft, _, alerts = service({plan({chestStep()})}, {buffer=buffer})
+        craft:tick(context())
+        craft:tick(context())
+        T.equal(#alerts:active(), 0, "a resolved condition must stop nagging")
+    end},
+    {name="an idle drain asks for a rescan so the return is seen",run=function()
+        local buffer = fakeBuffer({["minecraft:oak_planks"]=8})
+        local craft = service({plan({chestStep()})}, {buffer=buffer})
+        local result = craft:tick(context())
+        T.truthy(result.rescan, "storage changed, so the index must be refreshed")
     end},
     {name="an invalid enqueue is refused",run=function()
         local craft = service({plan({chestStep()})})
@@ -417,6 +446,37 @@ return {
             if request.destination_role == nil then deliveries = deliveries + 1 end
         end
         T.equal(deliveries, 1, "a second delivery would double-move the result")
+    end},
+
+    {name="a rescan is asked for after the turtle crafts",run=function()
+        -- Nothing tells the controller that the turtle dropped its output into the
+        -- buffer. Without a rescan the drain sees the pre-craft snapshot, finds nothing
+        -- to move, and strands the output.
+        local craft = service({plan({chestStep()},
+            {{item="minecraft:oak_planks", count=8}})})
+        craft:enqueue("minecraft:chest", 1)
+        local asked = false
+        for _ = 1, 20 do
+            local result = craft:tick(context())
+            for _, name in ipairs((result or {}).rescan or {}) do
+                if name == "craft_buffer" then asked = true end
+            end
+        end
+        T.equal(asked, true, "the buffer must be rescanned before it is drained")
+    end},
+    {name="output that never landed blocks instead of delivering from storage",run=function()
+        -- The turtle reporting success is not evidence the output reached the buffer.
+        -- Without this check delivery quietly pulls the same item out of storage, which
+        -- looks like success while the real output sits stranded.
+        local link = fakeLink()
+        local craft = service({plan({chestStep()},
+            {{item="minecraft:oak_planks", count=8}})}, {link=link})
+        link.buffer = nil
+        local queued = craft:enqueue("minecraft:chest", 1)
+        run(craft, context(), 20)
+        local job = craft:get(queued.id)
+        T.equal(job.state, "BLOCKED")
+        T.equal(job.reason.code, "OUTPUT_MISSING")
     end},
 
 }
