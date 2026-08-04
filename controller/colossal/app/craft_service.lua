@@ -126,9 +126,17 @@ end
 -- next iteration reads stale. Without a refresh in between, the same already-moved slots
 -- are handed to the importer again, it correctly reports moving nothing, and blocks with
 -- "Storage accepted no items" -- after the work had actually succeeded.
+-- Not while the importer is mid-transfer, though. status() reports TRANSFERRING then so
+-- the coordinator grants this service exclusive use of the transfer machinery -- and the
+-- coordinator refuses to scan anything at all while a service is TRANSFERRING. A rescan
+-- gate set from that state waits on a scan revision the same state forbids from
+-- advancing: the service is never ticked again, its transfer never settles, and the job
+-- stops dead holding the items. Nothing has moved at that point in any case; the importer
+-- issues its calls on the following tick, so there is no stale snapshot yet to refresh.
 function CraftService:_drain(context, keep)
     local result = self.buffer:drain(context, keep)
-    if type(result) == "table" and result.state == "WORKING" then
+    if type(result) == "table" and result.state == "WORKING" and
+        result.inner ~= "TRANSFERRING" then
         self:_requestRescan(result.rescan or {"craft_buffer"})
     end
     return result

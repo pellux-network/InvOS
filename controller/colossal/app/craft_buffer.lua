@@ -131,8 +131,11 @@ function CraftBuffer:drain(context, keep)
         return {state="BLOCKED", reason=(type(result) == "table" and result.reason) or
             {code="DRAIN_BLOCKED", message="The buffer could not be cleared"}}
     end
-    -- Still items to move; the caller ticks again once the scan catches up.
-    return {state="WORKING", rescan=type(result) == "table" and result.rescan or nil}
+    -- Still items to move; the caller ticks again once the scan catches up. `inner` is the
+    -- importer's own state, which the caller needs because a rescan is only safe to wait
+    -- on between passes, not while the importer has calls in flight.
+    return {state="WORKING", inner=status,
+        rescan=type(result) == "table" and result.rescan or nil}
 end
 
 -- Delivery to storage is just a drain of that item. Delivery to Pickup is a plain push:

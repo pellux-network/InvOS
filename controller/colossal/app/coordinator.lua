@@ -441,7 +441,16 @@ function Coordinator:_automationStep(now)
         (result.state=="VERIFYING" or result.state=="BLOCKED" or selected[1]=="crafts") then
         -- Crafting asks for a rescan from its own states, not VERIFYING or BLOCKED: the
         -- turtle drops output into the buffer without anything telling the controller.
-        self:_setVerificationGate(selected[1],result.rescan)
+        --
+        -- A gate can never open while the asking service is TRANSFERRING, because
+        -- _scanStep refuses to scan then and the revision it waits on never advances --
+        -- which stops the whole rotation, including the transfer the gate is waiting on.
+        -- Queue the rescan instead and let it happen once the transfer settles.
+        if serviceState(selected[1],selected[2])=="TRANSFERRING" then
+            self:requestRescan(result.rescan)
+        else
+            self:_setVerificationGate(selected[1],result.rescan)
+        end
     end
 end
 

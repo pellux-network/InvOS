@@ -343,6 +343,20 @@ return {
         imports.state = "IDLE"
         T.equal(craft:status().state, "IDLE")
     end},
+    {name="a working drain reports the importer state that produced it",run=function()
+        -- The caller decides whether it is safe to wait on a rescan from this. A rescan
+        -- gate raised while the importer is TRANSFERRING waits on a scan that the same
+        -- state forbids, so a drain that hides which state it is in deadlocks the job.
+        local craft = buffer(fakeImports({{state="TRANSFERRING"}}))
+        local moving = craft:drain(bufferContext({[1] = slot("minecraft:cobblestone", 64)}), {})
+        T.equal(moving.state, "WORKING")
+        T.equal(moving.inner, "TRANSFERRING")
+
+        local settling = buffer(fakeImports({{state="COMPLETE"}}))
+            :drain(bufferContext({[1] = slot("minecraft:cobblestone", 64)}), {})
+        T.equal(settling.state, "WORKING")
+        T.equal(settling.inner, "COMPLETE", "a settled pass is where a rescan belongs")
+    end},
     {name="a buffer with no importer status reports idle rather than erroring",run=function()
         local craft = CraftBuffer.new({imports = {tick = function() end},
             adapter = fakeAdapter()})

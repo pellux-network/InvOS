@@ -186,6 +186,24 @@ return {
         T.equal(planner.calls.ticks, 0, "the planning service must wait its turn")
         T.truthy(mover.calls.ticks > 0, "the in-flight transfer must keep advancing")
     end},
+    {name="a rescan from a transferring service does not gate on a scan it forbids",run=function()
+        -- _scanStep refuses to scan while any service reports TRANSFERRING, so a
+        -- verification gate set from that state waits on a revision that can never
+        -- advance. The service stops being ticked, its transfer never settles, and the
+        -- whole automation rotation stops with it.
+        local crafts = {ticks=0}
+        function crafts:status() return {state="TRANSFERRING"} end
+        function crafts:tick()
+            self.ticks = self.ticks + 1
+            return {state="TRANSFERRING", rescan={"craft_buffer"}}
+        end
+        function crafts:list() return {} end
+        local coordinator = build({crafts=crafts, configured=true})
+        for _ = 1, 20 do coordinator:workStep(1000) end
+        T.truthy(crafts.ticks >= 5,
+            "a transferring service must keep advancing, got " .. crafts.ticks)
+    end},
+
     {name="planning resumes once nothing is in flight",run=function()
         local planner = stubService("PLANNING")
         local coordinator = build({imports=planner, configured=true})

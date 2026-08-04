@@ -18,9 +18,10 @@ local function fakeBuffer(contents)
         self.drains[#self.drains + 1] = keep
         if self.blocked == "drain" then return {state="BLOCKED", reason={code="DRAIN"}} end
         if self.working and self.working > 0 then
-            -- A real drain takes several ticks and asks for a rescan between them.
+            -- A real drain takes several ticks and asks for a rescan between them, and
+            -- reports the state of the importer doing the moving.
             self.working = self.working - 1
-            return {state="WORKING", rescan={"craft_buffer"}}
+            return {state="WORKING", inner=self.inner, rescan={"craft_buffer"}}
         end
         local kept = {}
         for item, count in pairs(self.contents) do
@@ -516,6 +517,46 @@ return {
         T.equal(craft:status().draining, true)
         buffer.innerState = "IDLE"
         T.truthy(craft:status().state ~= "TRANSFERRING", "and release it when done")
+    end},
+
+    {name="a drain asks for no rescan while its own transfer is still in flight",run=function()
+        -- The two halves of this contradict each other. The service reports the inner
+        -- importer's TRANSFERRING state so the coordinator grants it exclusive use of the
+        -- transfer machinery -- and the coordinator refuses to scan anything at all while
+        -- a service is TRANSFERRING. A rescan gate set from that state waits on a scan
+        -- revision that the same state forbids from ever advancing, so the service stops
+        -- being ticked, the transfer never settles, and the job hangs holding the items.
+        --
+        -- Nothing has moved at TRANSFERRING anyway: the importer only issues its calls on
+        -- the next tick, so there is no stale snapshot yet to refresh.
+        local buffer = fakeBuffer({["minecraft:cobblestone"]=64})
+        buffer.working = 4
+        buffer.inner = "TRANSFERRING"
+        local craft = service({plan({chestStep()},
+            {{item="minecraft:oak_planks", count=8}})}, {buffer=buffer})
+        craft:enqueue("minecraft:chest", 1)
+        for _ = 1, 8 do
+            local result = craft:tick(context())
+            T.equal((result or {}).rescan, nil,
+                "gating on a scan the same state forbids deadlocks the job")
+        end
+    end},
+
+    {name="a drain between passes still asks for a rescan",run=function()
+        local buffer = fakeBuffer({["minecraft:cobblestone"]=64})
+        buffer.working = 4
+        buffer.inner = "COMPLETE"
+        local craft = service({plan({chestStep()},
+            {{item="minecraft:oak_planks", count=8}})}, {buffer=buffer})
+        craft:enqueue("minecraft:chest", 1)
+        local asked = false
+        for _ = 1, 8 do
+            local result = craft:tick(context())
+            for _, name in ipairs((result or {}).rescan or {}) do
+                if name == "craft_buffer" then asked = true end
+            end
+        end
+        T.equal(asked, true, "a finished pass leaves the snapshot stale and must refresh")
     end},
 
 }
