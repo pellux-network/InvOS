@@ -310,6 +310,17 @@ The queue mirrors `app/requests.lua`, which already solves this shape:
   not the stock at the time it was submitted -- the jobs ahead of it will have consumed
   materials it was counting on.
 
+**Deferred planning has a consequence that must not be papered over.** The operator confirmed a
+specific plan on the `craft_plan` screen, but by the time a queued job activates, the re-plan
+may legitimately differ: a different tag member is now the most-stocked, or sub-crafts are
+needed that were not needed before. Silently running the new plan would break the "nothing
+moves until this screen is confirmed" guarantee, which is the whole point of that screen.
+
+So: if the activation re-plan differs *materially* from the confirmed one -- a different
+concrete item chosen for any tag, or any sub-craft added -- the job blocks and asks for
+re-confirmation rather than proceeding. A plan that differs only in which storage slots the
+same items come from is not material and proceeds silently.
+
 **A job must leave the buffer empty before the next one starts.** Leftovers and byproducts go
 back to storage as the final act of a job, not lazily at the start of the next one, so every
 job begins from a known-clean buffer and a failed job cannot poison its successor.
