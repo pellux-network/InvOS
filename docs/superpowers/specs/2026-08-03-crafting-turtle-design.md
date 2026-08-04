@@ -1,7 +1,13 @@
 # Crafting turtle
 
-Status: specified, not implemented. Crafting was listed as future work in v1; this is the
-first concrete design for it.
+Status: **superseded by `2026-08-04-crafting-system-design.md`.** Kept because its
+reconciliation-scope reasoning is still correct and is what the newer design builds on.
+
+Three of its open questions have since been answered from evidence: a wired modem does network
+a turtle, the turtle exposes no inventory over that network, and staging happens in a dedicated
+buffer chest rather than in Pickup. See the newer spec.
+
+Crafting was listed as future work in v1; this was the first concrete design for it.
 
 ## Topology
 
