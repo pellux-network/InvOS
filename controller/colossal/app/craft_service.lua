@@ -199,6 +199,17 @@ local function requiredFor(step)
     return required
 end
 
+-- A recipe's cells are 3x3 positions 1-9. A turtle's crafting grid is inventory slots
+-- 1-3, 5-7 and 9-11, because slots 4, 8 and 12-16 sit outside it. Only positions 1-3
+-- map to themselves, so passing a position straight through as a slot puts most of a
+-- recipe in the wrong place -- and anything landing in slot 4, 8 or 12+ is not in the
+-- grid at all, so turtle.craft() sees an incomplete recipe and refuses.
+local function turtleSlot(position)
+    local row = math.floor((position - 1) / 3)
+    local column = (position - 1) % 3
+    return row * 4 + column + 1
+end
+
 -- Group the resolved cells by item, in the order the cells appear.
 --
 -- per_cell is how many crafts THIS call performs, not the step's maximum batch. Every
@@ -207,18 +218,20 @@ end
 -- two-craft step, which it could not satisfy.
 local function turtleSteps(step, runs)
     local order, byItem = {}, {}
-    for cell, itemId in ipairs(step.cells or {}) do
+    for position, itemId in ipairs(step.cells or {}) do
         if itemId then
             if not byItem[itemId] then
                 byItem[itemId] = {expect=itemId, cells={}, per_cell=runs}
                 order[#order + 1] = byItem[itemId]
             end
             local target = byItem[itemId].cells
-            target[#target + 1] = cell
+            target[#target + 1] = turtleSlot(position)
         end
     end
     return order
 end
+
+CraftService._turtleSlot = turtleSlot
 
 function CraftService:_advancePlanning(job, context)
     -- Between steps the plan is already resolved; re-planning here would restart the
