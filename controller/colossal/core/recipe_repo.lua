@@ -15,15 +15,31 @@ function RecipeRepo.new(deps)
     deps = deps or {}
     local self = setmetatable({
         loader = deps.loader or defaultLoader,
-        shards = {}, byOutput = nil,
+        shards = {}, custom = {}, customOutputs = {},
     }, RecipeRepo)
-    self.items = self.loader("items") or {ids={}, names={}}
+    -- Own the item arrays rather than aliasing them. defaultLoader returns require()'s
+    -- cached module table, so interning a custom item straight into it would mutate
+    -- state shared by every RecipeRepo and grow it on each construction.
+    local loadedItems = self.loader("items") or {}
+    self.items = {ids = {}, names = {}}
+    for position, id in ipairs(loadedItems.ids or {}) do
+        self.items.ids[position] = id
+        self.items.names[position] = (loadedItems.names or {})[position]
+    end
     self.index = self.loader("index") or {outputs={}, shard_count=1}
     self.tagData = self.loader("tags") or {tags={}}
     self.indexById = {}
-    for position, id in ipairs(self.items.ids or {}) do self.indexById[id] = position end
+    for position, id in ipairs(self.items.ids) do self.indexById[id] = position end
+    -- Membership set rather than a scan of index.outputs. isCraftable is called once
+    -- per search result across 639 outputs, so a linear scan would make the Crafting
+    -- page quadratic in pack size on a computer where every tick is budgeted.
+    self.outputSet = {}
+    for _, position in ipairs(self.index.outputs or {}) do self.outputSet[position] = true end
+    self:_loadCustom(deps.custom)
     return self
 end
+
+function RecipeRepo:indexOf(itemId) return self.indexById[itemId] end
 
 function RecipeRepo:itemAt(position)
     return (self.items.ids or {})[position]
@@ -36,24 +52,23 @@ function RecipeRepo:displayName(itemId)
 end
 
 function RecipeRepo:outputs()
-    local result = {}
-    for _, position in ipairs(self.index.outputs or {}) do
-        local id = self:itemAt(position)
-        if id then
+    local seen, result = {}, {}
+    local function add(id)
+        if id and not seen[id] then
+            seen[id] = true
             result[#result + 1] = {item=id, display_name=self:displayName(id)}
         end
     end
+    for _, position in ipairs(self.index.outputs or {}) do add(self:itemAt(position)) end
+    for _, id in ipairs(self.customOutputs) do add(id) end
     table.sort(result, function(left, right) return left.item < right.item end)
     return result
 end
 
 function RecipeRepo:isCraftable(itemId)
+    if self.custom[itemId] then return true end
     local position = self.indexById[itemId]
-    if not position then return false end
-    for _, output in ipairs(self.index.outputs or {}) do
-        if output == position then return true end
-    end
-    return false
+    return position ~= nil and self.outputSet[position] == true
 end
 
 -- A recipe lives in shard 1 + (output_index % shard_count), so every recipe for one
@@ -81,6 +96,8 @@ function RecipeRepo:_shard(number)
 end
 
 function RecipeRepo:recipesFor(itemId)
+    local overridden = self.custom[itemId]
+    if overridden then return overridden end
     local position = self.indexById[itemId]
     if not position then return {} end
     local result = {}
@@ -110,6 +127,83 @@ function RecipeRepo:resolve(reference)
         if id then return {id} end
     end
     return {}
+end
+
+-- Custom recipes are hand-edited under colossal/data/, so they name items by ID and
+-- tags with a leading '#'. Validation covers exactly the fields the loader will
+-- dereference; anything looser would fail later, further from the mistake.
+function RecipeRepo.validateCustom(value)
+    if type(value) ~= "table" or value.schema ~= 1 or type(value.recipes) ~= "table" then
+        return nil, "custom recipe schema is invalid"
+    end
+    for position, body in ipairs(value.recipes) do
+        local label = "custom recipe " .. position
+        if type(body) ~= "table" then return nil, label .. " must be a table" end
+        if type(body.id) ~= "string" or body.id == "" then
+            return nil, label .. " requires an id"
+        end
+        if type(body.output_item) ~= "string" or body.output_item == "" then
+            return nil, label .. " requires an output_item"
+        end
+        if type(body.count) ~= "number" or body.count < 1 or body.count % 1 ~= 0 then
+            return nil, label .. " requires a positive integer count"
+        end
+        local list = body.shaped and body.grid_items or body.ingredient_items
+        if type(list) ~= "table" then
+            return nil, label .. " requires grid_items or ingredient_items"
+        end
+    end
+    return true
+end
+
+-- Interning an item the generated pack never mentioned extends this repo's own item
+-- table. names has no entry for it, so displayName falls back to the raw ID, which is
+-- correct: nothing knows a nicer name for it.
+function RecipeRepo:_intern(itemId)
+    local existing = self.indexById[itemId]
+    if existing then return existing end
+    self.items.ids[#self.items.ids + 1] = itemId
+    local assigned = #self.items.ids
+    self.indexById[itemId] = assigned
+    return assigned
+end
+
+-- "#minecraft:planks" is a tag reference and stays a string minus the hash, because
+-- that is how generated recipes encode a tag. Anything else is an item ID and becomes
+-- an interned index. The result is the same shape a generated recipe has, so no
+-- consumer ever branches on a recipe's origin.
+function RecipeRepo:_customReference(entry)
+    if type(entry) ~= "string" or entry == "" then return 0 end
+    if entry:sub(1, 1) == "#" then return entry:sub(2) end
+    return self:_intern(entry)
+end
+
+function RecipeRepo:_loadCustom(value)
+    if value == nil then return end
+    if not RecipeRepo.validateCustom(value) then return end
+    for _, body in ipairs(value.recipes) do
+        local target = body.output_item
+        local normalised = {
+            id = body.id, count = body.count, shaped = body.shaped == true,
+            output = self:_intern(target),
+        }
+        if normalised.shaped then
+            normalised.grid = {}
+            for cell = 1, 9 do
+                normalised.grid[cell] = self:_customReference((body.grid_items or {})[cell])
+            end
+        else
+            normalised.ingredients = {}
+            for position, entry in ipairs(body.ingredient_items or {}) do
+                normalised.ingredients[position] = self:_customReference(entry)
+            end
+        end
+        if not self.custom[target] then
+            self.custom[target] = {}
+            self.customOutputs[#self.customOutputs + 1] = target
+        end
+        self.custom[target][#self.custom[target] + 1] = normalised
+    end
 end
 
 return RecipeRepo

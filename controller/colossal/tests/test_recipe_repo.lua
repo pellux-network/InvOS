@@ -101,4 +101,77 @@ return {
         local repo = RecipeRepo.new({loader=loaderFor(value)})
         T.arrayEqual(repo:recipesFor("minecraft:chest"), {})
     end},
+    {name="custom recipes take precedence over the generated pack",run=function()
+        local repo = RecipeRepo.new({loader=loaderFor(pack()), custom={
+            schema=1, recipes={
+                {id="custom:chest", output_item="minecraft:chest", count=2, shaped=false,
+                 ingredient_items={"minecraft:oak_planks"}},
+            }}})
+        local recipes = repo:recipesFor("minecraft:chest")
+        T.equal(#recipes, 1, "generated recipe must be replaced, not appended")
+        T.equal(recipes[1].id, "custom:chest")
+        T.equal(recipes[1].count, 2)
+    end},
+    {name="a custom recipe is normalised into generated-recipe shape",run=function()
+        local repo = RecipeRepo.new({loader=loaderFor(pack()), custom={
+            schema=1, recipes={
+                {id="custom:chest", output_item="minecraft:chest", count=2, shaped=false,
+                 ingredient_items={"minecraft:oak_planks","#minecraft:planks"}},
+            }}})
+        local body = repo:recipesFor("minecraft:chest")[1]
+        T.equal(body.output_item, nil, "raw hand-written fields must not survive")
+        T.equal(body.ingredient_items, nil)
+        T.equal(body.output, repo:indexOf("minecraft:chest"))
+        T.arrayEqual(repo:resolve(body.ingredients[1]), {"minecraft:oak_planks"})
+        T.arrayEqual(repo:resolve(body.ingredients[2]), {"minecraft:oak_planks"})
+    end},
+    {name="a custom shaped recipe normalises its grid to nine cells",run=function()
+        local repo = RecipeRepo.new({loader=loaderFor(pack()), custom={
+            schema=1, recipes={
+                {id="custom:torch", output_item="minecraft:torch", count=4, shaped=true,
+                 grid_items={"minecraft:stick"}},
+            }}})
+        local body = repo:recipesFor("minecraft:torch")[1]
+        T.equal(#body.grid, 9)
+        T.arrayEqual(repo:resolve(body.grid[1]), {"minecraft:stick"})
+        T.equal(body.grid[2], 0)
+        T.equal(body.grid[9], 0)
+    end},
+    {name="custom recipes add outputs the generated pack lacks",run=function()
+        local repo = RecipeRepo.new({loader=loaderFor(pack()), custom={
+            schema=1, recipes={
+                {id="custom:widget", output_item="minecraft:widget", count=1, shaped=false,
+                 ingredient_items={"minecraft:stick"}},
+            }}})
+        T.equal(repo:isCraftable("minecraft:widget"), true)
+        T.equal(#repo:recipesFor("minecraft:widget"), 1)
+        local found=false
+        for _,entry in ipairs(repo:outputs()) do
+            if entry.item=="minecraft:widget" then found=true end
+        end
+        T.equal(found, true, "new output must appear in the search corpus")
+    end},
+    {name="an output untouched by custom recipes still resolves from its shard",run=function()
+        local repo = RecipeRepo.new({loader=loaderFor(pack()), custom={
+            schema=1, recipes={
+                {id="custom:widget", output_item="minecraft:widget", count=1, shaped=false,
+                 ingredient_items={"minecraft:stick"}},
+            }}})
+        T.equal(#repo:recipesFor("minecraft:stick"), 1)
+        T.equal(repo:recipesFor("minecraft:stick")[1].id, "minecraft:stick")
+    end},
+    {name="an invalid custom file is ignored rather than fatal",run=function()
+        for _, bad in ipairs({{schema=2, recipes={}}, {schema=1}, "nonsense",
+            {schema=1, recipes="no"}, {schema=1, recipes={{id="x"}}}}) do
+            local repo = RecipeRepo.new({loader=loaderFor(pack()), custom=bad})
+            T.equal(repo:isCraftable("minecraft:chest"), true)
+            T.equal(repo:recipesFor("minecraft:chest")[1].id, "minecraft:chest")
+        end
+    end},
+    {name="custom recipe validation names the field that is wrong",run=function()
+        local ok, reason = RecipeRepo.validateCustom({schema=1, recipes={{id="x"}}})
+        T.equal(ok, nil)
+        T.contains(reason, "output_item")
+        T.equal(RecipeRepo.validateCustom({schema=1, recipes={}}), true)
+    end},
 }
