@@ -188,7 +188,7 @@ def lua_value(value):
             .replace("\n", "\\n")
             .replace("\r", "\\r")
             .replace("\t", "\\t")
-            .replace("\x00", "\\0")
+            .replace("\x00", "\\000")
         )
         return '"%s"' % escaped
     if isinstance(value, list):

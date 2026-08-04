@@ -1,4 +1,5 @@
 import os
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -13,7 +14,16 @@ from recipe_pack import (
     render_pack,
 )
 
-LUAC = r"C:\Users\Pellux\AppData\Local\Programs\Lua\bin\luac.exe"
+# Prefer whatever "luac" resolves to on PATH; fall back to the known install
+# location on this machine so the suite keeps working here without setup, but
+# degrade to a skip (see HAVE_LUAC below) rather than a hard error anywhere
+# else -- a test suite that only runs on one machine has stopped being a
+# safety net.
+LUAC = (
+    shutil.which("luac")
+    or r"C:\Users\Pellux\AppData\Local\Programs\Lua\bin\luac.exe"
+)
+HAVE_LUAC = os.path.exists(LUAC)
 
 
 class FlattenTagsTest(unittest.TestCase):
@@ -195,8 +205,16 @@ class LuaValueTest(unittest.TestCase):
     def test_escapes_control_characters(self):
         self.assertEqual(
             lua_value("a\nb\tc\rd\x00e"),
-            '"a\\nb\\tc\\rd\\0e"',
+            '"a\\nb\\tc\\rd\\000e"',
         )
+
+    def test_escapes_a_null_before_a_digit_without_creating_an_ambiguous_escape(self):
+        # Lua's \ddd decimal escape greedily consumes up to three digits, so an
+        # unpadded "\0" followed by an ASCII digit would merge into a single,
+        # wrong byte (e.g. "\05" is byte 5, not NUL followed by '5'). Zero-padding
+        # to "\000" always consumes exactly three digits, so a trailing literal
+        # digit stays a separate character.
+        self.assertEqual(lua_value("\x005"), '"\\0005"')
 
     def test_renders_arrays_and_string_keyed_tables(self):
         self.assertEqual(lua_value([1, 2]), "{1,2}")
@@ -304,13 +322,25 @@ class BuildPackTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             build_pack(self.recipes, self.tags, self.lang, shard_count=0)
 
-    def test_rendered_files_are_syntactically_valid_lua_5_2(self):
+    @unittest.skipUnless(HAVE_LUAC, "luac not found on PATH or at the known install location")
+    def test_rendered_files_are_syntactically_valid_lua(self):
+        # This only proves the output parses, not that it parses under Lua 5.2
+        # specifically -- the available luac reports "Lua 5.4.6", and a 5.4 parser
+        # accepts constructs (//, bitwise operators, goto) that 5.2 forbids. That
+        # gap is acceptable here because lua_value() can only ever emit comments,
+        # `return`, table constructors, integer literals, string literals and
+        # booleans, and that grammar subset is identical between Lua 5.2 and 5.4.
         pack = build_pack(self.recipes, self.tags, self.lang, shard_count=2)
         rendered = render_pack(pack)
         self.assertIn("items.lua", rendered)
         self.assertIn("index.lua", rendered)
         self.assertIn("tags.lua", rendered)
         self.assertIn("pack_01.lua", rendered)
+        # The three metadata files derive "schema" through lua_value, so a typo
+        # there would already fail elsewhere. The shard file hand-writes its
+        # schema field as literal text, making it the one place the pack-format
+        # version could silently drift without any test noticing.
+        self.assertIn("schema = 1,", rendered["pack_01.lua"])
         with tempfile.TemporaryDirectory() as tmp_dir:
             for name, text in rendered.items():
                 path = os.path.join(tmp_dir, name)
@@ -322,9 +352,14 @@ class BuildPackTest(unittest.TestCase):
                     "%s failed to parse: %s" % (name, result.stderr),
                 )
 
+    @unittest.skipUnless(HAVE_LUAC, "luac not found on PATH or at the known install location")
     def test_control_characters_in_display_names_still_parse_as_lua(self):
         lang = dict(self.lang)
-        lang["item.minecraft.chest"] = "Chest\n\t\"quoted\"\\slash\x00end"
+        # Includes a NUL immediately followed by a digit ("\x005"): with an
+        # unpadded "\0" escape this would merge into a single wrong byte instead
+        # of staying NUL + '5', so this is the case that actually exercises the
+        # \000 zero-padding fix.
+        lang["item.minecraft.chest"] = "Chest\n\t\"quoted\"\\slash\x005digit\x00end"
         pack = build_pack(self.recipes, self.tags, lang, shard_count=2)
         rendered = render_pack(pack)
         with tempfile.TemporaryDirectory() as tmp_dir:
