@@ -20,6 +20,23 @@ local allowed = {
         PARTIAL = { PLANNING=true, BLOCKED=true, FAILED=true },
         FAILED = { PLANNING=true },
     },
+    -- A craft job walks STAGING -> CRAFTING -> COLLECTING once per craft step, looping
+    -- back to PLANNING for the next step, and only reaches DELIVERING after the last.
+    -- CONFIRMING exists because planning is deferred to activation: a job queued behind
+    -- others can resolve to materially different work than the operator approved, and
+    -- running that silently would defeat the confirmation screen entirely.
+    craft = {
+        QUEUED = { PLANNING=true, CANCELLED=true },
+        PLANNING = { STAGING=true, CONFIRMING=true, DELIVERING=true, BLOCKED=true,
+            FAILED=true, CANCELLED=true },
+        CONFIRMING = { PLANNING=true, CANCELLED=true },
+        STAGING = { CRAFTING=true, BLOCKED=true, FAILED=true, CANCELLED=true },
+        CRAFTING = { COLLECTING=true, BLOCKED=true, FAILED=true },
+        COLLECTING = { PLANNING=true, DELIVERING=true, BLOCKED=true, FAILED=true },
+        DELIVERING = { COMPLETE=true, BLOCKED=true, FAILED=true },
+        BLOCKED = { PLANNING=true, CANCELLED=true, FAILED=true },
+        FAILED = { PLANNING=true, CANCELLED=true },
+    },
     storage = {
         DISCOVERED = { SCANNING=true, DISABLED=true },
         SCANNING = { READY=true, STALE=true, OFFLINE=true, ERROR=true, DISABLED=true },

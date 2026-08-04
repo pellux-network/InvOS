@@ -16,6 +16,7 @@ local defaultModules = {
     "tests.test_craft_prefs",
     "tests.test_craft_planner",
     "tests.test_craft_coordination",
+    "tests.test_craft_service",
     "tests.test_reconciliation",
     "tests.test_transfer",
     "tests.test_recovery",
