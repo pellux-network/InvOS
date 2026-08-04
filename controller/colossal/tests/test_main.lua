@@ -218,4 +218,39 @@ return {
         T.equal(decoded.items[Identity.key("minecraft:dirt",nil)].display_name,"Dirt")
         T.equal(decoded.items[Identity.key("minecraft:sand",nil)].display_name,"Sand")
     end},
+    {name="a configured install without crafting builds no craft service",run=function()
+        local fs=T.memoryFs()
+        local textutils,codec=tokenTextutils()
+        local store=Store.new(fs,codec,"data")
+        store:write("config",{schema=2,configured=true,
+            installation={computer_id=17,computer_label="Test"},
+            dropoff={peripheral_name="drop"},pickup={peripheral_name="pickup"},
+            storage={{id="storage_1",peripheral_name="big",label="Main",priority=1,enabled=true}},
+        },Setup.validateConfig)
+        local _,services=Main.build(environment({fs=fs,textutils=textutils}))
+        T.equal(services.crafts,nil,"crafting stays off until a buffer and turtle are bound")
+        T.truthy(services.recipes,"the recipe repo is always available for search")
+    end},
+    {name="binding a buffer and turtle builds the craft service",run=function()
+        local fs=T.memoryFs()
+        local textutils,codec=tokenTextutils()
+        local store=Store.new(fs,codec,"data")
+        store:write("config",{schema=2,configured=true,
+            installation={computer_id=17,computer_label="Test"},
+            dropoff={peripheral_name="drop"},pickup={peripheral_name="pickup"},
+            craft_buffer={peripheral_name="buffer"},turtle={peripheral_name="turtle_2"},
+            storage={{id="storage_1",peripheral_name="big",label="Main",priority=1,enabled=true}},
+        },Setup.validateConfig)
+        local environmentValue=environment({fs=fs,textutils=textutils})
+        environmentValue.rednet={send=function() return true end,receive=function() return nil end}
+        local coordinator,services=Main.build(environmentValue)
+        T.truthy(services.crafts,"a bound buffer and turtle enable crafting")
+        T.equal(services.crafts:status().state,"IDLE")
+        local buffered=false
+        for _,node in ipairs(coordinator:viewModel().nodes) do
+            if node.role=="craft_buffer" then buffered=true end
+        end
+        T.equal(buffered,true,"the buffer is scanned like any other node")
+    end},
+
 }
