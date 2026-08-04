@@ -150,8 +150,22 @@ item to physically exist in a scanned inventory.
 
 ### Emitted pack
 
-Written to `colossal/data/recipes/`, under the same validated-store pattern as `config.lua`
-and `aliases.lua`.
+**Generated packs are deployed build artifacts, not mutable data.** They are written to
+`colossal/recipes/` and listed in `deployment_manifest.lua`, exactly like runtime code, and
+loaded with `require` rather than through `shared/store.lua`.
+
+They cannot live under `colossal/data/`. That directory is preserved and never copied by the
+deployment gate, so a pack placed there would never reach the live computer; and
+`tests/test_deployment.lua` asserts that no manifest path contains the substring `data`, so
+the manifest could not list it either. The split is on mutability, not on file type:
+
+| path | nature | deployed? |
+|---|---|---|
+| `colossal/recipes/*.lua` | generated, regenerated wholesale, never hand-edited | yes, manifest-listed |
+| `colossal/data/custom_recipes.lua` | hand-edited operator content | no, preserved |
+| `colossal/data/craft_prefs.lua` | operator preferences, written at runtime | no, preserved |
+
+Generated pack files:
 
 - `items.lua` -- interned item-ID table. Recipes reference integer indices.
 - `index.lua` -- output item -> recipe IDs, plus display names. Always resident. This is the
@@ -160,15 +174,19 @@ and `aliases.lua`.
 - `tags.lua` -- the 71 tags, **pre-flattened by the converter**, so the controller never does
   recursive tag expansion at runtime.
 
+The two `colossal/data/` files use the existing validated-store pattern, so a corrupt or
+absent one falls back rather than preventing boot -- the same treatment `metadata.lua` gets.
+
 Every recipe body keeps a `type` field even though only the two crafting types are imported,
 so a later furnace or stonecutter extension adds recipes without a pack migration.
 
 ### Extensibility
 
-Three mechanisms. `custom.lua` takes precedence over every generated pack; among generated
-packs, later-loaded wins, and load order is declared in config.
+Three mechanisms. `custom_recipes.lua` takes precedence over every generated pack; among
+generated packs, later-loaded wins, and load order is declared in config.
 
-1. `data/recipes/custom.lua` -- hand-editable, always wins.
+1. `colossal/data/custom_recipes.lua` -- hand-editable, preserved across deployments, always
+   wins.
 2. Additional generated packs -- the same converter pointed at mod jars (`data/<ns>/recipes/`
    and `data/<ns>/tags/items/` have identical structure) or at a KubeJS dump.
 3. Programmatic generation -- the compacting feature will emit a pack this way.
@@ -189,8 +207,8 @@ testable without Minecraft.
 
 Resolving a target `(identity, quantity)`:
 
-1. **Pick the recipe.** `custom.lua` wins; then a pinned preference; else deterministic first
-   by recipe ID. 78 vanilla outputs need this tie-break.
+1. **Pick the recipe.** `custom_recipes.lua` wins; then a pinned preference; else deterministic
+   first by recipe ID. 78 vanilla outputs need this tie-break.
 2. **Size the batch.** `turtle.craft()` crafts repeatedly until one grid cell empties, so it
    produces up to 64x the recipe output in a single call when every cell holds a full stack.
    Crafts per call is the `min` over occupied cells of that cell item's stack limit, capped at
