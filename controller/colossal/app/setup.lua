@@ -18,7 +18,8 @@ local function copy(value, seen)
 end
 
 local function defaults()
-    return { schema=1, configured=false, installation=nil, dropoff=nil, pickup=nil, storage={} }
+    return { schema=2, configured=false, installation=nil, dropoff=nil, pickup=nil,
+        storage={}, craft_buffer=nil, turtle=nil, monitors=nil }
 end
 
 local function stable(value)
@@ -124,8 +125,34 @@ function Setup:cancel()
     return true
 end
 
+local REQUIRED_ROLES = {dropoff=true, pickup=true}
+local OPTIONAL_ROLES = {craft_buffer=true, turtle=true}
+local MONITOR_ROLES = {monitor_main="main", monitor_crafting="crafting"}
+
+-- Passing nil clears an optional binding, which is how the wizard's Skip choice works.
+-- Drop-off and Pickup cannot be cleared: the controller has nothing to do without them.
 function Setup:assign(role, peripheralName)
-    if role ~= "dropoff" and role ~= "pickup" then return nil, "unknown role " .. tostring(role) end
+    local monitorKey = MONITOR_ROLES[role]
+    if monitorKey then
+        self.value.monitors = self.value.monitors or {}
+        if peripheralName == nil then
+            self.value.monitors[monitorKey] = nil
+        elseif type(peripheralName) ~= "string" or peripheralName == "" then
+            return nil, "peripheral name is required"
+        else
+            self.value.monitors[monitorKey] = peripheralName
+        end
+        if next(self.value.monitors) == nil then self.value.monitors = nil end
+        return true
+    end
+    if not REQUIRED_ROLES[role] and not OPTIONAL_ROLES[role] then
+        return nil, "unknown role " .. tostring(role)
+    end
+    if peripheralName == nil then
+        if REQUIRED_ROLES[role] then return nil, "role " .. role .. " cannot be cleared" end
+        self.value[role] = nil
+        return true
+    end
     if type(peripheralName) ~= "string" or peripheralName == "" then
         return nil, "peripheral name is required"
     end
@@ -204,6 +231,21 @@ function Setup:discover()
     return copy(discovered)
 end
 
+-- The crafting turtle and the monitors are not inventories, so discover() never sees
+-- them. Binding them needs a lookup by peripheral type instead.
+function Setup:discoverByType(kind)
+    if type(kind) ~= "string" or kind == "" then return {} end
+    local namesOk, names = pcall(self.peripheral.getNames)
+    if not namesOk or type(names) ~= "table" then return {} end
+    local found = {}
+    for _, name in ipairs(names) do
+        local ok, matches = pcall(self.peripheral.hasType, name, kind)
+        if ok and matches then found[#found + 1] = {name=name, kind=kind} end
+    end
+    table.sort(found, function(left, right) return left.name < right.name end)
+    return found
+end
+
 local function snapshotFingerprint(descriptor)
     if not descriptor or type(descriptor.wrapped) ~= "table" or
         type(descriptor.wrapped.list) ~= "function" then return nil end
@@ -230,6 +272,32 @@ function Setup:validate()
     if self.value.dropoff and self.value.pickup and
         self.value.dropoff.peripheral_name == self.value.pickup.peripheral_name then
         add(issue("ROLE_COLLISION", "Drop-off and Pickup must be different inventories"))
+    end
+    -- Checked here as well as at commit so the operator sees it on the validation step
+    -- rather than after pressing save. It matters concretely on this installation: the
+    -- buffer and Pickup are both ironchests:diamond_chest and differ only by index, so a
+    -- mis-picked buffer would stage crafting ingredients into the chest players collect
+    -- from.
+    if self.value.craft_buffer then
+        local buffer = self.value.craft_buffer.peripheral_name
+        local clash
+        if self.value.dropoff and buffer == self.value.dropoff.peripheral_name then
+            clash = "Drop-off"
+        elseif self.value.pickup and buffer == self.value.pickup.peripheral_name then
+            clash = "Pickup"
+        else
+            for _, node in ipairs(self.value.storage or {}) do
+                if node.peripheral_name == buffer then clash = "storage " .. node.id end
+            end
+        end
+        if clash then
+            add(issue("BUFFER_COLLISION",
+                "The craft buffer is already bound as " .. clash))
+        end
+    end
+    if self.value.turtle and self.value.craft_buffer == nil then
+        add(issue("TURTLE_WITHOUT_BUFFER",
+            "A crafting turtle needs a craft buffer beneath it", false))
     end
     local enabled = {}
     for _, node in ipairs(self.value.storage) do if node.enabled ~= false then enabled[#enabled + 1] = node end end
@@ -292,7 +360,9 @@ function Setup:commit(report)
     if type(report) ~= "table" or not report.ok then return nil, "validation has blocking issues" end
     if report.fingerprint ~= stable(self.value) then return nil, "setup draft changed after validation" end
     local config = copy(report.draft)
-    config.schema, config.configured = 1, true
+    -- Always saved as schema 2. A schema 1 file still loads, so an existing install is
+    -- never forced through Setup, but anything Setup writes carries the newer shape.
+    config.schema, config.configured = 2, true
     config.installation = {computer_id=self.os.getComputerID(),
         computer_label=self.os.getComputerLabel() or ""}
     local valid, reason = Setup.validateConfig(config)
