@@ -1,3 +1,4 @@
 .worktrees/
 controller/colossal/data/
 *.tmp
+__pycache__/

@@ -1,6 +1,19 @@
+import os
+import subprocess
+import tempfile
 import unittest
 
-from recipe_pack import flatten_tags
+from recipe_pack import (
+    Converter,
+    ItemTable,
+    build_pack,
+    display_names,
+    flatten_tags,
+    lua_value,
+    render_pack,
+)
+
+LUAC = r"C:\Users\Pellux\AppData\Local\Programs\Lua\bin\luac.exe"
 
 
 class FlattenTagsTest(unittest.TestCase):
@@ -31,9 +44,6 @@ class FlattenTagsTest(unittest.TestCase):
     def test_object_entries_and_missing_tags_are_tolerated(self):
         raw = {"a": [{"id": "minecraft:stone", "required": False}, "#nope"]}
         self.assertEqual(flatten_tags(raw)["a"], ["minecraft:stone"])
-
-
-from recipe_pack import ItemTable, display_names
 
 
 class ItemTableTest(unittest.TestCase):
@@ -70,9 +80,6 @@ class DisplayNamesTest(unittest.TestCase):
     def test_falls_back_to_the_raw_id_when_untranslated(self):
         names = display_names(["mod:widget"], {})
         self.assertEqual(names, ["mod:widget"])
-
-
-from recipe_pack import Converter
 
 
 class ConvertRecipeTest(unittest.TestCase):
@@ -155,8 +162,25 @@ class ConvertRecipeTest(unittest.TestCase):
                 self.converter.convert("x", {"type": kind, "result": {"item": "y"}})
             )
 
+    def test_rejects_a_pattern_wider_than_three_columns(self):
+        recipe = {
+            "type": "minecraft:crafting_shaped",
+            "pattern": ["####"],
+            "key": {"#": {"item": "minecraft:stick"}},
+            "result": {"item": "minecraft:widget"},
+        }
+        with self.assertRaises(ValueError):
+            self.converter.convert("minecraft:widget", recipe)
 
-from recipe_pack import lua_value, build_pack, render_pack
+    def test_rejects_a_pattern_taller_than_three_rows(self):
+        recipe = {
+            "type": "minecraft:crafting_shaped",
+            "pattern": ["#", "#", "#", "#"],
+            "key": {"#": {"item": "minecraft:stick"}},
+            "result": {"item": "minecraft:widget"},
+        }
+        with self.assertRaises(ValueError):
+            self.converter.convert("minecraft:widget", recipe)
 
 
 class LuaValueTest(unittest.TestCase):
@@ -168,12 +192,27 @@ class LuaValueTest(unittest.TestCase):
     def test_escapes_quotes_and_backslashes(self):
         self.assertEqual(lua_value('a"b\\c'), '"a\\"b\\\\c"')
 
+    def test_escapes_control_characters(self):
+        self.assertEqual(
+            lua_value("a\nb\tc\rd\x00e"),
+            '"a\\nb\\tc\\rd\\0e"',
+        )
+
     def test_renders_arrays_and_string_keyed_tables(self):
         self.assertEqual(lua_value([1, 2]), "{1,2}")
         self.assertEqual(lua_value({"a": 1}), '{["a"]=1}')
 
     def test_table_keys_are_sorted_for_reproducible_output(self):
         self.assertEqual(lua_value({"b": 1, "a": 2}), '{["a"]=2,["b"]=1}')
+
+
+def _parse_with_luac(path):
+    """Run luac -p against a file and return the CompletedProcess."""
+    return subprocess.run(
+        [LUAC, "-p", path],
+        capture_output=True,
+        text=True,
+    )
 
 
 class BuildPackTest(unittest.TestCase):
@@ -204,18 +243,50 @@ class BuildPackTest(unittest.TestCase):
         self.assertEqual(ids, ["minecraft:chest", "minecraft:stick"])
 
     def test_outputs_are_sorted_item_indices(self):
-        pack = build_pack(self.recipes, self.tags, self.lang, shard_count=2)
-        self.assertEqual(pack["index"]["outputs"], sorted(pack["index"]["outputs"]))
-        self.assertEqual(len(pack["index"]["outputs"]), 2)
+        # Chosen so the item indices land on 1, 2 and 8: CPython's set iterates
+        # these in slot order (8, 1, 2), not ascending order, so this fixture
+        # actually distinguishes sorted(outputs) from list(outputs) -- unlike a
+        # fixture with two small, already-ascending indices.
+        def craft(item_id, ingredients=None):
+            return {
+                "type": "minecraft:crafting_shapeless",
+                "ingredients": [{"item": i} for i in (ingredients or [])],
+                "result": {"item": item_id},
+            }
+
+        recipes = {
+            "minecraft:a_target_low": craft("minecraft:target_low"),
+            "minecraft:b_filler_intern": craft(
+                "minecraft:intern_b",
+                ["minecraft:f3", "minecraft:f4", "minecraft:f5", "minecraft:f6", "minecraft:f7"],
+            ),
+            "minecraft:c_target_high": craft("minecraft:target_high"),
+        }
+        pack = build_pack(recipes, {}, {}, shard_count=2)
+        self.assertEqual(pack["items"]["ids"][0], "minecraft:target_low")
+        self.assertEqual(pack["items"]["ids"][7], "minecraft:target_high")
+        self.assertEqual(pack["index"]["outputs"], [1, 2, 8])
 
     def test_tag_members_are_stored_as_item_indices(self):
-        pack = build_pack(self.recipes, self.tags, self.lang, shard_count=2)
-        members = pack["tags"]["tags"]["minecraft:planks"]
+        # "minecraft:oak_planks" is interned early (index 1, via its own recipe)
+        # while "minecraft:planks" is flattened alphabetically, so resolving the
+        # tag encounters birch_planks (a new, higher index) before oak_planks
+        # (already interned at 1). This makes the final [1, 5] only correct if
+        # the tag's members are actually sorted, not just as-encountered.
+        recipes = {
+            "minecraft:0_make_oak_planks": {
+                "type": "minecraft:crafting_shapeless",
+                "ingredients": [{"item": "minecraft:oak_log"}],
+                "result": {"item": "minecraft:oak_planks", "count": 4},
+            },
+            "minecraft:chest": self.recipes["minecraft:chest"],
+            "minecraft:stick": self.recipes["minecraft:stick"],
+        }
+        pack = build_pack(recipes, self.tags, self.lang, shard_count=2)
         ids = pack["items"]["ids"]
-        self.assertEqual(
-            sorted(ids[index - 1] for index in members),
-            ["minecraft:birch_planks", "minecraft:oak_planks"],
-        )
+        self.assertEqual(ids[0], "minecraft:oak_planks")
+        self.assertEqual(ids[4], "minecraft:birch_planks")
+        self.assertEqual(pack["tags"]["tags"]["minecraft:planks"], [1, 5])
 
     def test_only_tags_actually_referenced_are_emitted(self):
         tags = dict(self.tags)
@@ -229,17 +300,39 @@ class BuildPackTest(unittest.TestCase):
             for body in bodies:
                 self.assertEqual(1 + (body["output"] % 2), shard_number)
 
-    def test_rendered_pack_is_valid_lua_returning_a_table(self):
+    def test_rejects_non_positive_shard_count(self):
+        with self.assertRaises(ValueError):
+            build_pack(self.recipes, self.tags, self.lang, shard_count=0)
+
+    def test_rendered_files_are_syntactically_valid_lua_5_2(self):
         pack = build_pack(self.recipes, self.tags, self.lang, shard_count=2)
         rendered = render_pack(pack)
         self.assertIn("items.lua", rendered)
         self.assertIn("index.lua", rendered)
         self.assertIn("tags.lua", rendered)
         self.assertIn("pack_01.lua", rendered)
-        for name, text in rendered.items():
-            self.assertTrue(text.startswith("-- generated"), name)
-            self.assertIn("return {", text)
-            self.assertNotIn("//", text)
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            for name, text in rendered.items():
+                path = os.path.join(tmp_dir, name)
+                with open(path, "w", encoding="utf-8", newline="\n") as handle:
+                    handle.write(text)
+                result = _parse_with_luac(path)
+                self.assertEqual(
+                    result.returncode, 0,
+                    "%s failed to parse: %s" % (name, result.stderr),
+                )
+
+    def test_control_characters_in_display_names_still_parse_as_lua(self):
+        lang = dict(self.lang)
+        lang["item.minecraft.chest"] = "Chest\n\t\"quoted\"\\slash\x00end"
+        pack = build_pack(self.recipes, self.tags, lang, shard_count=2)
+        rendered = render_pack(pack)
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            path = os.path.join(tmp_dir, "items.lua")
+            with open(path, "w", encoding="utf-8", newline="\n") as handle:
+                handle.write(rendered["items.lua"])
+            result = _parse_with_luac(path)
+            self.assertEqual(result.returncode, 0, result.stderr)
 
 
 if __name__ == "__main__":
