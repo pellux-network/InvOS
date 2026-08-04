@@ -51,13 +51,17 @@ local function fakeLink(behaviour)
 end
 
 local function fakeRequests()
-    local value = {created = {}, byId = {}, counter = 0, state = "COMPLETE"}
+    -- deliveryState is separate so a test can hold the final delivery pending without
+    -- also stalling the ingredient withdrawals that get the job there.
+    local value = {created = {}, byId = {}, counter = 0,
+        state = "COMPLETE", deliveryState = nil}
     function value:create(identity, quantity, options)
         self.counter = self.counter + 1
         local id = "request-" .. self.counter
+        local role = options and options.destination_role
         local request = {id=id, identity=identity, requested=quantity,
-            owner=options and options.owner, destination_role=options and options.destination_role,
-            state=self.state, delivered=quantity}
+            owner=options and options.owner, destination_role=role,
+            state=(role == nil and self.deliveryState) or self.state, delivered=quantity}
         self.created[#self.created + 1] = request
         self.byId[id] = request
         return request
@@ -381,6 +385,38 @@ return {
         T.equal(#sent.steps, 1, "one ingredient")
         T.arrayEqual(sent.steps[1].cells, {1, 5},
             "grid positions 1 and 4 are turtle slots 1 and 5")
+    end},
+
+    {name="the buffer is drained once, not on every tick while delivering",run=function()
+        -- A drain running under the delivery request moves the very storage slots the
+        -- request planned from, which surfaces as SOURCE_CHANGED and blocks a craft that
+        -- had already succeeded.
+        local buffer = fakeBuffer()
+        local requests = fakeRequests()
+        requests.deliveryState = "TRANSFERRING"
+        local craft = service({plan({chestStep()},
+            {{item="minecraft:oak_planks", count=8}})}, {buffer=buffer, requests=requests})
+        craft:enqueue("minecraft:chest", 1)
+        run(craft, context(), 20)
+        local emptyDrains = 0
+        for _, keep in ipairs(buffer.drains) do
+            if next(keep) == nil then emptyDrains = emptyDrains + 1 end
+        end
+        T.equal(emptyDrains, 1,
+            "the buffer must be emptied once, got " .. emptyDrains .. " full drains")
+    end},
+    {name="a delivery request is raised only once",run=function()
+        local requests = fakeRequests()
+        requests.deliveryState = "TRANSFERRING"
+        local craft = service({plan({chestStep()},
+            {{item="minecraft:oak_planks", count=8}})}, {requests=requests})
+        craft:enqueue("minecraft:chest", 1)
+        run(craft, context(), 20)
+        local deliveries = 0
+        for _, request in ipairs(requests.created) do
+            if request.destination_role == nil then deliveries = deliveries + 1 end
+        end
+        T.equal(deliveries, 1, "a second delivery would double-move the result")
     end},
 
 }

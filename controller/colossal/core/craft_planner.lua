@@ -166,17 +166,23 @@ function resolve(state, itemId, needed, depth)
     end
     if needed <= 0 then return true end
 
-    -- Reserve against the ledger, not against raw stock. Two branches of one tree must
-    -- never both claim the same items.
-    local free = (state.available(itemId) or 0) - (state.reserved[itemId] or 0)
-    if free < 0 then free = 0 end
-    local fromStorage = math.min(free, needed)
-    if fromStorage > 0 then
-        state.reserved[itemId] = (state.reserved[itemId] or 0) + fromStorage
-        state.withdrawals[itemId] = (state.withdrawals[itemId] or 0) + fromStorage
-        needed = needed - fromStorage
+    -- Ingredients come from storage where possible, but the requested item itself does
+    -- not: "craft 250 sticks" means make 250, not top the shelf up to 250. Drawing on
+    -- existing stock would deliver mostly what was already there and craft a handful.
+    -- The Search page's shortfall shortcut is where "get me up to N" lives.
+    if depth > 1 then
+        -- Reserve against the ledger, not against raw stock. Two branches of one tree
+        -- must never both claim the same items.
+        local free = (state.available(itemId) or 0) - (state.reserved[itemId] or 0)
+        if free < 0 then free = 0 end
+        local fromStorage = math.min(free, needed)
+        if fromStorage > 0 then
+            state.reserved[itemId] = (state.reserved[itemId] or 0) + fromStorage
+            state.withdrawals[itemId] = (state.withdrawals[itemId] or 0) + fromStorage
+            needed = needed - fromStorage
+        end
+        if needed <= 0 then return true end
     end
-    if needed <= 0 then return true end
 
     if depth > state.depthLimit or state.seen[itemId] then
         recordShortfall(state, itemId, needed)
