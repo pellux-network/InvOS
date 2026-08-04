@@ -66,4 +66,49 @@ return {
         T.equal(value.storage[2].peripheral_name, "big_1")
         T.equal(value.dropoff.peripheral_name, "drop")
     end },
+    { name = "registry accepts an optional craft buffer binding", run = function()
+        local value = config()
+        value.craft_buffer = { peripheral_name = "buffer" }
+        T.equal(Registry.validate(value), true)
+        local states = Registry.new(value):reconcile({
+            { name = "drop", methods = inventoryMethods },
+            { name = "pickup", methods = inventoryMethods },
+            { name = "buffer", methods = inventoryMethods },
+            { name = "big_0", methods = inventoryMethods },
+        }, 3000)
+        T.equal(states.craft_buffer.state, "SCANNING")
+        T.equal(states.craft_buffer.role, "craft_buffer")
+        T.equal(states.discovered.buffer, nil, "a bound buffer is not also discovered")
+    end },
+    { name = "a configuration without a craft buffer stays valid", run = function()
+        T.equal(Registry.validate(config()), true)
+        local states = Registry.new(config()):reconcile({}, 1000)
+        T.equal(states.craft_buffer, nil)
+    end },
+    { name = "the craft buffer cannot collide with another role", run = function()
+        for _, taken in ipairs({ "drop", "pickup", "big_0" }) do
+            local value = config()
+            value.craft_buffer = { peripheral_name = taken }
+            local ok, reason = Registry.validate(value)
+            T.equal(ok, nil, taken)
+            T.equal(reason.code, "DUPLICATE_BINDING", taken)
+        end
+    end },
+    { name = "a malformed craft buffer binding is rejected", run = function()
+        for _, binding in ipairs({ {}, { peripheral_name = "" }, { peripheral_name = 7 } }) do
+            local value = config()
+            value.craft_buffer = binding
+            T.equal(Registry.validate(value), nil)
+        end
+    end },
+    { name = "an offline craft buffer reports OFFLINE rather than vanishing", run = function()
+        local value = config()
+        value.craft_buffer = { peripheral_name = "buffer" }
+        local states = Registry.new(value):reconcile({
+            { name = "drop", methods = inventoryMethods },
+        }, 1000)
+        T.equal(states.craft_buffer.state, "OFFLINE")
+        T.equal(states.craft_buffer.peripheral_name, "buffer")
+    end },
+
 }
