@@ -328,4 +328,25 @@ return {
         T.contains(reason, "no modem is open")
     end},
 
+    {name="a drain in flight is reported so nothing else can transfer",run=function()
+        -- The coordinator grants exclusive use of the transfer machinery based on this.
+        -- Reporting IDLE while the importer is mid-transfer lets the Drop-off importer
+        -- run alongside it, two transfers sharing one journal, each measuring aggregate
+        -- storage deltas the other is changing.
+        local imports = {state = "TRANSFERRING"}
+        function imports:status() return {state = self.state} end
+        function imports:tick() return {state = self.state} end
+        local craft = CraftBuffer.new({imports = imports, adapter = fakeAdapter()})
+        T.equal(craft:status().state, "TRANSFERRING")
+        imports.state = "VERIFYING"
+        T.equal(craft:status().state, "VERIFYING")
+        imports.state = "IDLE"
+        T.equal(craft:status().state, "IDLE")
+    end},
+    {name="a buffer with no importer status reports idle rather than erroring",run=function()
+        local craft = CraftBuffer.new({imports = {tick = function() end},
+            adapter = fakeAdapter()})
+        T.equal(craft:status().state, "IDLE")
+    end},
+
 }

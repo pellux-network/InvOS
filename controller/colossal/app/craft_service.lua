@@ -97,8 +97,19 @@ function CraftService:_active()
     return nil
 end
 
+-- Reports the buffer importer's state while it has a transfer in flight, so the
+-- coordinator's exclusivity check sees it. Reporting only the job state let the main
+-- Drop-off importer run alongside a craft drain, with two transfers sharing one journal.
 function CraftService:status()
     local job = self:_active()
+    local inner = "IDLE"
+    if type(self.buffer.status) == "function" then
+        local ok, value = pcall(self.buffer.status, self.buffer)
+        if ok and type(value) == "table" then inner = value.state or "IDLE" end
+    end
+    if inner == "TRANSFERRING" or inner == "VERIFYING" then
+        return {state=inner, job_id=job and job.id, item=job and job.item, draining=true}
+    end
     if not job then return {state="IDLE"} end
     return {state=job.state, job_id=job.id, item=job.item}
 end
