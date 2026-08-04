@@ -937,16 +937,19 @@ local function pack()
             names={"Oak Planks","Chest","Stick"}},
         index = {schema=1, pack="test", shard_count=2, outputs={2,3}},
         tags  = {schema=1, tags={["minecraft:planks"]={1}}},
+        -- Shard placement follows 1 + (output_index % shard_count), so with
+        -- shard_count=2: chest (index 2) -> shard 1, stick (index 3) -> shard 2.
+        -- Getting this backwards makes recipesFor look in the wrong file.
         shards = {
             [1] = {schema=1, recipes={
-                {id="minecraft:stick", output=3, count=4, shaped=false,
-                 ingredients={"minecraft:planks","minecraft:planks"}},
-            }},
-            [2] = {schema=1, recipes={
                 {id="minecraft:chest", output=2, count=1, shaped=true,
                  grid={"minecraft:planks","minecraft:planks","minecraft:planks",
                        "minecraft:planks",0,"minecraft:planks",
                        "minecraft:planks","minecraft:planks","minecraft:planks"}},
+            }},
+            [2] = {schema=1, recipes={
+                {id="minecraft:stick", output=3, count=4, shaped=false,
+                 ingredients={"minecraft:planks","minecraft:planks"}},
             }},
         },
     }
@@ -1111,8 +1114,8 @@ Append these entries inside the returned table in `controller/colossal/tests/tes
         local repo = RecipeRepo.new({loader=loaderFor(pack(), counter)})
         repo:recipesFor("minecraft:chest")
         repo:recipesFor("minecraft:chest")
-        T.equal(counter["pack_2"], 1, "shard should load once")
-        T.equal(counter["pack_1"], nil, "unrelated shard must not load")
+        T.equal(counter["pack_1"], 1, "shard should load once")
+        T.equal(counter["pack_2"], nil, "unrelated shard must not load")
     end},
     {name="repo expands a tag reference to concrete item ids",run=function()
         local repo = RecipeRepo.new({loader=loaderFor(pack())})
@@ -1131,7 +1134,7 @@ Append these entries inside the returned table in `controller/colossal/tests/tes
     end},
     {name="repo survives a shard that fails to load",run=function()
         local value = pack()
-        value.shards[2] = nil
+        value.shards[1] = nil
         local repo = RecipeRepo.new({loader=loaderFor(value)})
         T.arrayEqual(repo:recipesFor("minecraft:chest"), {})
     end},
