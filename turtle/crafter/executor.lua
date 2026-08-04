@@ -20,6 +20,11 @@ Executor.__index = Executor
 -- to sweep all sixteen rather than the grid alone.
 local SLOT_COUNT = 16
 
+-- Bounds the gather loop so a buffer that keeps returning nothing cannot spin. A stack
+-- is 64 and suckDown takes from one buffer slot per call, so a cell can never honestly
+-- need more calls than this.
+local MAX_SUCKS_PER_CELL = 64
+
 function Executor.new(deps)
     assert(type(deps) == "table", "executor dependencies are required")
     return setmetatable({
@@ -48,31 +53,48 @@ function Executor:purge()
     return dropped
 end
 
+-- A turtle slot holds one stack, so an ingredient cannot be gathered into a single cell
+-- and spread from there: per_cell * #cells routinely exceeds a stack. A full batch of 64
+-- over the two plank cells of a stick recipe is 128 items, which no slot can hold.
+--
+-- Each cell is therefore filled directly. suckDown draws from one buffer slot per call,
+-- so a cell whose ingredient spans several stacks in the buffer needs several calls, and
+-- every cell is verified rather than only the first.
 function Executor:_stage(step)
     local api = self.turtle
     local cells = step.cells or {}
     if #cells == 0 then return reply("EMPTY_STEP", "a craft step named no cells") end
     local perCell = step.per_cell or 1
-    local wanted = perCell * #cells
 
-    api.select(cells[1])
-    if not api.suckDown(wanted) then
-        return reply("BUFFER_EMPTY", "the buffer did not yield " .. tostring(step.expect))
-    end
+    for position, cell in ipairs(cells) do
+        api.select(cell)
+        local guard = 0
+        while api.getItemCount(cell) < perCell do
+            guard = guard + 1
+            if guard > MAX_SUCKS_PER_CELL then break end
+            if not api.suckDown(perCell - api.getItemCount(cell)) then break end
+        end
 
-    local detail = api.getItemDetail(cells[1])
-    if type(detail) ~= "table" or detail.name ~= step.expect then
-        return reply("INGREDIENT_MISMATCH", "expected " .. tostring(step.expect) ..
-            " but got " .. tostring(type(detail) == "table" and detail.name or "nothing"))
-    end
-    if api.getItemCount(cells[1]) < wanted then
-        return reply("INGREDIENT_SHORT", "the buffer held too little " .. tostring(step.expect))
-    end
-
-    -- Everything for this ingredient arrived in the first of its cells; spread the rest.
-    for index = 2, #cells do
-        if not api.transferTo(cells[index], perCell) then
-            return reply("TRANSFER_FAILED", "could not place " .. tostring(step.expect))
+        local held = api.getItemCount(cell)
+        if held == 0 then
+            -- Nothing at all on the first cell means the buffer never held this
+            -- ingredient. Running dry on a later cell means it held some but not enough,
+            -- which is a different thing for the operator to go and fix.
+            if position == 1 then
+                return reply("BUFFER_EMPTY", "the buffer did not yield " .. tostring(step.expect))
+            end
+            return reply("INGREDIENT_SHORT", "the buffer held too little " ..
+                tostring(step.expect))
+        end
+        local detail = api.getItemDetail(cell)
+        if type(detail) ~= "table" or detail.name ~= step.expect then
+            return reply("INGREDIENT_MISMATCH", "expected " .. tostring(step.expect) ..
+                " in slot " .. tostring(cell) .. " but got " ..
+                tostring(type(detail) == "table" and detail.name or "nothing"))
+        end
+        if held < perCell then
+            return reply("INGREDIENT_SHORT", "the buffer held too little " ..
+                tostring(step.expect))
         end
     end
     return nil
