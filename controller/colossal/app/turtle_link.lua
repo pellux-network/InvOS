@@ -19,6 +19,33 @@ function TurtleLink.new(deps)
     }, TurtleLink)
 end
 
+local SIDES = {"bottom", "top", "left", "right", "front", "back"}
+
+-- rednet.send throws "No open sides" unless a modem has been opened, and the controller
+-- has no other reason to touch rednet, so nothing else opens one. Without this the very
+-- first craft reports the turtle unreachable when the turtle is sitting right there
+-- listening: the failure is on the sending end.
+--
+-- Idempotent, and re-checked on every send rather than once at construction, because a
+-- modem can be detached and reattached while the controller runs.
+function TurtleLink:_ensureOpen()
+    if type(self.rednet.isOpen) == "function" then
+        local ok, open = pcall(self.rednet.isOpen)
+        if ok and open then return true end
+    end
+    for _, side in ipairs(SIDES) do
+        local ok, kind = pcall(self.peripheral.getType, side)
+        if ok and kind == "modem" then
+            local opened = pcall(self.rednet.open, side)
+            if opened then
+                self.side = side
+                return true
+            end
+        end
+    end
+    return false
+end
+
 function TurtleLink:id()
     if self.cachedId then return self.cachedId end
     local ok, value = pcall(self.peripheral.call, self.name, "getID")
@@ -32,6 +59,9 @@ end
 function TurtleLink:forget() self.cachedId = nil end
 
 function TurtleLink:send(command)
+    if not self:_ensureOpen() then
+        return nil, "no modem is open, so the crafting turtle cannot be reached"
+    end
     local target = self:id()
     if not target then self:forget(); return nil, "the crafting turtle is not reachable" end
     local ok, sent = pcall(self.rednet.send, target, command, self.protocol)

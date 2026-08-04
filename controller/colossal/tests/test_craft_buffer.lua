@@ -181,8 +181,10 @@ return {
         local calls = {}
         local link = TurtleLink.new({
             rednet = {send=function(id, message) calls[#calls+1]={id=id,message=message}; return true end,
-                receive=function() return nil end},
-            peripheral = {call=function(name, method) calls.resolved={name,method}; return 7 end},
+                receive=function() return nil end, isOpen=function() return true end,
+                open=function() return true end},
+            peripheral = {call=function(name, method) calls.resolved={name,method}; return 7 end,
+                getType=function() return "modem" end},
             name = "turtle_2"})
         T.equal(link:send({op="craft", job="craft-1"}), true)
         T.equal(calls[1].id, 7, "sent to the resolved computer ID, not the peripheral name")
@@ -190,8 +192,10 @@ return {
     end},
     {name="an unreachable turtle reports failure and forgets its cached ID",run=function()
         local link = TurtleLink.new({
-            rednet = {send=function() return true end, receive=function() return nil end},
-            peripheral = {call=function() error("no such peripheral") end},
+            rednet = {send=function() return true end, receive=function() return nil end,
+                isOpen=function() return true end, open=function() return true end},
+            peripheral = {call=function() error("no such peripheral") end,
+                getType=function() return "modem" end},
             name = "turtle_2"})
         local ok, reason = link:send({op="craft", job="craft-1"})
         T.equal(ok, nil)
@@ -202,8 +206,10 @@ return {
         local replies = {}
         local link = TurtleLink.new({
             rednet = {send=function() return true end,
-                receive=function() return table.remove(replies, 1), {ok=true} end},
-            peripheral = {call=function() return 7 end}, name = "turtle_2"})
+                receive=function() return table.remove(replies, 1), {ok=true} end,
+                isOpen=function() return true end, open=function() return true end},
+            peripheral = {call=function() return 7 end,
+                getType=function() return "modem" end}, name = "turtle_2"})
         T.equal(link:poll(), nil, "nothing is pending yet")
         link:send({op="craft", job="craft-1"})
         replies[1] = 7
@@ -230,4 +236,60 @@ return {
             T.equal(TurtleManifest.allowed(path), false, path)
         end
     end},
+    {name="sending opens a modem first, because nothing else does",run=function()
+        -- The controller has no other reason to use rednet, so if the link does not open
+        -- a modem, every craft reports the turtle unreachable while it sits listening.
+        local opened, sent = {}, {}
+        local link = TurtleLink.new({
+            rednet = {
+                isOpen = function() return false end,
+                open = function(side) opened[#opened+1] = side; return true end,
+                send = function(id, message) sent[#sent+1] = id; return true end,
+                receive = function() return nil end},
+            peripheral = {call = function() return 7 end,
+                getType = function(side) return side == "bottom" and "modem" or nil end},
+            name = "turtle_2"})
+        T.equal(link:send({op="craft", job="craft-1"}), true)
+        T.arrayEqual(opened, {"bottom"}, "the modem side is found and opened")
+        T.equal(sent[1], 7)
+    end},
+    {name="an already open modem is not reopened",run=function()
+        local opened = {}
+        local link = TurtleLink.new({
+            rednet = {
+                isOpen = function() return true end,
+                open = function(side) opened[#opened+1] = side; return true end,
+                send = function() return true end, receive = function() return nil end},
+            peripheral = {call = function() return 7 end,
+                getType = function() return "modem" end},
+            name = "turtle_2"})
+        link:send({op="craft", job="craft-1"})
+        T.equal(#opened, 0)
+    end},
+    {name="a modem on another side is still found",run=function()
+        local opened = {}
+        local link = TurtleLink.new({
+            rednet = {
+                isOpen = function() return false end,
+                open = function(side) opened[#opened+1] = side; return true end,
+                send = function() return true end, receive = function() return nil end},
+            peripheral = {call = function() return 7 end,
+                getType = function(side) return side == "left" and "modem" or nil end},
+            name = "turtle_2"})
+        T.equal(link:send({op="craft", job="craft-1"}), true)
+        T.arrayEqual(opened, {"left"})
+    end},
+    {name="no modem at all reports why rather than blaming the turtle",run=function()
+        local link = TurtleLink.new({
+            rednet = {isOpen = function() return false end,
+                open = function() return true end,
+                send = function() return true end, receive = function() return nil end},
+            peripheral = {call = function() return 7 end,
+                getType = function() return nil end},
+            name = "turtle_2"})
+        local ok, reason = link:send({op="craft", job="craft-1"})
+        T.equal(ok, nil)
+        T.contains(reason, "no modem is open")
+    end},
+
 }
