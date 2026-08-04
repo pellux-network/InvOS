@@ -10,35 +10,73 @@ import argparse
 import io
 import json
 import os
+import re
 import zipfile
 
 from recipe_pack import build_pack, render_pack
 
 BUNDLER_PREFIX = "META-INF/versions/"
+STALE_SHARD_RE = re.compile(r"^pack_(\d+)\.lua$")
 
 
-def open_data_jar(path):
-    """Return a ZipFile holding data/ and assets/.
+def _recipe_root(namespace):
+    return "data/%s/recipes/" % namespace
+
+
+def open_data_jar(path, namespace):
+    """Return an open ZipFile holding data/<namespace>/recipes/ (and assets/).
 
     Mojang ships the 1.18.2 server as a bundler whose real jar is nested at
     META-INF/versions/<version>/server-<version>.jar. Opening the outer jar
-    directly finds zero recipes, which is silent and confusing, so unwrap it.
+    directly finds zero recipes for "minecraft", which is silent and confusing,
+    so unwrap it -- but only when the outer jar genuinely lacks data for the
+    *requested* namespace. A shaded multi-release mod jar can carry both a
+    bundler-style manifest and real recipe data in the outer jar; unwrapping
+    unconditionally would discard the very data the caller asked for. When an
+    unwrap is needed, prefer whichever nested jar actually contains data for
+    the namespace, not just the lexicographically first one.
+
+    The caller owns the returned ZipFile and is responsible for closing it
+    (e.g. via `with`).
     """
-    outer = zipfile.ZipFile(path)
-    if any(name.startswith("data/minecraft/recipes/") for name in outer.namelist()):
+    recipe_root = _recipe_root(namespace)
+    try:
+        outer = zipfile.ZipFile(path)
+    except FileNotFoundError:
+        raise SystemExit("jar not found: %s" % path)
+    except zipfile.BadZipFile as exc:
+        raise SystemExit("not a valid zip file: %s (%s)" % (path, exc))
+
+    if any(name.startswith(recipe_root) for name in outer.namelist()):
         return outer
+
     nested = [
         name for name in outer.namelist()
         if name.startswith(BUNDLER_PREFIX) and name.endswith(".jar")
     ]
-    if not nested:
-        raise SystemExit("no recipe data and no nested jar in %s" % path)
-    return zipfile.ZipFile(io.BytesIO(outer.read(sorted(nested)[0])))
+    try:
+        for name in sorted(nested):
+            try:
+                candidate = zipfile.ZipFile(io.BytesIO(outer.read(name)))
+            except zipfile.BadZipFile:
+                continue
+            if any(n.startswith(recipe_root) for n in candidate.namelist()):
+                return candidate
+            candidate.close()
+        raise SystemExit(
+            "no recipe data for namespace %r in %s or any nested jar" % (namespace, path)
+        )
+    finally:
+        # Any nested jar we kept was already read fully into memory above, so
+        # the outer handle is not needed past this point either way. This is a
+        # live server directory; don't hold a read handle open longer than
+        # necessary.
+        outer.close()
 
 
 def read_namespace(jar, namespace):
     recipes, tags = {}, {}
-    recipe_root = "data/%s/recipes/" % namespace
+    recipe_root = _recipe_root(namespace)
     tag_root = "data/%s/tags/items/" % namespace
     for name in jar.namelist():
         if name.startswith(recipe_root) and name.endswith(".json"):
@@ -57,6 +95,24 @@ def read_lang(jar):
     return {}
 
 
+def prune_stale_shards(out_dir, shard_count):
+    """Remove pack_NN.lua files left behind by a previous run with more shards.
+
+    Regenerating with a smaller --shards would otherwise leave e.g. pack_05.lua
+    behind even though index.lua now declares a lower shard_count. Task 10
+    deploys everything under this directory from a manifest, so an orphaned
+    shard would ship to the live game computer. Returns the paths removed.
+    """
+    removed = []
+    for name in sorted(os.listdir(out_dir)):
+        match = STALE_SHARD_RE.match(name)
+        if match and int(match.group(1)) > shard_count:
+            path = os.path.join(out_dir, name)
+            os.remove(path)
+            removed.append(path)
+    return removed
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--jar", required=True, help="server or mod jar to read")
@@ -65,12 +121,17 @@ def main():
     parser.add_argument("--shards", type=int, default=4)
     args = parser.parse_args()
 
-    jar = open_data_jar(args.jar)
-    recipes, tags = read_namespace(jar, args.namespace)
-    if not recipes:
-        raise SystemExit("no recipes found for namespace %s" % args.namespace)
+    with open_data_jar(args.jar, args.namespace) as jar:
+        recipes, tags = read_namespace(jar, args.namespace)
+        if not recipes:
+            raise SystemExit("no recipes found for namespace %s" % args.namespace)
+        lang = read_lang(jar)
 
-    pack = build_pack(recipes, tags, read_lang(jar), shard_count=args.shards)
+    try:
+        pack = build_pack(recipes, tags, lang, shard_count=args.shards)
+    except ValueError as exc:
+        raise SystemExit(str(exc))
+
     files = render_pack(pack)
 
     os.makedirs(args.out, exist_ok=True)
@@ -78,7 +139,11 @@ def main():
         target = os.path.join(args.out, name)
         with open(target, "w", encoding="utf-8", newline="\n") as handle:
             handle.write(text)
-        print("wrote %s (%d bytes)" % (target, len(text)))
+        print("wrote %s (%d bytes)" % (target, len(text.encode("utf-8"))))
+
+    for path in prune_stale_shards(args.out, args.shards):
+        print("removed stale shard %s" % path)
+
     print("%d recipes, %d outputs, %d tags, %d items" % (
         sum(len(bodies) for bodies in pack["shards"].values()),
         len(pack["index"]["outputs"]),

@@ -322,6 +322,23 @@ class BuildPackTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             build_pack(self.recipes, self.tags, self.lang, shard_count=0)
 
+    def test_recipe_referencing_an_undefined_tag_still_builds_but_warns(self):
+        # Zero occurrences in vanilla, but a mod jar can reference another
+        # mod's tag that isn't present in this jar's own tag data. The recipe
+        # must still build -- with an empty, unsatisfiable member list -- and
+        # the operator must be warned rather than the run aborting outright.
+        recipes = {
+            "minecraft:widget": {
+                "type": "minecraft:crafting_shapeless",
+                "ingredients": [{"tag": "othermod:unknown_tag"}],
+                "result": {"item": "minecraft:widget"},
+            },
+        }
+        with self.assertWarns(UserWarning) as caught:
+            pack = build_pack(recipes, {}, {}, shard_count=1)
+        self.assertIn("othermod:unknown_tag", str(caught.warning))
+        self.assertEqual(pack["tags"]["tags"]["othermod:unknown_tag"], [])
+
     @unittest.skipUnless(HAVE_LUAC, "luac not found on PATH or at the known install location")
     def test_rendered_files_are_syntactically_valid_lua(self):
         # This only proves the output parses, not that it parses under Lua 5.2

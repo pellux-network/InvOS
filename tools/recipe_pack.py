@@ -4,6 +4,8 @@ Deliberately free of CLI parsing and file writes so it can be unit tested by
 calling functions. tools/recipe_import.py is the thin CLI wrapper.
 """
 
+import warnings
+
 
 def _tag_entry_id(entry):
     """A tag value is either a plain string or {"id": ..., "required": ...}."""
@@ -231,6 +233,17 @@ def build_pack(recipes, raw_tags, lang, shard_count=4):
         for reference in body.get("grid", []) + body.get("ingredients", []):
             if isinstance(reference, str):
                 referenced.add(reference)
+
+    # A recipe can reference a tag the jar never defines -- vanilla never does
+    # this, but a mod jar referencing another mod's tag can. That recipe becomes
+    # unsatisfiable (its tag resolves to no items), which is worth flagging to
+    # the operator, but not worth aborting generation over.
+    undefined = sorted(name for name in referenced if name not in flat_tags)
+    if undefined:
+        warnings.warn(
+            "recipes reference undefined tags (each becomes unsatisfiable): %s"
+            % ", ".join(undefined)
+        )
 
     tags = {}
     for name in sorted(referenced):
