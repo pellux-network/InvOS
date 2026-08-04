@@ -6,9 +6,9 @@ This repository contains a search-first CC:Tweaked wired-inventory storage termi
 
 Crafting is specified in `docs/superpowers/specs/2026-08-04-crafting-system-design.md` and all four stages are merged: the generated recipe pack, `core/recipe_repo.lua`, `core/craft_prefs.lua`, `core/craft_planner.lua`, `app/craft_service.lua`, `app/craft_buffer.lua`, `app/turtle_link.lua`, `app/craft_monitor.lua`, the Crafting page on key 6, and the turtle firmware under `turtle/`.
 
-**It has never run in game.** Every stage was verified against the host suite and the real recipe pack, but no craft has been executed on the live server, and no deployment has happened. Crafting stays off unless both `craft_buffer` and `turtle` are bound in config; without them the craft service is never constructed and every existing behaviour is unchanged.
+**It is deployed and working in game.** Crafting, Drop-off import and retrieval have all been exercised on the live server. Crafting stays off unless both `craft_buffer` and `turtle` are bound in config; without them the craft service is never constructed and every existing behaviour is unchanged.
 
-Before the first live craft: deploy the controller and the turtle separately, each gated on its own manifest; bind the buffer, turtle and both monitors in Setup; and expect the first run to find things the host suite cannot, since nothing has yet touched a real inventory.
+Getting there took seven defects that the host suite could not have found, every one of them the controller acting on something it had not verified. That history is the most useful thing in this file — see "Crafting invariants" below. Untested paths remain: a recipe using all three grid rows, and a large multi-step batch.
 
 Operators drive recovery from the terminal: retry and cancel on the Requests page, acknowledge on the Alerts page, a two-key confirmed release for a recovery that cannot prove what an interrupted transfer moved, and a global pause. `controller/startup.lua` supervises the runtime with a capped restart backoff.
 
@@ -21,7 +21,7 @@ Operators drive recovery from the terminal: retry and cancel on the Requests pag
 - `controller/colossal/shared/` contains runtime, codec, and durable-store helpers.
 - `controller/colossal/recipes/` holds the generated crafting recipe pack. It is deployed like code, never hand-edited; regenerate it with `tools/recipe_import.py` and see `docs/operations.md`. Hand-written recipes go in `colossal/data/custom_recipes.lua` instead, which takes precedence over it.
 - `turtle/` is the crafting turtle's own deployable tree, with its own `deployment_manifest.lua`. It is a second live computer: never deploy controller files to it, and never deploy its files to the controller. Both manifests define a module named `deployment_manifest`, so tests must load one of them by explicit path rather than by `require`, and must not prepend the turtle tree to `package.path`.
-- `tools/` holds host-side build tooling that is never deployed. Its Python tests run with `python -m unittest test_recipe_pack` from `tools/`.
+- `tools/` holds host-side build tooling that is never deployed. Its Python tests run with `python -m unittest test_recipe_pack test_recipe_import` from `tools/`. `tools/deploy.py` is the live deployment gate; `tools/recipe_import.py` generates the recipe pack.
 - `controller/colossal/tests/` contains the host-runnable Lua suite and must never be deployed.
 - `controller/colossal/deployment_manifest.lua` is the exact runtime deployment allow-list.
 - `docs/operations.md` describes topology, setup, recovery, upgrades, and deployment safety.
@@ -30,8 +30,10 @@ Operators drive recovery from the terminal: retry and cancel on the Requests pag
 ## Live-server safety
 
 - Treat every ComputerCraft directory as production with real players and items.
-- The current live controller is computer `#4`, labeled `StorageController`, under `C:\Servers\Wold's Vaults\world\computercraft\computer\4`.
-- Before every live write, confirm shutdown explicitly in the current conversation and re-read `colossal/data/config.lua` to verify both numeric ID and label. A confirmation never carries forward to a later deployment.
+- The current live controller is computer `#4`, labeled `StorageController`, under `C:\Servers\Wold's Vaults\world\computercraft\computer\4`. The crafting turtle is `#5`. A folder number is a filesystem id and has nothing to do with a peripheral name.
+- Before every live write, confirm shutdown explicitly in the current conversation and re-read `colossal/data/config.lua` to verify both numeric ID and label. A confirmation never carries forward to a later deployment. Do not infer quiescence from file mtimes; that reasoning was used once and was wrong even though the outcome was safe.
+- Deploy with `tools/deploy.py`, which enforces the whole gate below in one command and refuses rather than guesses. `docs/operations.md` documents it. Do not hand-roll a deployment script in a scratch directory.
+- `luac.exe` and Python are Windows binaries and cannot open Git Bash `/c/...` paths. `luac` reports "cannot open", which reads like a syntax error; a `/c/Servers/...` path handed to Windows Python silently creates `C:\c\Servers\...` rather than failing.
 - Never execute ComputerCraft startup programs, controller runtime, peripheral calls, or turtle actions from the host.
 - Deploy only manifest-approved runtime paths relative to `controller/`; never copy tests, docs, Git metadata, plans, Markdown, or host helpers. Gate every write on `deployment_manifest.lua` so an unlisted path is refused rather than copied.
 - Preserve `colossal/data/`, especially `config.lua`, `aliases.lua`, `metadata.lua`, and any active journal, unless the user explicitly authorizes a fresh install. Back the directory up to a host scratch path before deploying.
@@ -64,6 +66,24 @@ Operators drive recovery from the terminal: retry and cancel on the Requests pag
 - `inventory.list()` returns only occupied slots, so scan cost is proportional to occupied slots, not inventory size. A mostly empty Colossal Chest scans quickly regardless of its slot count.
 - Every peripheral call yields for roughly one server tick, while pure Lua between yields is comparatively free. Optimise the number of peripheral calls and the number of work-loop ticks, not Lua loop bodies. Budget scan work by role: per-slot detail calls stay bounded, pure slot bookkeeping can absorb a bulk budget.
 - Keep input handling responsive: scans, transfers, rendering, and metadata enrichment must remain bounded cooperative work.
+
+## Crafting invariants
+
+These were all found on the live server, after a green suite. Each one is now covered by a
+test; the reasoning matters more than the test, because the same mistake has recurred in
+several shapes.
+
+- **A service must never gate itself on a rescan while it is in a state that forbids scanning.** `_scanStep` refuses to scan any node while a service reports `TRANSFERRING`. A verification gate raised from inside that state waits on a scan revision the same state prevents from advancing, so the service is never ticked again and its transfer never settles. `CraftBuffer:drain` reports its importer's state so the caller can tell the difference; the coordinator queues rather than gates a rescan asked for by a service that is itself transferring.
+- **Having nothing left to move is not the same as being finished.** The buffer importer's last pass moves the items and only then goes to `VERIFYING`, so a rescan makes the buffer look empty while a transfer is still open. Reporting `DONE` there abandoned the importer mid-cycle: its journal was never retired — and that journal belongs to the `transfer` instance every service shares — while `status()` reported `VERIFYING` for good, which told the coordinator a transfer was permanently in flight and stopped every service from planning again. A drain is only done when there is nothing to move *and* no open journal.
+- **No service may begin planning while another has a transfer in flight.** Two services planning and issuing moves at once share one journal while each measures aggregate storage deltas the other is changing, which surfaces as items credited to the wrong step. The craft drain runs its own `ImportService`, so `CraftService:status()` must report that inner state or the drain is invisible to the check.
+- **That rule has no upper bound, so one wedged service silently stops the whole installation.** `_stallStep` raises `TRANSFER_STALLED` naming the service after 60 seconds in flight. It deliberately does not intervene — forcing a half-finished transfer from outside is how items get lost — it only stops the stall from looking like whichever feature the operator was using.
+- **A rescan is the only thing that tells the controller the turtle produced anything.** Nothing else reports it. Without one, the drain sees the pre-craft snapshot, decides there is nothing to move, strands the output in the buffer, and delivery quietly pulls the same item out of storage instead.
+- **`turtle.craft()` reads inventory slots 1-3, 5-7 and 9-11 as the 3x3 grid.** Slots 4, 8 and 12-16 sit outside it. Only grid positions 1-3 map to themselves, so passing a position straight through as a slot puts most of a recipe in the wrong place and anything landing in slot 4, 8 or 12+ is not in the grid at all.
+- **`per_cell` is how many crafts *this call* performs, not the step's maximum batch.** Every vanilla grid cell consumes one item per craft. Sending the maximum told the turtle to stage 64 logs for a two-craft step.
+- **A turtle slot holds one stack, so an ingredient cannot be gathered into one cell and spread from there.** `per_cell * #cells` routinely exceeds 64. Fill each cell directly, and verify every cell rather than only the first.
+- **A craft quantity means "make N", not "bring stock up to N".** The "up to" behaviour is the Search page's retrieval. The planner draws ingredients from storage but never the requested item itself.
+- **`rednet.send` throws "No open sides" unless a modem is opened first,** and the controller has no other reason to use rednet. The turtle's reply arrives as an event on the work loop, so the link needs an inbox: polling `rednet.receive` loses a reply that lands between polls.
+- **A live pack is not a fixture.** The planner picked `acacia_planks` with only oak logs in stock; only running the real recipe pack found it. Tag candidates are now tried in order with ledger rollback.
 
 ## Development and testing
 

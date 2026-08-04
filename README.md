@@ -2,11 +2,11 @@
 
 A search-first CC:Tweaked storage terminal backed by one or more networked Colossal Chests.
 
-The controller indexes wired inventory peripherals, imports items from a dedicated drop-off inventory, and fulfills exact item-and-quantity requests into a dedicated pickup inventory. Multiple Colossal Chests appear as one pooled store. A stationary crafty turtle can be added in a later version for recipe-based crafting.
+The controller indexes wired inventory peripherals, imports items from a dedicated drop-off inventory, and fulfills exact item-and-quantity requests into a dedicated pickup inventory. Multiple Colossal Chests appear as one pooled store. A stationary crafty turtle adds multi-step recipe crafting.
 
 ## Status
 
-Version 1 is implemented on the feature branch with a cooperative controller, durable exact transfers, a first-run setup wizard, responsive search and retrieval, and a resizable public status monitor. Crafting remains reserved for version 2.
+Deployed and running. The controller handles imports, retrieval, and crafting; all three have been exercised on a live server.
 
 ## Scope
 
@@ -18,8 +18,11 @@ Version 1 is implemented on the feature branch with a cooperative controller, du
 - NBT-aware indexing and requests
 - Durable transfer reconciliation and explicit error states
 - Configuration-and-alias backup
+- Multi-step crafting through a stationary crafty turtle, from a generated recipe pack
 
-Crafting and recipe storage are intentionally reserved for version 2.
+Crafting is optional: it is only constructed when a buffer inventory and a turtle are both bound in configuration. Without them nothing else changes.
+
+The recipe pack ships with vanilla recipes. `tools/recipe_import.py --mods` regenerates it from a whole modpack; see `docs/operations.md`.
 
 ## Development
 

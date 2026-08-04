@@ -1,5 +1,10 @@
 # Crafting Recipe Pipeline Implementation Plan
 
+> **Status: complete and superseded by the shipped tooling.** All twelve tasks are merged.
+> The converter has since grown `--mods` for whole-modpack imports and now refuses recipes it
+> cannot represent faithfully instead of raising. `docs/operations.md` is the current
+> reference; this plan is kept for its reasoning, not as instructions to follow.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Convert vanilla Minecraft 1.18.2 crafting recipes into a compact Lua pack the controller can query, and expose it through a merge-aware repo module plus an operator preference store.

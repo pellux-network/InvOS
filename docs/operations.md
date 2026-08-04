@@ -43,6 +43,71 @@ Digit keys `1`-`5` jump directly to Search, Nodes, Requests, Alerts, and Setup. 
 
 Avoid manually changing storage while a transfer is verifying. The controller treats complete live storage scans as truth, measures movement by exact item-and-NBT totals across the whole configured storage pool, and waits rather than guessing when a node is unavailable or an unrelated change makes the result ambiguous.
 
+## Crafting
+
+Crafting is optional. It is only constructed when both a `craft_buffer` inventory and a
+`turtle` are bound in config; without them the craft service does not exist and every other
+behaviour is unchanged.
+
+### Topology
+
+The crafty turtle sits behind the system with a buffer chest, both on the wired network.
+The turtle needs no direct access to Drop-off or Pickup: it only ever sucks from and drops
+into the buffer directly below it. Everything else moves over the network.
+
+Bind four things in Setup: the buffer inventory, the turtle peripheral, the main monitor,
+and the 1x1 crafting monitor. The turtle's peripheral name (`turtle_2`, say) is unrelated to
+its computer id; the id is only the folder name on disk.
+
+The turtle is deliberately thin. It holds no state between jobs, knows nothing about
+recipes or storage, and does one string comparison per step so a staging mistake becomes a
+clean refusal instead of a wrong craft. Every operation ends with it empty, so a reboot
+mid-job strands nothing.
+
+### Using it
+
+Key `6` opens Crafting. It lists every craftable output in the pack, including items you
+hold none of, which is the point: you cannot search for what you do not have. Pick an item,
+enter a quantity, review the plan, and commit.
+
+A quantity means **make that many**, not top up to that many. Asking for 250 sticks crafts
+250 regardless of what is already in storage. The "up to" behaviour lives on the Search
+page, as an ordinary retrieval.
+
+Results go to Pickup by default; the destination toggles to storage per job. One job runs
+at a time and the rest queue, because there is one buffer and one turtle, and two jobs would
+interleave ingredients in the same chest.
+
+Ingredients are withdrawn through the ordinary request pipeline, addressed to the buffer
+instead of Pickup. That is deliberate: every item movement stays inside the transfer and
+reconciliation machinery that the rest of the system already proves, rather than a second
+path that would have to be proved separately.
+
+### When a job blocks
+
+A blocked job stops and names its cause on the Crafting page; retry and cancel are bound
+there. Jobs are not durable — a controller restart clears them — but nothing is stranded:
+anything left in the buffer with no active job is returned to storage automatically.
+
+The causes worth recognising:
+
+- `INSUFFICIENT_MATERIALS` — the plan cannot be satisfied from stock. The shortfall lists
+  what is missing.
+- `TURTLE_UNREACHABLE` — the turtle did not accept or did not answer. Check that it is
+  running, that its modem is attached, and that it is on the same wired network.
+- `INGREDIENT_MISMATCH` or `CRAFT_FAILED` — the buffer did not hold what the controller
+  expected. The turtle refuses rather than crafting something else.
+- `OUTPUT_MISSING` — the turtle reported success but the buffer holds no result.
+- `BUFFER_NOT_EMPTY` — items were found in the buffer with no job running, left by an
+  interrupted job. They are returned to storage; the alert clears itself.
+
+One alert is not about crafting specifically. `TRANSFER_STALLED` names a service that has
+claimed a transfer for over a minute without settling. No service may begin planning while
+another has a transfer in flight, so a service wedged mid-transfer stops the whole
+installation — imports and retrievals included — and the only other symptom is that nothing
+happens. Nothing intervenes automatically: forcing a half-finished transfer from outside is
+how items get lost. Restart the controller, which reconciles the journal on boot.
+
 ## Lifecycle states
 
 - `READY`: required inventories are healthy and the initial index is complete.
@@ -104,6 +169,57 @@ For rollback, restore the previous runtime files while leaving local data in pla
 
 Before any live installation, rerun the creative-world compatibility script against the target modpack and require `ALL TESTS PASSED`. Then perform a disposable-stack conservation smoke test: Drop-off + Pickup + all storage counts must equal the starting count.
 
+## Deploying to a live installation
+
+The live installation is a running Minecraft world with real player items in it. Every
+deployment goes through `tools/deploy.py`, which is the whole gate in one command and
+refuses rather than guesses at every step.
+
+**Shut both computers down first, and confirm it.** The script samples file mtimes as
+corroboration, but an idle controller can sit still for a few seconds; the sample is not
+evidence on its own.
+
+```bash
+python tools/deploy.py --computers "C:/Servers/<world>/world/computercraft/computer"
+```
+
+Defaults are `--controller-id 4` and `--turtle-id 5`; pass `--no-turtle` for an
+installation without crafting. Backups go to `.deploy-backups/` in the repository, which is
+git-ignored.
+
+The gate runs in this order and stops at the first refusal:
+
+1. **The target is really the live tree.** It anchors on an existing
+   `<computers>/<id>/colossal/data/config.lua`. A Git Bash `/c/...` path handed to Windows
+   Python resolves against the drive root and silently creates `C:\c\Servers\...`, so
+   without this a whole deployment lands in a directory nobody ever looks at.
+2. **The recorded identity matches.** `computer_id` in the live `config.lua` must equal the
+   id being deployed to.
+3. **Nothing is in flight.** Any `journal*` file in `colossal/data/` is a refusal outright;
+   mtimes must then hold still across a sample window.
+4. **Both trees are backed up** before a single byte is written.
+5. **Only manifest-listed paths are written**, LF-only, and never anything under
+   `colossal/data/`.
+6. **Every written file is verified**: LF-normalised SHA-256, no CR bytes, and no strays
+   beside it outside the manifest and preserved data.
+7. **Every deployed module parses** under `luac -p`. A green host suite does not prove a
+   deployed file parses, and this has caught a real corrupted write.
+8. **`colossal/data/` survived** byte-for-byte against the backup taken in step 4.
+
+Exit status is 0 only if every check passed. On any problem the live tree is in an unknown
+state; restore from the printed backup path before booting.
+
+Two traps worth knowing, because both have caused real damage or wasted a debug cycle:
+
+- `luac.exe` and Python are Windows binaries. They cannot open Git Bash `/c/...` paths.
+  `luac` reports "cannot open", which reads exactly like a syntax error at a glance.
+- `colossal/data/*.lua` are serialized tables, not Lua chunks. They are correctly not
+  parseable, which is why the parse check covers manifest files only.
+
+After booting, exercise one ordinary import and one retrieval before trusting a release.
+Most defects in this system have surfaced as a service quietly not starting rather than as
+an error.
+
 ## Regenerating the crafting recipe pack
 
 The recipe pack under `controller/colossal/recipes/` is generated, not hand-written. It is deployed like code and listed in `deployment_manifest.lua`. Never edit it directly: the next regeneration overwrites it.
@@ -139,3 +255,62 @@ lua -e 'package.path="colossal/?.lua;"..package.path; local R=require("core.reci
 ```
 
 Expect `639 outputs, 0 unreachable`. A non-zero unreachable count means the converter's shard placement and `recipe_repo`'s shard lookup disagree, which the unit tests cannot catch because they use an injected loader rather than the real files.
+
+### Importing every modded recipe
+
+`--mods` scans whole jars instead of one namespace. Sources may be directories or single
+jar files, and any number of them:
+
+```bash
+python tools/recipe_import.py \
+  --jar "C:/Servers/<world>/libraries/net/minecraft/server/1.18.2/server-1.18.2.jar" \
+  --mods "C:/Servers/<world>/mods" \
+         "C:/Servers/<world>/libraries/net/minecraftforge/forge/1.18.2-40.3.11/forge-1.18.2-40.3.11-universal.jar" \
+  --out controller/colossal/recipes --shards 16
+```
+
+**The Forge universal jar is not optional.** Forge ships the `forge:*` item tags —
+`forge:ingots/iron` and 192 others — from its own jar under `libraries/`, not from `mods/`.
+Thousands of modded recipes refer to them. Leaving it out does not fail: 54 extra tags
+silently resolve to no items and every recipe using them becomes uncraftable. The converter
+warns about tags that are referenced but never defined; that list is the check.
+
+Measured against the live 1.18.2 installation (408 jars):
+
+| | |
+|---|---|
+| recipes read | 36,714 |
+| convertible to 3x3 crafting | 16,721 |
+| distinct outputs | 14,538 |
+| item tags | 727 |
+| distinct items | 17,708 |
+| left out, with named causes | 360 |
+| pack size | 3,785,761 bytes across 19 files |
+
+The converter refuses what it cannot represent faithfully rather than approximating it, and
+prints the causes. NBT-constrained ingredients and NBT-bearing results are the bulk of it:
+ingredient matching in the controller is deliberately NBT-free, so honouring them is
+impossible and ignoring them would craft from the wrong stack. Custom ingredient types
+carrying neither an item nor a tag are the rest. A recipe left out is uncraftable through
+this system; it is never crafted wrongly.
+
+Three constraints to plan for:
+
+- **Raise `computer_space_limit` before deploying a modded pack.** It sits in
+  `world/serverconfig/computercraft-server.toml` and defaults to `1000000` (1 MB). The full
+  pack is roughly 3.8 MB, so set it to at least `4000000`; `8000000` leaves headroom for
+  `colossal/data/` and future regeneration. The server must restart to pick it up.
+  `items.lua`, `index.lua` and `tags.lua` total about 1.1 MB and are always resident;
+  shards are roughly 165 KB each and load lazily, only when an output in them is queried.
+- **`--shards` must match `deployment_manifest.lua`.** The manifest names each shard file
+  explicitly, so a 16-shard pack needs `pack_01` through `pack_16` listed. Two suite guards
+  catch a mismatch at test time rather than at deployment, and the converter prunes shards
+  above the new count so a stale one cannot ship.
+- **Recipe id collisions are resolved by filename order, not mod load order.** About 1,600
+  ids are defined by more than one jar; the alphabetically last jar wins, which may not be
+  what the game does. This affects which of several duplicate recipes is offered, not
+  whether crafting works.
+
+Verify a modded pack exactly as above — expect `14538 outputs, 0 unreachable`. That check
+matters more here than for vanilla, because shard placement is exercised across sixteen
+files and thousands of outputs rather than four and a few hundred.

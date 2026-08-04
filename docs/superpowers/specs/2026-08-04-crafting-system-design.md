@@ -1,7 +1,24 @@
 # Crafting system
 
-Status: specified, not implemented. Supersedes `2026-08-03-crafting-turtle-design.md`, which
-remains accurate about reconciliation scope and is the reasoning this design builds on.
+Status: **implemented, deployed, and working in game** (2026-08-04). Supersedes
+`2026-08-03-crafting-turtle-design.md`, which remains accurate about reconciliation scope and
+is the reasoning this design builds on.
+
+This document is kept as the design record. It describes intent; where the built system
+diverges, the code and its comments are authoritative. Three things are worth knowing before
+reading it as a description of what exists:
+
+- **The design's objection to reusing `ImportService` for buffer drains did not survive
+  contact.** It argued the importer drains its source continuously and would fight staging
+  for the same items. Filtering the synthesised source to only the excess slots removes that:
+  when a step's ingredients are all that remain, the importer sees an empty inventory and
+  reports nothing to do. `app/craft_buffer.lua` drives a private importer instance, so no
+  second transfer path had to be written or proved.
+- **Craft quantity means "make N", not "bring stock up to N".** The spec was ambiguous; the
+  built behaviour is the former, with "up to" left to the Search page's retrieval.
+- **Seven defects were found only on the live server**, all of them the controller acting on
+  something it had not verified. They are recorded as invariants in `AGENTS.md` under
+  "Crafting invariants", which is the more useful document for anyone changing this code.
 
 This covers recipe storage, multistep craft planning, craft execution through a crafty
 turtle, and the crafting UI. Compacting is explicitly out of scope and is designed *for*, not
