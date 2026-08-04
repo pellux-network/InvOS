@@ -27,6 +27,9 @@ return {
         local seen={}
         for _,path in ipairs(Manifest.files) do seen[path]=true end
         T.equal(seen["colossal/core/recipe_repo.lua"],true)
+        T.equal(seen["colossal/app/craft_buffer.lua"],true)
+        T.equal(seen["colossal/app/craft_service.lua"],true)
+        T.equal(seen["colossal/app/turtle_link.lua"],true)
         T.equal(seen["colossal/core/craft_planner.lua"],true)
         T.equal(seen["colossal/core/craft_prefs.lua"],true)
         T.equal(seen["colossal/recipes/items.lua"],true)
@@ -37,7 +40,8 @@ return {
     {name="hand-edited crafting state and host tooling are never deployed",run=function()
         for _,path in ipairs({"colossal/data/custom_recipes.lua",
             "colossal/data/craft_prefs.lua","tools/recipe_import.py",
-            "tools/recipe_pack.py"}) do
+            "tools/recipe_pack.py","startup.lua/../turtle/startup.lua",
+            "crafter/executor.lua","turtle/startup.lua"}) do
             T.equal(Manifest.allowed(path),false,path)
         end
     end},

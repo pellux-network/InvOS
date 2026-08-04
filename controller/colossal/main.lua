@@ -1,6 +1,9 @@
 package.path = "/colossal/?.lua;/colossal/?/init.lua;" .. package.path
 
 local Alerts = require("app.alerts")
+local CraftBuffer = require("app.craft_buffer")
+local CraftService = require("app.craft_service")
+local TurtleLink = require("app.turtle_link")
 local Backup = require("app.backup")
 local Coordinator = require("app.coordinator")
 local ImportService = require("app.import_service")
@@ -12,7 +15,11 @@ local Recovery = require("app.recovery")
 local Search = require("app.search")
 local Setup = require("app.setup")
 local UI = require("app.ui")
+local CraftPlanner = require("core.craft_planner")
+local CraftPrefs = require("core.craft_prefs")
+local Identity = require("core.identity")
 local Index = require("core.index")
+local RecipeRepo = require("core.recipe_repo")
 local InventoryAdapter = require("core.inventory_adapter")
 local Planner = require("core.planner")
 local Reconciliation = require("core.reconciliation")
@@ -41,7 +48,8 @@ local function clock(osApi)
 end
 
 local function configDefault()
-    return {schema=1,configured=false,installation=nil,dropoff=nil,pickup=nil,storage={}}
+    return {schema=2,configured=false,installation=nil,dropoff=nil,pickup=nil,storage={},
+        craft_buffer=nil,turtle=nil,monitors=nil}
 end
 
 local function aliasesDefault() return {schema=1,items={}} end
@@ -97,6 +105,12 @@ local function nodesFrom(config)
     end
     nodes[#nodes+1]={id="pickup",label="Pickup",role="pickup",
         peripheral_name=config.pickup.peripheral_name}
+    -- Only present when a crafting turtle is installed. Everything downstream treats a
+    -- missing buffer as "crafting unavailable" rather than an error.
+    if config.craft_buffer then
+        nodes[#nodes+1]={id="craft_buffer",label="Craft Buffer",role="craft_buffer",
+            peripheral_name=config.craft_buffer.peripheral_name}
+    end
     return nodes
 end
 
@@ -104,6 +118,20 @@ local function firstMonitor(peripheralApi)
     if type(peripheralApi.find)~="function" then return nil end
     local ok,result=pcall(peripheralApi.find,"monitor")
     if ok and type(result)=="table" then return result end
+end
+
+-- With two monitors attached, peripheral.find returns an arbitrary one, so each is bound
+-- by name in config. The find stays as the fallback for an installation that has not
+-- been reconfigured yet, which keeps an existing schema 1 install working unchanged.
+local function boundMonitor(peripheralApi,name,fallback)
+    if type(name)=="string" and name~="" and type(peripheralApi.wrap)=="function" then
+        local ok,surface=pcall(peripheralApi.wrap,name)
+        if ok and type(surface)=="table" and type(surface.getSize)=="function" then
+            return surface
+        end
+    end
+    if fallback then return firstMonitor(peripheralApi) end
+    return nil
 end
 
 
@@ -212,7 +240,36 @@ function Main.build(environment)
     if not config.configured then
         uiState.page,uiState.mode,uiState.setup_step="setup","setup",1
     end
-    local monitorSurface=env.monitor_surface or firstMonitor(peripheralApi)
+    local monitors=(config.monitors or {})
+    local monitorSurface=env.monitor_surface or
+        boundMonitor(peripheralApi,monitors.main,true)
+    local craftMonitorSurface=env.craft_monitor_surface or
+        boundMonitor(peripheralApi,monitors.crafting,false)
+
+    -- Crafting is optional. Without a bound buffer and turtle the modules are simply not
+    -- built, the coordinator sees no craft service, and everything else runs unchanged.
+    local crafts
+    local recipes=RecipeRepo.new({custom=load(store,fsApi,root,"custom_recipes",
+        RecipeRepo.validateCustom,nil)})
+    local craftPrefs=CraftPrefs.new(load(store,fsApi,root,"craft_prefs",
+        CraftPrefs.validate,CraftPrefs.default()))
+    if config.configured and config.craft_buffer and config.turtle then
+        -- A second importer instance, private to the buffer, so draining the buffer and
+        -- draining Drop-off never share in-flight state.
+        local bufferImports=ImportService.new({planner=Planner,transfer=transfer,alerts=alerts,
+            transition=Lifecycle.transition,clock=now,slot_batch_limit=env.slot_batch_limit or 8})
+        local buffer=CraftBuffer.new({imports=bufferImports,adapter=adapter})
+        local link=TurtleLink.new({rednet=env.rednet or rednet,peripheral=peripheralApi,
+            name=config.turtle.peripheral_name})
+        crafts=CraftService.new({planner=CraftPlanner,repo=recipes,prefs=craftPrefs,
+            requests=requests,buffer=buffer,link=link,alerts=alerts,
+            transition=Lifecycle.transition,clock=now,
+            idGenerator=function(counter) return "craft-"..osApi.getComputerID().."-"..counter end,
+            stack_limit=function(itemId)
+                local details=metadata.items and metadata.items[Identity.key(itemId,nil)]
+                return details and details.max_count or 64
+            end})
+    end
     local report
     local function onEffect(effect,active)
         if effect.type=="OPEN_SETUP" then syncSetup(active,setup,1)
@@ -271,12 +328,15 @@ function Main.build(environment)
         enrich_step=enrichStep,registry=adapter,metadata_budget=1,metadata=metadata.items,
         scan_budget=512,dropoff_scan_budget=32,scan_refresh_interval=env.scan_refresh_interval,
         lifecycle=Lifecycle,recovery=recovery,imports=imports,requests=requests,alerts=alerts,
-        monitor=Monitor,monitor_surface=monitorSurface,on_effect=onEffect,
+        crafts=crafts,recipes=recipes,craft_prefs=craftPrefs,
+        monitor=Monitor,monitor_surface=monitorSurface,
+        craft_monitor_surface=craftMonitorSurface,on_effect=onEffect,
         intervals={heartbeat=0.25}})
 
     if not config.configured then syncSetup(coordinator,setup,1) end
     return coordinator,{store=store,setup=setup,transfer=transfer,recovery=recovery,
-        imports=imports,requests=requests,alerts=alerts,adapter=adapter}
+        imports=imports,requests=requests,alerts=alerts,adapter=adapter,
+        crafts=crafts,recipes=recipes,craft_prefs=craftPrefs}
 end
 
 function Main.run(environment)
