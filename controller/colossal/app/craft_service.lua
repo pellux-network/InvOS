@@ -109,6 +109,20 @@ function CraftService:_requestRescan(names)
     self.rescan = names
 end
 
+-- Every drain goes through here so the rescan the buffer asks for is never dropped.
+--
+-- The importer moves items out of the buffer, which immediately makes the snapshot the
+-- next iteration reads stale. Without a refresh in between, the same already-moved slots
+-- are handed to the importer again, it correctly reports moving nothing, and blocks with
+-- "Storage accepted no items" -- after the work had actually succeeded.
+function CraftService:_drain(context, keep)
+    local result = self.buffer:drain(context, keep)
+    if type(result) == "table" and result.state == "WORKING" then
+        self:_requestRescan(result.rescan or {"craft_buffer"})
+    end
+    return result
+end
+
 function CraftService:_block(job, reason)
     job.reason = copy(reason)
     self:_state(job, "BLOCKED")
@@ -279,7 +293,7 @@ function CraftService:_advanceStaging(job, context)
 
     -- Purge first: anything in the buffer this step does not need goes back to storage,
     -- so the invariant below can hold even when a previous step left an intermediate.
-    local drained = self.buffer:drain(context, required)
+    local drained = self:_drain(context, required)
     if drained.state == "BLOCKED" then
         self:_block(job, drained.reason or {code="DRAIN_FAILED", message="Could not clear the buffer"})
         return
@@ -407,7 +421,7 @@ function CraftService:_advanceDelivering(job, context)
     -- moves the very slots it planned from, which surfaces as SOURCE_CHANGED and blocks
     -- a craft that had already succeeded.
     if not job.buffer_cleared then
-        local cleared = self.buffer:drain(context, {})
+        local cleared = self:_drain(context, {})
         if cleared.state == "BLOCKED" then
             self:_block(job, cleared.reason or
                 {code="DRAIN_FAILED", message="The buffer could not be emptied to storage"})
@@ -465,7 +479,7 @@ function CraftService:tick(context)
             -- Return them rather than only complaining about them. With no job running
             -- nothing else touches the buffer, so this is safe, and it means an
             -- interrupted job leaves nothing for an operator to clean up by hand.
-            local cleared = self.buffer:drain(context, {})
+            local cleared = self:_drain(context, {})
             if cleared.state == "BLOCKED" then
                 return {state="IDLE", reason=cleared.reason}
             end
@@ -479,7 +493,7 @@ function CraftService:tick(context)
 
     if job.cancel_requested and job.state ~= "CRAFTING" then
         self:_cancelRequests(job)
-        self.buffer:drain(context, {})
+        self:_drain(context, {})
         self:_state(job, "CANCELLED")
         return copy(job)
     end
