@@ -4,9 +4,11 @@
 
 This repository contains a search-first CC:Tweaked wired-inventory storage terminal backed by one or more Colossal Chests. Version 1 supports Drop-off imports, pooled NBT-aware indexing, exact retrieval requests, a controller UI, and a resizable public monitor.
 
-Crafting is specified in `docs/superpowers/specs/2026-08-04-crafting-system-design.md` and being built in four stages. Stages 1 to 3 are merged: the recipe pack, `core/recipe_repo.lua`, `core/craft_prefs.lua`, `core/craft_planner.lua`, `app/craft_service.lua`, `app/craft_buffer.lua`, `app/turtle_link.lua`, and the turtle firmware under `turtle/`.
+Crafting is specified in `docs/superpowers/specs/2026-08-04-crafting-system-design.md` and all four stages are merged: the generated recipe pack, `core/recipe_repo.lua`, `core/craft_prefs.lua`, `core/craft_planner.lua`, `app/craft_service.lua`, `app/craft_buffer.lua`, `app/turtle_link.lua`, `app/craft_monitor.lua`, the Crafting page on key 6, and the turtle firmware under `turtle/`.
 
-Crafting is wired into `main.lua` but stays off unless both `craft_buffer` and `turtle` are bound in config; without them the craft service is never constructed and every existing behaviour is unchanged. Stage 4 adds the Crafting page and the crafting monitor, so nothing is reachable from the terminal yet.
+**It has never run in game.** Every stage was verified against the host suite and the real recipe pack, but no craft has been executed on the live server, and no deployment has happened. Crafting stays off unless both `craft_buffer` and `turtle` are bound in config; without them the craft service is never constructed and every existing behaviour is unchanged.
+
+Before the first live craft: deploy the controller and the turtle separately, each gated on its own manifest; bind the buffer, turtle and both monitors in Setup; and expect the first run to find things the host suite cannot, since nothing has yet touched a real inventory.
 
 Operators drive recovery from the terminal: retry and cancel on the Requests page, acknowledge on the Alerts page, a two-key confirmed release for a recovery that cannot prove what an interrupted transfer moved, and a global pause. `controller/startup.lua` supervises the runtime with a capped restart backoff.
 
