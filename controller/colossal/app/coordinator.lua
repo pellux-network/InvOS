@@ -45,6 +45,7 @@ function Coordinator.new(deps)
         uiState=copy(deps.initial_ui or {}), nodes={}, nodeById={},
         snapshots={}, scanQueue={}, targeted={}, generation=0, scanRevision={}, automationCursor=1, verificationGate=nil,
         scanCompletedAt={}, scanRefreshInterval=deps.scan_refresh_interval or 2000,
+        stallAfter=deps.stall_after or 60000, inFlightSince={}, stalled={},
         metadata=copy(deps.metadata or {}), notices={}, dirty=true,
     }, Coordinator)
     self:_replaceNodes(deps.nodes or {})
@@ -454,11 +455,47 @@ function Coordinator:_automationStep(now)
     end
 end
 
+-- A service reporting a transfer in flight stops every other service from planning, and
+-- nothing bounds how long it may hold that claim. So one service wedged mid-transfer takes
+-- the whole installation down with it -- Drop-off stops importing, retrievals stop
+-- arriving -- and the only symptom is that nothing happens, which reads as whichever
+-- feature the operator happened to be using rather than as a stall.
+--
+-- This does not intervene: unwedging a half-finished transfer from the outside is exactly
+-- how items get lost. It only makes the stall say what it is.
+function Coordinator:_stallStep(now)
+    local alerts = self.deps.alerts
+    if self.paused or not alerts or type(alerts.set) ~= "function" then return end
+    local entries={{"recovery",self.deps.recovery},{"imports",self.deps.imports},
+        {"requests",self.deps.requests},{"crafts",self.deps.crafts}}
+    for _,entry in ipairs(entries) do
+        local name=entry[1]
+        local state=serviceState(name,entry[2])
+        if state~="TRANSFERRING" and state~="VERIFYING" then
+            self.inFlightSince[name]=nil
+            if self.stalled[name] then
+                self.stalled[name]=nil
+                pcall(alerts.resolve,alerts,"transfer_stalled:"..name)
+                self.dirty=true
+            end
+        elseif not self.inFlightSince[name] then
+            self.inFlightSince[name]=now
+        elseif (now-self.inFlightSince[name])>=self.stallAfter and not self.stalled[name] then
+            self.stalled[name]=true
+            pcall(alerts.set,alerts,"transfer_stalled:"..name,"critical",
+                "The "..name.." transfer has not settled; nothing else can start",
+                {code="TRANSFER_STALLED",component=name,state=state})
+            self.dirty=true
+        end
+    end
+end
+
 function Coordinator:workStep(now)
     now = now or self.clock()
     self:_scanStep(now)
     self:_enrichStep()
     self:_automationStep(now)
+    self:_stallStep(now)
     self:_refreshLifecycle(now)
     if self.dirty then self:redraw() end
 end

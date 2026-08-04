@@ -24,6 +24,16 @@ local function stubService(state)
     return service
 end
 
+local function fakeAlerts()
+    local value = {raised = {}}
+    function value:set(key, severity, message, details)
+        self.raised[key] = {severity=severity, message=message, details=details}
+    end
+    function value:resolve(key) self.raised[key] = nil end
+    function value:active() return {} end
+    return value
+end
+
 local function requestList(entries)
     return {list=function() return entries end, tick=function() return {state="IDLE"} end}
 end
@@ -202,6 +212,57 @@ return {
         for _ = 1, 20 do coordinator:workStep(1000) end
         T.truthy(crafts.ticks >= 5,
             "a transferring service must keep advancing, got " .. crafts.ticks)
+    end},
+
+    {name="a transfer that never settles names itself instead of stalling silently",run=function()
+        -- One service wedged mid-transfer stops every other service from planning, so the
+        -- whole installation goes quiet and the only symptom is that nothing happens --
+        -- which reads as whichever feature the operator was using, not as a stall.
+        local alerts = fakeAlerts()
+        local coordinator = build({crafts=stubService("VERIFYING"), alerts=alerts,
+            configured=true, stall_after=5000})
+        coordinator:workStep(1000)
+        T.equal(alerts.raised["transfer_stalled:crafts"], nil, "not yet")
+        coordinator:workStep(4000)
+        T.equal(alerts.raised["transfer_stalled:crafts"], nil, "still within tolerance")
+        coordinator:workStep(6500)
+        local raised = alerts.raised["transfer_stalled:crafts"]
+        T.truthy(raised, "a wedged transfer must say so")
+        T.equal(raised.severity, "critical")
+        T.contains(raised.message, "crafts")
+    end},
+    {name="a transfer that settles in time raises nothing",run=function()
+        local alerts = fakeAlerts()
+        local service = stubService("TRANSFERRING")
+        local coordinator = build({imports=service, alerts=alerts, configured=true,
+            stall_after=5000})
+        coordinator:workStep(1000)
+        function service:status() return {state="IDLE"} end
+        coordinator:workStep(20000)
+        T.equal(alerts.raised["transfer_stalled:imports"], nil,
+            "a slow but finishing transfer is not a stall")
+    end},
+    {name="the stall alert clears once the transfer settles",run=function()
+        local alerts = fakeAlerts()
+        local service = stubService("VERIFYING")
+        local coordinator = build({imports=service, alerts=alerts, configured=true,
+            stall_after=5000})
+        coordinator:workStep(1000)
+        coordinator:workStep(9000)
+        T.truthy(alerts.raised["transfer_stalled:imports"], "raised")
+        function service:status() return {state="IDLE"} end
+        coordinator:workStep(10000)
+        T.equal(alerts.raised["transfer_stalled:imports"], nil, "and cleared")
+    end},
+    {name="a paused system is not reported as stalled",run=function()
+        -- Pausing deliberately freezes whatever was in flight. That is the operator's
+        -- doing, not a fault.
+        local alerts = fakeAlerts()
+        local coordinator = build({imports=stubService("VERIFYING"), alerts=alerts,
+            configured=true, paused=true, stall_after=5000})
+        coordinator:workStep(1000)
+        coordinator:workStep(20000)
+        T.equal(alerts.raised["transfer_stalled:imports"], nil)
     end},
 
     {name="planning resumes once nothing is in flight",run=function()
