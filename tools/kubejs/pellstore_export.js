@@ -22,17 +22,19 @@
 // priority: 0
 
 const $KubeJSPaths = java('dev.latvian.mods.kubejs.KubeJSPaths')
-const $JsonObject = java('com.google.gson.JsonObject')
-const $JsonArray = java('com.google.gson.JsonArray')
 
 // Only the two 3x3 types, because those are the only ones a crafty turtle can perform.
 const CRAFTING_TYPES = ['minecraft:crafting_shaped', 'minecraft:crafting_shapeless']
 
+// Everything below builds plain JS values and converts once at the end with JsonIO.of.
+// Populating Gson containers directly does not work here: JsonArray.add is overloaded on
+// both JsonElement and String, and Rhino refuses the call as ambiguous rather than picking.
 onEvent('recipes', event => {
-    const recipes = new $JsonArray()
+    const recipes = {}
     const tagNames = []
     const seenTag = {}
     let skipped = 0
+    let exported = 0
 
     // Walk the Gson tree directly rather than converting it. Every tag the exported
     // recipes refer to is collected, so the importer needs no second source and cannot
@@ -66,41 +68,38 @@ onEvent('recipes', event => {
         if (!json.has('type')) return
         if (CRAFTING_TYPES.indexOf(json.get('type').getAsString()) === -1) return
 
-        // Carry the id alongside the body: the importer keys recipes by id, and two mods
-        // shipping the same path under different namespaces must stay distinct.
-        const entry = new $JsonObject()
-        entry.addProperty('id', String(recipe.id))
-        entry.add('recipe', json)
-        recipes.add(entry)
+        // Keyed by id: the importer keys recipes by id too, and two mods shipping the same
+        // path under different namespaces must stay distinct.
+        recipes[String(recipe.id)] = JsonIO.toObject(json)
+        exported++
 
         noteTags(json)
     })
 
     // Resolve each tag through the game itself. A tag that resolves to nothing is kept as
     // an empty list rather than dropped, so the importer can tell "empty" from "unknown".
-    const tags = new $JsonObject()
+    const tags = {}
     let unresolved = 0
     tagNames.forEach(name => {
-        const items = new $JsonArray()
+        const items = []
         try {
-            Ingredient.of('#' + name).stacks.forEach(stack => items.add(String(stack.id)))
+            Ingredient.of('#' + name).stacks.forEach(stack => items.push(String(stack.id)))
         } catch (error) {
             unresolved++
             console.warn('[pellstore] could not resolve tag ' + name + ': ' + error)
         }
-        tags.add(name, items)
+        tags[name] = items
     })
 
-    const payload = new $JsonObject()
-    payload.addProperty('schema', 1)
-    payload.addProperty('generated_by', 'tools/kubejs/pellstore_export.js')
-    payload.add('recipes', recipes)
-    payload.add('tags', tags)
-
     const target = $KubeJSPaths.EXPORTED.resolve('pellstore_recipes.json')
-    JsonIO.write(target, payload)
+    JsonIO.write(target, JsonIO.of({
+        schema: 1,
+        generated_by: 'tools/kubejs/pellstore_export.js',
+        recipes: recipes,
+        tags: tags,
+    }))
 
-    console.info('[pellstore] exported ' + recipes.size() + ' crafting recipes and ' +
+    console.info('[pellstore] exported ' + exported + ' crafting recipes and ' +
         tagNames.length + ' item tags to ' + target)
     if (skipped > 0) {
         console.warn('[pellstore] ' + skipped + ' recipes had no readable json and were skipped')

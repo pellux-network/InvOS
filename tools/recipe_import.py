@@ -186,12 +186,15 @@ def read_kubejs(path):
                          "regenerate it with the current pellstore_export.js"
                          % (schema, KUBEJS_SCHEMA))
 
+    raw = payload.get("recipes")
+    if raw is not None and not isinstance(raw, dict):
+        raise SystemExit("kubejs dump 'recipes' should be an object keyed by recipe id; "
+                         "regenerate it with the current pellstore_export.js")
     recipes = {}
-    for entry in payload.get("recipes") or []:
-        recipe_id = entry.get("id")
-        if not recipe_id:
-            raise SystemExit("kubejs dump contains a recipe with no id")
-        recipes[recipe_id] = entry.get("recipe") or {}
+    for recipe_id, body in (raw or {}).items():
+        if not isinstance(body, dict):
+            raise SystemExit("kubejs dump entry %r is not a recipe object" % recipe_id)
+        recipes[recipe_id] = body
 
     tags = {}
     for name, items in (payload.get("tags") or {}).items():

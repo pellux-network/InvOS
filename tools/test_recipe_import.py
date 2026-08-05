@@ -190,8 +190,8 @@ class ReadKubeJsTest(unittest.TestCase):
 
     def test_reads_recipes_keyed_by_id(self):
         path = self.dump({"schema": 1,
-                          "recipes": [{"id": "quark:dark_oak_chest",
-                                       "recipe": shaped("quark:dark_oak_chest")}],
+                          "recipes": {"quark:dark_oak_chest":
+                                      shaped("quark:dark_oak_chest")},
                           "tags": {}})
         recipes, tags, _ = read_kubejs(path)
         self.assertEqual(list(recipes), ["quark:dark_oak_chest"])
@@ -202,7 +202,7 @@ class ReadKubeJsTest(unittest.TestCase):
     def test_tags_come_resolved_from_the_game(self):
         # The game already expanded these, so nothing here needs flattening and nothing can
         # disagree with what the server will actually accept.
-        path = self.dump({"schema": 1, "recipes": [],
+        path = self.dump({"schema": 1, "recipes": {},
                           "tags": {"minecraft:planks": ["minecraft:oak_planks",
                                                         "minecraft:dark_oak_planks"]}})
         _, tags, _ = read_kubejs(path)
@@ -212,14 +212,14 @@ class ReadKubeJsTest(unittest.TestCase):
     def test_an_empty_tag_is_kept_rather_than_dropped(self):
         # Kept so "resolves to nothing" stays distinguishable from "never mentioned", which
         # is what the undefined-tag warning reports on.
-        path = self.dump({"schema": 1, "recipes": [], "tags": {"mod:absent": []}})
+        path = self.dump({"schema": 1, "recipes": {}, "tags": {"mod:absent": []}})
         _, tags, _ = read_kubejs(path)
         self.assertEqual(tags["mod:absent"], [])
 
     def test_a_report_counts_what_was_read(self):
         path = self.dump({"schema": 1,
-                          "recipes": [{"id": "a:one", "recipe": shaped("a:one")},
-                                      {"id": "a:two", "recipe": shaped("a:two")}],
+                          "recipes": {"a:one": shaped("a:one"),
+                                      "a:two": shaped("a:two")},
                           "tags": {"t:x": ["a:i"]}})
         _, _, report = read_kubejs(path)
         self.assertEqual(report["recipes"], 2)
@@ -227,7 +227,7 @@ class ReadKubeJsTest(unittest.TestCase):
 
     def test_an_unknown_schema_is_refused(self):
         # A dump from a newer script must not be read under old assumptions.
-        path = self.dump({"schema": 99, "recipes": [], "tags": {}})
+        path = self.dump({"schema": 99, "recipes": {}, "tags": {}})
         with self.assertRaises(SystemExit):
             read_kubejs(path)
 
@@ -243,8 +243,17 @@ class ReadKubeJsTest(unittest.TestCase):
         with self.assertRaises(SystemExit):
             read_kubejs(handle.name)
 
-    def test_an_entry_missing_its_id_is_refused(self):
-        path = self.dump({"schema": 1, "recipes": [{"recipe": shaped("a:one")}], "tags": {}})
+    def test_a_list_shaped_dump_is_refused(self):
+        # An older export wrote a list of {id, recipe}. Reading it as a mapping would
+        # silently yield nothing rather than failing.
+        path = self.dump({"schema": 1, "recipes": [{"id": "a:one",
+                                                    "recipe": shaped("a:one")}],
+                          "tags": {}})
+        with self.assertRaises(SystemExit):
+            read_kubejs(path)
+
+    def test_an_entry_that_is_not_an_object_is_refused(self):
+        path = self.dump({"schema": 1, "recipes": {"a:one": "not a recipe"}, "tags": {}})
         with self.assertRaises(SystemExit):
             read_kubejs(path)
 
