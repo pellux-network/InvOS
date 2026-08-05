@@ -16,8 +16,14 @@
 // This event fires after conditions are resolved and after every script has run, so what
 // it sees is what the game will actually craft.
 //
-// Written for KubeJS Forge 1802 (verified against 1802.5.5-build.569). Note the lowercase
-// `java(...)` loader: `Java.loadClass` is KubeJS 6 syntax and does not exist here.
+// Written for KubeJS Forge 1802 (verified against 1802.5.5-build.569). Two things about
+// this Rhino that cost a restart each, both of which fail only at run time:
+//
+//   * The Java loader is the lowercase `java('...')`. `Java.loadClass` is KubeJS 6 syntax
+//     and raises ReferenceError: "Java" is not defined.
+//   * `const` and `let` inside a function that runs more than once raise
+//     "TypeError: redeclaration of var <name>". Function-body declarations here are `var`
+//     for that reason; only the two module-level constants use `const`.
 
 // priority: 0
 
@@ -29,69 +35,71 @@ const CRAFTING_TYPES = ['minecraft:crafting_shaped', 'minecraft:crafting_shapele
 // Everything below builds plain JS values and converts once at the end with JsonIO.of.
 // Populating Gson containers directly does not work here: JsonArray.add is overloaded on
 // both JsonElement and String, and Rhino refuses the call as ambiguous rather than picking.
-onEvent('recipes', event => {
-    const recipes = {}
-    const tagNames = []
-    const seenTag = {}
-    let skipped = 0
-    let exported = 0
+onEvent('recipes', function (event) {
+    var recipes = {}
+    var tagNames = []
+    var seenTag = {}
+    var skipped = 0
+    var exported = 0
+    var unresolved = 0
 
     // Walk the Gson tree directly rather than converting it. Every tag the exported
     // recipes refer to is collected, so the importer needs no second source and cannot
     // disagree with the game about what a tag contains.
-    const noteTags = element => {
-        if (element === null || element === undefined) return
-        if (element.isJsonObject()) {
-            const object = element.getAsJsonObject()
-            if (object.has('tag')) {
-                const value = object.get('tag')
-                if (value.isJsonPrimitive()) {
-                    const name = value.getAsString()
-                    if (!seenTag[name]) {
-                        seenTag[name] = true
-                        tagNames.push(name)
+    function noteTags(node) {
+        if (node === null || node === undefined) return
+        if (node.isJsonObject()) {
+            var asObject = node.getAsJsonObject()
+            if (asObject.has('tag')) {
+                var tagValue = asObject.get('tag')
+                if (tagValue.isJsonPrimitive()) {
+                    var tagName = tagValue.getAsString()
+                    if (!seenTag[tagName]) {
+                        seenTag[tagName] = true
+                        tagNames.push(tagName)
                     }
                 }
             }
-            object.entrySet().forEach(entry => noteTags(entry.getValue()))
-        } else if (element.isJsonArray()) {
-            element.getAsJsonArray().forEach(noteTags)
+            asObject.entrySet().forEach(function (pair) { noteTags(pair.getValue()) })
+        } else if (node.isJsonArray()) {
+            node.getAsJsonArray().forEach(noteTags)
         }
     }
 
-    event.forEachRecipe({}, recipe => {
-        const json = recipe.originalJson || recipe.json
-        if (!json) {
+    event.forEachRecipe({}, function (recipe) {
+        var recipeJson = recipe.originalJson || recipe.json
+        if (!recipeJson) {
             skipped++
             return
         }
-        if (!json.has('type')) return
-        if (CRAFTING_TYPES.indexOf(json.get('type').getAsString()) === -1) return
+        if (!recipeJson.has('type')) return
+        if (CRAFTING_TYPES.indexOf(recipeJson.get('type').getAsString()) === -1) return
 
         // Keyed by id: the importer keys recipes by id too, and two mods shipping the same
         // path under different namespaces must stay distinct.
-        recipes[String(recipe.id)] = JsonIO.toObject(json)
+        recipes[String(recipe.id)] = JsonIO.toObject(recipeJson)
         exported++
 
-        noteTags(json)
+        noteTags(recipeJson)
     })
 
     // Resolve each tag through the game itself. A tag that resolves to nothing is kept as
     // an empty list rather than dropped, so the importer can tell "empty" from "unknown".
-    const tags = {}
-    let unresolved = 0
-    tagNames.forEach(name => {
-        const items = []
+    var tags = {}
+    tagNames.forEach(function (tagName) {
+        var items = []
         try {
-            Ingredient.of('#' + name).stacks.forEach(stack => items.push(String(stack.id)))
+            Ingredient.of('#' + tagName).stacks.forEach(function (stack) {
+                items.push(String(stack.id))
+            })
         } catch (error) {
             unresolved++
-            console.warn('[pellstore] could not resolve tag ' + name + ': ' + error)
+            console.warn('[pellstore] could not resolve tag ' + tagName + ': ' + error)
         }
-        tags[name] = items
+        tags[tagName] = items
     })
 
-    const target = $KubeJSPaths.EXPORTED.resolve('pellstore_recipes.json')
+    var target = $KubeJSPaths.EXPORTED.resolve('pellstore_recipes.json')
     JsonIO.write(target, JsonIO.of({
         schema: 1,
         generated_by: 'tools/kubejs/pellstore_export.js',
