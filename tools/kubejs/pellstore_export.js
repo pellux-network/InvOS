@@ -74,11 +74,17 @@ function outputPath() {
 // Only the two 3x3 types, because those are the only ones a crafty turtle can perform.
 const CRAFTING_TYPES = ['minecraft:crafting_shaped', 'minecraft:crafting_shapeless']
 
-// Everything below builds plain JS values and converts once at the end with JsonIO.of.
-// Populating Gson containers directly does not work here: JsonArray.add is overloaded on
-// both JsonElement and String, and Rhino refuses the call as ambiguous rather than picking.
+// Recipe bodies are kept as the Gson objects the game loaded and never converted to JS.
+// A JsonIO.toObject -> JsonIO.of round trip is lossy: it turns strings that look like
+// numbers into numbers, and a shaped recipe's pattern rows are exactly that -- "000"
+// came back as bare 000 and the whole dump was invalid JSON.
+//
+// JsonObject.add(String, JsonElement) has a single signature so it is safe to call.
+// JsonArray.add is the one to avoid: it is overloaded on both JsonElement and String, and
+// Rhino refuses the call as ambiguous rather than picking.
 onEvent('recipes', function (event) {
-    var recipes = {}
+    var $JsonObject = java('com.google.gson.JsonObject')
+    var recipes = new $JsonObject()
     var tagNames = []
     var seenTag = {}
     var skipped = 0
@@ -119,7 +125,7 @@ onEvent('recipes', function (event) {
 
         // Keyed by id: the importer keys recipes by id too, and two mods shipping the same
         // path under different namespaces must stay distinct.
-        recipes[String(recipe.id)] = JsonIO.toObject(recipeJson)
+        recipes.add(String(recipe.id), recipeJson)
         exported++
 
         noteTags(recipeJson)
@@ -127,7 +133,9 @@ onEvent('recipes', function (event) {
 
     // Resolve each tag through the game itself. A tag that resolves to nothing is kept as
     // an empty list rather than dropped, so the importer can tell "empty" from "unknown".
-    var tags = {}
+    // Item ids never look numeric, so converting these string lists through JsonIO.of is
+    // safe in a way converting recipe bodies is not.
+    var tags = new $JsonObject()
     tagNames.forEach(function (tagName) {
         var items = []
         try {
@@ -138,17 +146,19 @@ onEvent('recipes', function (event) {
             unresolved++
             console.warn('[pellstore] could not resolve tag ' + tagName + ': ' + error)
         }
-        tags[tagName] = items
+        tags.add(tagName, JsonIO.of(items))
     })
 
     var resolved = outputPath()
     var target = resolved.path
-    JsonIO.write(target, JsonIO.of({
-        schema: 1,
-        generated_by: 'tools/kubejs/pellstore_export.js',
-        recipes: recipes,
-        tags: tags,
-    }))
+    // add(String, JsonElement) throughout: addProperty is overloaded across String,
+    // Number, Boolean and Character, which is the ambiguity this whole script works around.
+    var payload = new $JsonObject()
+    payload.add('schema', JsonIO.of(1))
+    payload.add('generated_by', JsonIO.of('tools/kubejs/pellstore_export.js'))
+    payload.add('recipes', recipes)
+    payload.add('tags', tags)
+    JsonIO.write(target, payload)
 
     console.info('[pellstore] exported ' + exported + ' crafting recipes and ' +
         tagNames.length + ' item tags to ' + target + ' (via ' + resolved.how + ')')
