@@ -29,6 +29,47 @@
 
 // Where the dump lands, relative to the game directory.
 const OUTPUT_PATH = 'kubejs/exported/pellstore_recipes.json'
+const OUTPUT_NAME = 'pellstore_recipes.json'
+
+// Getting a writable Path is the one genuinely awkward step, so try several routes and
+// report which worked rather than spending a server restart per attempt. Ruled out already:
+// Utils.getFileFromPath (the Utils binding is UtilsWrapper, which has no file helpers),
+// java.nio.file.Paths (the class filter blocks java.nio whatever disableClassFilter says),
+// and KubeJSPaths.EXPORTED.resolve(str) (ambiguous between resolve(Path) and
+// resolve(String), which Rhino refuses rather than choosing).
+function outputPath() {
+    var attempts = []
+
+    // UtilsJS is a KubeJS class, and KubeJS classes do load -- KubeJSPaths did.
+    // getFileFromPath(Object) and File.toPath() each have exactly one signature.
+    try {
+        return {path: java('dev.latvian.mods.kubejs.util.UtilsJS')
+            .getFileFromPath(OUTPUT_PATH).toPath(), how: 'UtilsJS.getFileFromPath'}
+    } catch (error) {
+        attempts.push('UtilsJS.getFileFromPath: ' + error)
+    }
+
+    // FileSystem.getPath is the only method of that name, so no overload to resolve, and
+    // this touches no class by name -- only instance methods on objects already in hand.
+    try {
+        var exported = java('dev.latvian.mods.kubejs.KubeJSPaths').EXPORTED
+        return {path: exported.getFileSystem().getPath(String(exported), OUTPUT_NAME),
+            how: 'FileSystem.getPath'}
+    } catch (error) {
+        attempts.push('FileSystem.getPath: ' + error)
+    }
+
+    // KubeJS.getGameDirectory() returns a Path; toAbsolutePath/normalize take no arguments.
+    try {
+        var game = java('dev.latvian.mods.kubejs.KubeJS').getGameDirectory()
+        return {path: game.getFileSystem().getPath(String(game), OUTPUT_PATH),
+            how: 'KubeJS.getGameDirectory'}
+    } catch (error) {
+        attempts.push('KubeJS.getGameDirectory: ' + error)
+    }
+
+    throw new Error('no writable path could be obtained -- ' + attempts.join(' | '))
+}
 
 // Only the two 3x3 types, because those are the only ones a crafty turtle can perform.
 const CRAFTING_TYPES = ['minecraft:crafting_shaped', 'minecraft:crafting_shapeless']
@@ -100,13 +141,8 @@ onEvent('recipes', function (event) {
         tags[tagName] = items
     })
 
-    // Utils.getFileFromPath resolves a string against the game directory and has exactly
-    // one signature, and File.toPath takes no arguments. Both avoid the overload problem,
-    // and neither needs a class loaded -- Utils and JsonIO are already global bindings.
-    // KubeJSPaths.EXPORTED.resolve(...) is ambiguous between resolve(Path) and
-    // resolve(String), and java.nio.file.Paths cannot be loaded at all: the class filter
-    // blocks java.nio regardless of disableClassFilter.
-    var target = Utils.getFileFromPath(OUTPUT_PATH).toPath()
+    var resolved = outputPath()
+    var target = resolved.path
     JsonIO.write(target, JsonIO.of({
         schema: 1,
         generated_by: 'tools/kubejs/pellstore_export.js',
@@ -115,7 +151,7 @@ onEvent('recipes', function (event) {
     }))
 
     console.info('[pellstore] exported ' + exported + ' crafting recipes and ' +
-        tagNames.length + ' item tags to ' + target)
+        tagNames.length + ' item tags to ' + target + ' (via ' + resolved.how + ')')
     if (skipped > 0) {
         console.warn('[pellstore] ' + skipped + ' recipes had no readable json and were skipped')
     }
