@@ -178,8 +178,13 @@ class ReadModsTest(unittest.TestCase):
 
 
 class ReadKubeJsTest(unittest.TestCase):
-    """The runtime dump is authoritative in a way a jar scan cannot be: about 10% of modded
-    crafting recipes are gated behind conditions that depend on each mod's config."""
+    """Schema 2 comes from MinecraftServer's RecipeManager rather than KubeJS's json view.
+
+    That is the only source that holds script-added recipes: this pack adds 10,186 and
+    removes 2,409 from scripts, and the json view showed neither. Ingredients arrive
+    already resolved to concrete items, so there are no tags to expand and no conditions
+    left to evaluate.
+    """
 
     def dump(self, payload):
         handle = tempfile.NamedTemporaryFile("w", suffix=".json", delete=False)
@@ -188,48 +193,70 @@ class ReadKubeJsTest(unittest.TestCase):
         self.addCleanup(os.unlink, handle.name)
         return handle.name
 
-    def test_reads_recipes_keyed_by_id(self):
-        path = self.dump({"schema": 1,
-                          "recipes": {"quark:dark_oak_chest":
-                                      shaped("quark:dark_oak_chest")},
-                          "tags": {}})
-        recipes, tags, _ = read_kubejs(path)
-        self.assertEqual(list(recipes), ["quark:dark_oak_chest"])
-        self.assertEqual(recipes["quark:dark_oak_chest"]["result"]["item"],
-                         "quark:dark_oak_chest")
+    def base(self, recipes, items=None, options=None):
+        return {"schema": 2,
+                "items": items or ["minecraft:stick", "minecraft:oak_planks", "mod:widget"],
+                "options": options or [[1], [2]],
+                "recipes": recipes}
+
+    def test_a_shaped_recipe_becomes_a_pattern_and_key(self):
+        path = self.dump(self.base({"mod:w": {
+            "shaped": True, "width": 2, "height": 2,
+            "cells": [1, 0, 0, 2],
+            "result": {"item": 3, "count": 4}}}))
+        recipes, _, _ = read_kubejs(path)
+        body = recipes["mod:w"]
+        self.assertEqual(body["type"], "minecraft:crafting_shaped")
+        self.assertEqual(body["pattern"], ["a ", " b"])
+        self.assertEqual(body["key"]["a"], {"item": "minecraft:stick"})
+        self.assertEqual(body["key"]["b"], {"item": "minecraft:oak_planks"})
+        self.assertEqual(body["result"], {"item": "mod:widget", "count": 4})
+
+    def test_a_shapeless_recipe_lists_its_ingredients(self):
+        path = self.dump(self.base({"mod:w": {
+            "shaped": False, "cells": [1, 2],
+            "result": {"item": 3, "count": 1}}}))
+        body = read_kubejs(path)[0]["mod:w"]
+        self.assertEqual(body["type"], "minecraft:crafting_shapeless")
+        self.assertEqual(body["ingredients"],
+                         [{"item": "minecraft:stick"}, {"item": "minecraft:oak_planks"}])
+
+    def test_a_cell_accepting_several_items_becomes_an_alternation(self):
+        # The game resolved this ingredient to every item it accepts. The converter turns
+        # a list into a synthetic tag, which is the same mechanism a real tag used.
+        path = self.dump(self.base(
+            {"mod:w": {"shaped": False, "cells": [1],
+                       "result": {"item": 3, "count": 1}}},
+            options=[[1, 2]]))
+        body = read_kubejs(path)[0]["mod:w"]
+        self.assertEqual(body["ingredients"],
+                         [[{"item": "minecraft:stick"}, {"item": "minecraft:oak_planks"}]])
+
+    def test_a_narrow_shaped_recipe_keeps_its_shape(self):
+        # A 1x3 recipe must not be widened; the pack places cells into a 3x3 grid and a
+        # wrong width would put ingredients in the wrong slots.
+        path = self.dump(self.base({"mod:w": {
+            "shaped": True, "width": 1, "height": 3,
+            "cells": [1, 1, 1],
+            "result": {"item": 3, "count": 1}}}))
+        body = read_kubejs(path)[0]["mod:w"]
+        self.assertEqual(body["pattern"], ["a", "a", "a"])
+
+    def test_tags_are_empty_because_ingredients_arrive_resolved(self):
+        path = self.dump(self.base({"mod:w": {
+            "shaped": False, "cells": [1], "result": {"item": 3, "count": 1}}}))
+        _, tags, _ = read_kubejs(path)
         self.assertEqual(tags, {})
 
-    def test_tags_come_resolved_from_the_game(self):
-        # The game already expanded these, so nothing here needs flattening and nothing can
-        # disagree with what the server will actually accept.
-        path = self.dump({"schema": 1, "recipes": {},
-                          "tags": {"minecraft:planks": ["minecraft:oak_planks",
-                                                        "minecraft:dark_oak_planks"]}})
-        _, tags, _ = read_kubejs(path)
-        self.assertEqual(tags["minecraft:planks"],
-                         ["minecraft:oak_planks", "minecraft:dark_oak_planks"])
+    def test_the_report_counts_what_was_read(self):
+        path = self.dump(self.base({
+            "a:one": {"shaped": False, "cells": [1], "result": {"item": 3, "count": 1}},
+            "a:two": {"shaped": False, "cells": [2], "result": {"item": 3, "count": 1}}}))
+        self.assertEqual(read_kubejs(path)[2]["recipes"], 2)
 
-    def test_an_empty_tag_is_kept_rather_than_dropped(self):
-        # Kept so "resolves to nothing" stays distinguishable from "never mentioned", which
-        # is what the undefined-tag warning reports on.
-        path = self.dump({"schema": 1, "recipes": {}, "tags": {"mod:absent": []}})
-        _, tags, _ = read_kubejs(path)
-        self.assertEqual(tags["mod:absent"], [])
-
-    def test_a_report_counts_what_was_read(self):
-        path = self.dump({"schema": 1,
-                          "recipes": {"a:one": shaped("a:one"),
-                                      "a:two": shaped("a:two")},
-                          "tags": {"t:x": ["a:i"]}})
-        _, _, report = read_kubejs(path)
-        self.assertEqual(report["recipes"], 2)
-        self.assertEqual(report["tags"], 1)
-
-    def test_an_unknown_schema_is_refused(self):
-        # A dump from a newer script must not be read under old assumptions.
-        path = self.dump({"schema": 99, "recipes": {}, "tags": {}})
+    def test_schema_one_is_refused_with_a_pointer_to_the_new_script(self):
         with self.assertRaises(SystemExit):
-            read_kubejs(path)
+            read_kubejs(self.dump({"schema": 1, "recipes": {}, "tags": {}}))
 
     def test_a_missing_file_is_a_clean_error(self):
         with self.assertRaises(SystemExit):
@@ -243,17 +270,9 @@ class ReadKubeJsTest(unittest.TestCase):
         with self.assertRaises(SystemExit):
             read_kubejs(handle.name)
 
-    def test_a_list_shaped_dump_is_refused(self):
-        # An older export wrote a list of {id, recipe}. Reading it as a mapping would
-        # silently yield nothing rather than failing.
-        path = self.dump({"schema": 1, "recipes": [{"id": "a:one",
-                                                    "recipe": shaped("a:one")}],
-                          "tags": {}})
-        with self.assertRaises(SystemExit):
-            read_kubejs(path)
-
-    def test_an_entry_that_is_not_an_object_is_refused(self):
-        path = self.dump({"schema": 1, "recipes": {"a:one": "not a recipe"}, "tags": {}})
+    def test_an_out_of_range_index_is_refused_rather_than_guessed(self):
+        path = self.dump(self.base({"mod:w": {
+            "shaped": False, "cells": [99], "result": {"item": 3, "count": 1}}}))
         with self.assertRaises(SystemExit):
             read_kubejs(path)
 

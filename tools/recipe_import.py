@@ -154,21 +154,75 @@ def merge_tags(accumulated, incoming):
     return accumulated
 
 
-KUBEJS_SCHEMA = 1
+KUBEJS_SCHEMA = 2
+# A 3x3 grid can hold at most nine distinct ingredients, so one letter each is always
+# enough for the pattern key.
+_SYMBOLS = "abcdefghi"
+
+
+def _lookup(table, index, what, recipe_id):
+    if not isinstance(index, int) or index < 1 or index > len(table):
+        raise SystemExit("kubejs dump: %s index %r in %r is out of range; the dump and "
+                         "pellstore_export.js disagree" % (what, index, recipe_id))
+    return table[index - 1]
+
+
+def _reference(options, items, recipe_id):
+    """One cell, as the converter's ingredient shape.
+
+    The game resolved each ingredient to every concrete item it accepts, so a cell is
+    either one item or a list of them. The converter already collapses a list into a
+    synthetic tag, which is the same mechanism a real tag went through.
+    """
+    ids = [_lookup(items, index, "item", recipe_id) for index in options]
+    if len(ids) == 1:
+        return {"item": ids[0]}
+    return [{"item": item} for item in ids]
+
+
+def _shaped(entry, items, options, recipe_id):
+    width = entry.get("width")
+    height = entry.get("height")
+    cells = entry.get("cells") or []
+    if not isinstance(width, int) or not isinstance(height, int) or width < 1 or height < 1:
+        raise SystemExit("kubejs dump: %r is shaped but has no usable size" % recipe_id)
+    if len(cells) != width * height:
+        raise SystemExit("kubejs dump: %r has %d cells for a %dx%d grid"
+                         % (recipe_id, len(cells), width, height))
+    symbols, key, pattern = {}, {}, []
+    for row in range(height):
+        line = ""
+        for column in range(width):
+            cell = cells[row * width + column]
+            if not cell:
+                line += " "
+                continue
+            if cell not in symbols:
+                if len(symbols) >= len(_SYMBOLS):
+                    raise SystemExit("kubejs dump: %r uses more than nine distinct "
+                                     "ingredients" % recipe_id)
+                symbols[cell] = _SYMBOLS[len(symbols)]
+                key[symbols[cell]] = _reference(
+                    _lookup(options, cell, "ingredient", recipe_id), items, recipe_id)
+            line += symbols[cell]
+        pattern.append(line)
+    return {"pattern": pattern, "key": key}
 
 
 def read_kubejs(path):
     """Read a runtime dump written by tools/kubejs/pellstore_export.js.
 
-    This is authoritative in a way a jar scan cannot be. Around 10% of modded crafting
-    recipes are gated behind `conditions`, and the common ones -- quark:flag,
-    supplementaries:flag, thermal:flag, mysticalagriculture:* -- depend on each mod's
-    config, which only exists at runtime. A jar scan reports both halves of a mutually
-    exclusive pair, so the controller can plan a craft that produces a different item than
-    it expects and then block on the mismatch.
+    Schema 2 comes from MinecraftServer's RecipeManager, which is the collection a
+    crafting table matches against, and is the only source that holds every recipe:
 
-    Tags arrive already resolved by the game, so nothing here needs flattening and nothing
-    can disagree with what the server will accept.
+      * Mod jars carry recipes that `conditions` switch off at runtime, so a jar scan
+        reports both halves of a mutually exclusive pair.
+      * KubeJS's `recipes` event walks the recipes loaded from datapacks, not the ones
+        scripts add. This pack adds 10,186 and removes 2,409 from scripts, so that view
+        missed thousands of real recipes and kept thousands that no longer exist.
+
+    Ingredients arrive already resolved to concrete items, so nothing here expands tags or
+    evaluates conditions, and a recipe's serialiser no longer matters.
     """
     try:
         with open(path, "r", encoding="utf-8") as handle:
@@ -176,31 +230,46 @@ def read_kubejs(path):
     except FileNotFoundError:
         raise SystemExit("kubejs dump not found: %s\n"
                          "         copy tools/kubejs/pellstore_export.js into "
-                         "<server>/kubejs/server_scripts/ and run /reload" % path)
+                         "<server>/kubejs/server_scripts/ and restart the server" % path)
     except ValueError as exc:
         raise SystemExit("kubejs dump is not valid json: %s (%s)" % (path, exc))
 
     schema = payload.get("schema")
     if schema != KUBEJS_SCHEMA:
-        raise SystemExit("kubejs dump schema %r is not supported (expected %d); "
-                         "regenerate it with the current pellstore_export.js"
+        raise SystemExit("kubejs dump schema %r is not supported (expected %d). Schema 1 "
+                         "was read from KubeJS's json view, which cannot see script-added "
+                         "recipes; re-export with the current pellstore_export.js"
                          % (schema, KUBEJS_SCHEMA))
 
+    items = payload.get("items") or []
+    options = payload.get("options") or []
     raw = payload.get("recipes")
     if raw is not None and not isinstance(raw, dict):
-        raise SystemExit("kubejs dump 'recipes' should be an object keyed by recipe id; "
-                         "regenerate it with the current pellstore_export.js")
+        raise SystemExit("kubejs dump 'recipes' should be an object keyed by recipe id")
+
     recipes = {}
-    for recipe_id, body in (raw or {}).items():
-        if not isinstance(body, dict):
-            raise SystemExit("kubejs dump entry %r is not a recipe object" % recipe_id)
+    for recipe_id, entry in (raw or {}).items():
+        if not isinstance(entry, dict):
+            raise SystemExit("kubejs dump entry %r is not an object" % recipe_id)
+        result = entry.get("result") or {}
+        body = {"result": {
+            "item": _lookup(items, result.get("item"), "result", recipe_id),
+            "count": int(result.get("count", 1)),
+        }}
+        if entry.get("shaped"):
+            body["type"] = "minecraft:crafting_shaped"
+            body.update(_shaped(entry, items, options, recipe_id))
+        else:
+            body["type"] = "minecraft:crafting_shapeless"
+            body["ingredients"] = [
+                _reference(_lookup(options, cell, "ingredient", recipe_id), items, recipe_id)
+                for cell in (entry.get("cells") or []) if cell
+            ]
         recipes[recipe_id] = body
 
-    tags = {}
-    for name, items in (payload.get("tags") or {}).items():
-        tags[name] = list(items)
-
-    return recipes, tags, {"recipes": len(recipes), "tags": len(tags)}
+    # No tags: every ingredient arrived resolved.
+    return recipes, {}, {"recipes": len(recipes), "items": len(items),
+                         "options": len(options)}
 
 
 def jar_paths(sources):
@@ -329,22 +398,20 @@ def main():
             print("  %d recipe ids defined more than once; the last jar won"
                   % report["collisions"])
 
-    # Last, so the runtime set wins over anything read from disk: where they disagree, the
-    # game is right and the jars are describing recipes that conditions turned off.
+    # The dump replaces everything read from disk rather than merging with it. It comes
+    # from the recipe manager, so it already is the complete set the game will craft:
+    # anything a jar adds on top is a recipe conditions switched off, or one a script
+    # removed, and any tag from a jar is one the game has already resolved differently.
+    # Jars stay useful only for display names, which the manager does not carry.
     if args.kubejs:
         liveRecipes, liveTags, report = read_kubejs(args.kubejs)
-        if args.mods or args.jar:
-            print("kubejs dump overrides %d of %d jar-read recipes"
-                  % (sum(1 for key in liveRecipes if key in recipes), len(recipes)))
-            recipes = {key: body for key, body in recipes.items() if key in liveRecipes}
-        recipes.update(liveRecipes)
-        # Resolved tags replace rather than extend: the game has already decided what each
-        # tag contains, and adding jar-read members back would reintroduce items the
-        # running server does not actually accept.
-        for name, items in liveTags.items():
-            tags[name] = items
-        print("kubejs dump: %d recipes, %d resolved tags"
-              % (report["recipes"], report["tags"]))
+        if (args.mods or args.jar) and recipes:
+            print("kubejs dump replaces %d jar-read recipes with the %d the game has"
+                  % (len(recipes), len(liveRecipes)))
+        recipes = liveRecipes
+        tags = liveTags
+        print("kubejs dump: %d recipes, %d items, %d distinct ingredient sets"
+              % (report["recipes"], report["items"], report["options"]))
 
     if not recipes:
         raise SystemExit("no recipes found")

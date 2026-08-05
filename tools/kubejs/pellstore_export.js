@@ -1,228 +1,181 @@
 // Exports the crafting recipes the game actually has, for the PellStore recipe pack.
 //
-// Copy this file into <server>/kubejs/server_scripts/ and restart the server (or run
-// /reload). It writes kubejs/exported/pellstore_recipes.json and does nothing else -- it
-// adds, removes and modifies no recipes.
+// Copy this file into <server>/kubejs/server_scripts/ and restart the server. It writes
+// kubejs/exported/pellstore_recipes.json and does nothing else -- it adds, removes and
+// modifies no recipes.
 //
-// Why this exists rather than reading the mod jars: about 10% of modded crafting recipes
-// are gated behind `conditions`, and the common ones (quark:flag, supplementaries:flag,
-// thermal:flag, mysticalagriculture:*) depend on each mod's config, which is only knowable
-// at runtime. Reading jars finds recipes that are not active -- including both halves of a
-// mutually exclusive pair. Quark's chest is the clearest case: `minecraft:chest` from any
-// planks and `quark:dark_oak_chest` from dark oak planks are gated on opposite states of
-// the same `variant_chests` flag, so a jar scan reports both and the controller would plan
-// a craft that produces a different item than it expects, after consuming the materials.
+// It reads MinecraftServer.getRecipeManager() on server.load, which is the collection a
+// crafting table matches against. Everything else was tried first and was wrong:
 //
-// This event fires after conditions are resolved and after every script has run, so what
-// it sees is what the game will actually craft.
+//   * Mod jars cannot be read directly. About 10% of modded recipes are gated behind
+//     `conditions` that depend on each mod's config and only resolve at runtime, so a jar
+//     scan reports recipes that are switched off -- including both halves of a mutually
+//     exclusive pair, which makes the controller plan a craft that produces a different
+//     item than it expects after consuming the materials.
 //
-// Written for KubeJS Forge 1802 (verified against 1802.5.5-build.569). Two things about
-// this Rhino that cost a restart each, both of which fail only at run time:
+//   * KubeJS's `recipes` event cannot be read either. forEachRecipe walks the recipes
+//     loaded from datapacks, not the ones scripts add. This pack adds 10,186 recipes and
+//     removes 2,409 from scripts, so that view was missing thousands of real recipes and
+//     still contained thousands that no longer exist.
 //
-//   * The Java loader is the lowercase `java('...')`. `Java.loadClass` is KubeJS 6 syntax
-//     and raises ReferenceError: "Java" is not defined.
-//   * `const` and `let` inside a function that runs more than once raise
-//     "TypeError: redeclaration of var <name>". Function-body declarations here are `var`
-//     for that reason; only the two module-level constants use `const`.
+// Reading the manager also removes every special case. Ingredients arrive already resolved
+// to concrete items, so tags need no expansion; conditions and script edits are already
+// applied; and a recipe's serialiser stops mattering, so cucumber:shaped_no_mirror,
+// KubeJS's own ShapedKubeJSRecipe and anything else are handled by the same code.
+//
+// Written for KubeJS Forge 1802 (verified against 1802.5.5-build.569). This Rhino does not
+// reliably catch exceptions thrown inside Java calls, so the code below checks for null
+// rather than relying on try/catch -- three diagnostic runs died proving that.
 
 // priority: 0
 
-// Where the dump lands, relative to the game directory.
 const OUTPUT_PATH = 'kubejs/exported/pellstore_recipes.json'
-const OUTPUT_NAME = 'pellstore_recipes.json'
+const SCHEMA = 2
 
-// Getting a writable Path is the one genuinely awkward step, so try several routes and
-// report which worked rather than spending a server restart per attempt. Ruled out already:
-// Utils.getFileFromPath (the Utils binding is UtilsWrapper, which has no file helpers),
-// java.nio.file.Paths (the class filter blocks java.nio whatever disableClassFilter says),
-// and KubeJSPaths.EXPORTED.resolve(str) (ambiguous between resolve(Path) and
-// resolve(String), which Rhino refuses rather than choosing).
-function outputPath() {
-    var attempts = []
+const $ForgeRegistries = java('net.minecraftforge.registries.ForgeRegistries')
+const $RecipeType = java('net.minecraft.world.item.crafting.RecipeType')
+const $ShapedRecipe = java('net.minecraft.world.item.crafting.ShapedRecipe')
 
-    // UtilsJS is a KubeJS class, and KubeJS classes do load -- KubeJSPaths did.
-    // getFileFromPath(Object) and File.toPath() each have exactly one signature.
-    try {
-        return {path: java('dev.latvian.mods.kubejs.util.UtilsJS')
-            .getFileFromPath(OUTPUT_PATH).toPath(), how: 'UtilsJS.getFileFromPath'}
-    } catch (error) {
-        attempts.push('UtilsJS.getFileFromPath: ' + error)
-    }
-
-    // FileSystem.getPath is the only method of that name, so no overload to resolve, and
-    // this touches no class by name -- only instance methods on objects already in hand.
-    try {
-        var exported = java('dev.latvian.mods.kubejs.KubeJSPaths').EXPORTED
-        return {path: exported.getFileSystem().getPath(String(exported), OUTPUT_NAME),
-            how: 'FileSystem.getPath'}
-    } catch (error) {
-        attempts.push('FileSystem.getPath: ' + error)
-    }
-
-    // KubeJS.getGameDirectory() returns a Path; toAbsolutePath/normalize take no arguments.
-    try {
-        var game = java('dev.latvian.mods.kubejs.KubeJS').getGameDirectory()
-        return {path: game.getFileSystem().getPath(String(game), OUTPUT_PATH),
-            how: 'KubeJS.getGameDirectory'}
-    } catch (error) {
-        attempts.push('KubeJS.getGameDirectory: ' + error)
-    }
-
-    throw new Error('no writable path could be obtained -- ' + attempts.join(' | '))
+function itemIdOf(stack) {
+    if (stack === null || stack === undefined) return null
+    var item = stack.getItem()
+    if (item === null || item === undefined) return null
+    // getKey returns null for an item with no registry entry, and stringifying that null
+    // throws inside Rhino's conversion rather than at the call.
+    var key = $ForgeRegistries.ITEMS.getKey(item)
+    if (key === null || key === undefined) return null
+    return String(key)
 }
 
-// Only the two 3x3 types, because those are the only ones a crafty turtle can perform.
-// Mirrors tools/recipe_pack.py. cucumber:shaped_no_mirror is an ordinary
-// crafting-table recipe under a custom serialiser; its siblings shaped_tag and
-// shaped_transfer_damage are not representable and stay out.
-const CRAFTING_TYPES = ['minecraft:crafting_shaped', 'minecraft:crafting_shapeless',
-    'cucumber:shaped_no_mirror']
-// An item that should be craftable but is missing from the pack. Logged with the
-// recipe type that produces it, so a filtered-out type is distinguishable from a
-// genuinely uncraftable item. Empty string disables the probe.
-const PROBE = ''
+// ShapedRecipe's width and height are mapped names; m_44220_ / m_44221_ are the obfuscated
+// ones. A missing method is a JS TypeError, which is catchable, unlike a Java throw.
+function dimension(recipe, mapped, obfuscated) {
+    try { return recipe[mapped]() } catch (a) {}
+    try { return recipe[obfuscated]() } catch (b) {}
+    return null
+}
 
-// Recipe bodies are kept as the Gson objects the game loaded and never converted to JS.
-// A JsonIO.toObject -> JsonIO.of round trip is lossy: it turns strings that look like
-// numbers into numbers, and a shaped recipe's pattern rows are exactly that -- "000"
-// came back as bare 000 and the whole dump was invalid JSON.
-//
-// JsonObject.add(String, JsonElement) has a single signature so it is safe to call.
-// JsonArray.add is the one to avoid: it is overloaded on both JsonElement and String, and
-// Rhino refuses the call as ambiguous rather than picking.
-onEvent('recipes', function (event) {
-    var $JsonObject = java('com.google.gson.JsonObject')
-    var recipes = new $JsonObject()
-    var tagNames = []
-    var seenTag = {}
-    var skipped = 0
+onEvent('server.load', function (event) {
+    var manager = event.server.getMinecraftServer().getRecipeManager()
+    var all = manager.getRecipes()
+
+    // Interning tables. A single plank cell resolves to 412 concrete items on this pack,
+    // so writing each cell's options inline would produce a file many times larger than
+    // the recipes themselves.
+    var itemIds = []
+    var itemIndex = {}
+    var optionSets = []
+    var optionIndex = {}
+
+    function internItem(id) {
+        var known = itemIndex[id]
+        if (known !== undefined) return known
+        itemIds.push(id)
+        itemIndex[id] = itemIds.length
+        return itemIds.length
+    }
+
+    function internOptions(ids) {
+        if (ids.length === 0) return 0
+        ids.sort()
+        var key = ids.join('\\u0000')
+        var known = optionIndex[key]
+        if (known !== undefined) return known
+        var interned = []
+        for (var i = 0; i < ids.length; i++) interned.push(internItem(ids[i]))
+        optionSets.push(interned)
+        optionIndex[key] = optionSets.length
+        return optionSets.length
+    }
+
+    // One ingredient's accepted items, already resolved by the game.
+    function cellOf(ingredient) {
+        if (ingredient === null || ingredient === undefined) return 0
+        if (ingredient.isEmpty()) return 0
+        var stacks = ingredient.getItems()
+        if (stacks === null || stacks === undefined) return 0
+        var ids = []
+        var seen = {}
+        for (var i = 0; i < stacks.length; i++) {
+            var id = itemIdOf(stacks[i])
+            if (id !== null && !seen[id]) { seen[id] = true; ids.push(id) }
+        }
+        return internOptions(ids)
+    }
+
+    var recipes = {}
+    var total = 0
+    var crafting = 0
     var exported = 0
-    var unresolved = 0
-    // Diagnostics. PROBE names an item the operator says is craftable but that is missing
-    // from the pack; every recipe producing it is logged with its type, whatever that type
-    // is, so "not craftable" and "craftable by something we filter out" stop looking alike.
-    // Set PROBE to '' to turn it off.
-    var typeCounts = {}
-    var probeHits = 0
+    var special = 0
+    var noResult = 0
+    var noLayout = 0
+    var emptyCell = 0
 
-    // Walk the Gson tree directly rather than converting it. Every tag the exported
-    // recipes refer to is collected, so the importer needs no second source and cannot
-    // disagree with the game about what a tag contains.
-    function noteTags(node) {
-        if (node === null || node === undefined) return
-        if (node.isJsonObject()) {
-            var asObject = node.getAsJsonObject()
-            if (asObject.has('tag')) {
-                var tagValue = asObject.get('tag')
-                if (tagValue.isJsonPrimitive()) {
-                    var tagName = tagValue.getAsString()
-                    if (!seenTag[tagName]) {
-                        seenTag[tagName] = true
-                        tagNames.push(tagName)
-                    }
-                }
-            }
-            asObject.entrySet().forEach(function (pair) { noteTags(pair.getValue()) })
-        } else if (node.isJsonArray()) {
-            node.getAsJsonArray().forEach(noteTags)
-        }
-    }
+    all.forEach(function (recipe) {
+        total++
+        if (recipe.getType() !== $RecipeType.CRAFTING) return
+        crafting++
 
-    event.forEachRecipe({}, function (recipe) {
-        var recipeJson = recipe.originalJson || recipe.json
-        if (!recipeJson) {
-            skipped++
-            return
-        }
-        if (!recipeJson.has('type')) return
-        var rawType = recipeJson.get('type').getAsString()
-        typeCounts[rawType] = (typeCounts[rawType] || 0) + 1
-        // Scan the whole serialised recipe, not just result.item. The previous probe
-        // assumed the vanilla result shape and reported "nothing makes this" for a recipe
-        // the operator was demonstrably crafting -- a custom serialiser can put its output
-        // anywhere, or under a different key entirely. Cost is one toString per recipe on
-        // a diagnostic run, which is worth paying to stop guessing.
-        if (PROBE !== '') {
-            // String(...) first: JsonIO.toString hands back a java.lang.String, whose
-            // substring throws when the end index passes the length instead of clamping
-            // the way JavaScript's does. That killed the whole export on its second hit.
-            var probeText = String(JsonIO.toString(recipeJson))
-            if (probeText.indexOf(PROBE) !== -1) {
-                probeHits++
-                if (probeHits <= 25) {
-                    console.info('[pellstore] PROBE ' + String(recipe.id) +
-                        '  type=' + rawType + '  ' +
-                        (probeText.length > 400 ? probeText.substring(0, 400) : probeText))
-                }
-            }
-        }
-        // A resource location with no namespace means minecraft:. Datapacks write plain
-        // "crafting_shaped" freely, and matching only the qualified form silently dropped
-        // 1,135 real grid recipes on this pack -- most of two mods.
-        var kind = recipeJson.get('type').getAsString()
-        if (kind.indexOf(':') === -1) kind = 'minecraft:' + kind
-        if (CRAFTING_TYPES.indexOf(kind) === -1) return
+        // Special recipes build their output from the inputs (map cloning, firework
+        // assembly, banner duplication). There is no fixed result to record.
+        if (recipe.isSpecial()) { special++; return }
 
-        // Keyed by id: the importer keys recipes by id too, and two mods shipping the same
-        // path under different namespaces must stay distinct.
-        recipes.add(String(recipe.id), recipeJson)
+        var resultStack = recipe.getResultItem()
+        var resultId = itemIdOf(resultStack)
+        if (resultId === null || resultStack.isEmpty()) { noResult++; return }
+
+        var ingredients = recipe.getIngredients()
+        if (ingredients === null || ingredients === undefined) { noLayout++; return }
+
+        var shaped = (recipe instanceof $ShapedRecipe)
+        var width = null
+        var height = null
+        if (shaped) {
+            width = dimension(recipe, 'getWidth', 'm_44220_')
+            height = dimension(recipe, 'getHeight', 'm_44221_')
+            if (width === null || height === null) { noLayout++; return }
+            if (width > 3 || height > 3) { noLayout++; return }
+        }
+
+        var cells = []
+        var unsatisfiable = false
+        for (var i = 0; i < ingredients.size(); i++) {
+            var cell = cellOf(ingredients.get(i))
+            // A shaped recipe legitimately has holes. A shapeless one listing an
+            // ingredient nothing satisfies cannot be crafted at all.
+            if (cell === 0 && !shaped) unsatisfiable = true
+            cells.push(cell)
+        }
+        if (unsatisfiable) { emptyCell++; return }
+
+        var entry = {
+            shaped: shaped,
+            cells: cells,
+            result: {item: internItem(resultId), count: resultStack.getCount()},
+        }
+        if (shaped) { entry.width = width; entry.height = height }
+        recipes[String(recipe.getId())] = entry
         exported++
-
-        noteTags(recipeJson)
     })
 
-    // Resolve each tag through the game itself. A tag that resolves to nothing is kept as
-    // an empty list rather than dropped, so the importer can tell "empty" from "unknown".
-    // Item ids never look numeric, so converting these string lists through JsonIO.of is
-    // safe in a way converting recipe bodies is not.
-    var tags = new $JsonObject()
-    tagNames.forEach(function (tagName) {
-        var items = []
-        try {
-            Ingredient.of('#' + tagName).stacks.forEach(function (stack) {
-                items.push(String(stack.id))
-            })
-        } catch (error) {
-            unresolved++
-            console.warn('[pellstore] could not resolve tag ' + tagName + ': ' + error)
-        }
-        tags.add(tagName, JsonIO.of(items))
-    })
+    var payload = {
+        schema: SCHEMA,
+        generated_by: 'tools/kubejs/pellstore_export.js',
+        items: itemIds,
+        options: optionSets,
+        recipes: recipes,
+    }
 
-    var resolved = outputPath()
-    var target = resolved.path
-    // add(String, JsonElement) throughout: addProperty is overloaded across String,
-    // Number, Boolean and Character, which is the ambiguity this whole script works around.
-    var payload = new $JsonObject()
-    payload.add('schema', JsonIO.of(1))
-    payload.add('generated_by', JsonIO.of('tools/kubejs/pellstore_export.js'))
-    payload.add('recipes', recipes)
-    payload.add('tags', tags)
-    JsonIO.write(target, payload)
+    var target = java('dev.latvian.mods.kubejs.util.UtilsJS')
+        .getFileFromPath(OUTPUT_PATH).toPath()
+    JsonIO.write(target, JsonIO.of(payload))
 
-    console.info('[pellstore] exported ' + exported + ' crafting recipes and ' +
-        tagNames.length + ' item tags to ' + target + ' (via ' + resolved.how + ')')
-    if (skipped > 0) {
-        console.warn('[pellstore] ' + skipped + ' recipes had no readable json and were skipped')
-    }
-    if (unresolved > 0) {
-        console.warn('[pellstore] ' + unresolved + ' tags could not be resolved')
-    }
-    if (PROBE !== '') {
-        console.info('[pellstore] PROBE ' + PROBE + ': ' + probeHits +
-            ' recipes mention it anywhere in their json')
-    }
-    // Every recipe type the game holds that this does not export, biggest first. If an
-    // item is missing, the type that makes it is in here.
-    var names = []
-    for (var key in typeCounts) {
-        if (CRAFTING_TYPES.indexOf(key.indexOf(':') === -1 ? 'minecraft:' + key : key) === -1) {
-            names.push(key)
-        }
-    }
-    names.sort(function (a, b) { return typeCounts[b] - typeCounts[a] })
-    console.info('[pellstore] top non-crafting recipe types held by the game:')
-    names.slice(0, 15).forEach(function (key) {
-        console.info('[pellstore]   ' + key + ': ' + typeCounts[key])
-    })
+    console.info('[pellstore] exported ' + exported + ' of ' + crafting +
+        ' crafting recipes (' + total + ' in the manager) to ' + target)
+    console.info('[pellstore] ' + itemIds.length + ' items, ' + optionSets.length +
+        ' distinct ingredient sets')
+    console.info('[pellstore] left out: ' + special + ' special, ' + noResult +
+        ' with no fixed result, ' + noLayout + ' with an unusable layout, ' +
+        emptyCell + ' with an unsatisfiable ingredient')
 })
