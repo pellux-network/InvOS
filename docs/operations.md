@@ -288,7 +288,13 @@ jars are describing recipes that conditions turned off. Its tags are used as-is 
 merged, because the game has already decided what each tag contains.
 
 The script's console line reports how many recipes and tags it exported. If it does not
-appear, the script is not in `server_scripts/` or the reload did not happen.
+appear, check `logs/kubejs/server.txt` — script errors are logged there with a line number,
+not to `latest.log`.
+
+The script targets KubeJS 1802 (1.18.2). Its Java loader is the lowercase `java('...')`
+function; `Java.loadClass` is KubeJS 6 syntax and fails on 1802 with
+`ReferenceError: "Java" is not defined`. `JsonIO`, `Ingredient` and `Utils` are already
+global bindings and need no loader at all.
 
 #### Reading jars directly
 
