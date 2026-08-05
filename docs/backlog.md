@@ -11,7 +11,7 @@ or a KubeJS script and the pack is wrong with no indication: the controller will
 recipes that no longer exist and hide ones that now do. This is exactly the failure that
 cost most of the 2026-08-05 session, and nothing currently detects it.
 
-Cheapest useful version: have `pellstore_export.js` also write the crafting-recipe count and
+Cheapest useful version: have `invos_export.js` also write the crafting-recipe count and
 a hash of the recipe ids, and have the controller warn on the Crafting page when its pack
 does not match what the server last exported. Needs a channel from the export to the
 controller, so it is not free.

@@ -407,7 +407,7 @@ if ...==nil then
     local ok,reason=xpcall(function() Main.run() end,function(value)
         return debug and debug.traceback and debug.traceback(value,2) or tostring(value)
     end)
-    if not ok then printError("PellStore failed: "..tostring(reason)) end
+    if not ok then printError("InvOS failed: "..tostring(reason)) end
 end
 
 return Main

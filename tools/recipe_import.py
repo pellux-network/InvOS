@@ -180,7 +180,7 @@ def _lookup(table, index, what, recipe_id):
     whole = _as_int(index)
     if whole is None or whole < 1 or whole > len(table):
         raise SystemExit("kubejs dump: %s index %r in %r is out of range; the dump and "
-                         "pellstore_export.js disagree" % (what, index, recipe_id))
+                         "invos_export.js disagree" % (what, index, recipe_id))
     return table[whole - 1]
 
 
@@ -227,7 +227,7 @@ def _shaped(entry, items, options, recipe_id):
 
 
 def read_kubejs(path):
-    """Read a runtime dump written by tools/kubejs/pellstore_export.js.
+    """Read a runtime dump written by tools/kubejs/invos_export.js.
 
     Schema 2 comes from MinecraftServer's RecipeManager, which is the collection a
     crafting table matches against, and is the only source that holds every recipe:
@@ -246,7 +246,7 @@ def read_kubejs(path):
             payload = json.load(handle)
     except FileNotFoundError:
         raise SystemExit("kubejs dump not found: %s\n"
-                         "         copy tools/kubejs/pellstore_export.js into "
+                         "         copy tools/kubejs/invos_export.js into "
                          "<server>/kubejs/server_scripts/ and restart the server" % path)
     except ValueError as exc:
         raise SystemExit("kubejs dump is not valid json: %s (%s)" % (path, exc))
@@ -255,7 +255,7 @@ def read_kubejs(path):
     if schema != KUBEJS_SCHEMA:
         raise SystemExit("kubejs dump schema %r is not supported (expected %d). Schema 1 "
                          "was read from KubeJS's json view, which cannot see script-added "
-                         "recipes; re-export with the current pellstore_export.js"
+                         "recipes; re-export with the current invos_export.js"
                          % (schema, KUBEJS_SCHEMA))
 
     items = payload.get("items") or []
@@ -369,8 +369,8 @@ def main():
                              "jar: Forge owns the forge:* item tags that modded recipes "
                              "refer to. Combine with --jar to include vanilla.")
     parser.add_argument("--kubejs", metavar="DUMP",
-                        help="a pellstore_recipes.json written by "
-                             "tools/kubejs/pellstore_export.js. This is the recipe set the "
+                        help="an invos_recipes.json written by "
+                             "tools/kubejs/invos_export.js. This is the recipe set the "
                              "game actually has, with conditions already resolved; prefer "
                              "it over --mods for a modpack. Pair with --mods to pick up "
                              "display names.")

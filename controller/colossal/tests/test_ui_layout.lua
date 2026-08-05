@@ -23,7 +23,7 @@ return {
         local ui=UI.new(surface)
         local state=UI.initialState(); state.query="sto"; state.results=results(); state.result_count=2
         local layout=ui:render(state,view())
-        T.contains(surface.line(1),"PELLSTORE")
+        T.contains(surface.line(1),"INVOS")
         T.contains(surface.line(2),"1 SEARCH")
         T.contains(surface.line(3),"> sto")
         T.contains(surface.allText(),"Stone")

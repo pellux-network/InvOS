@@ -6,7 +6,7 @@
 package.path = "/crafter/?.lua;/?.lua;" .. package.path
 
 local Executor = require("crafter.executor")
-local PROTOCOL = "pellstore-craft"
+local PROTOCOL = "invos-craft"
 
 local function openModem()
     for _, side in ipairs({"left", "right", "top", "bottom", "front", "back"}) do
@@ -30,7 +30,7 @@ local function main()
     -- buffer keeps them somewhere the controller can account for.
     executor:purge()
 
-    print("PellStore crafter ready on " .. side .. " (id " .. os.getComputerID() .. ")")
+    print("InvOS crafter ready on " .. side .. " (id " .. os.getComputerID() .. ")")
     while true do
         local sender, message = rednet.receive(PROTOCOL)
         if sender then
@@ -48,5 +48,5 @@ if ... == nil then
     local ok, reason = xpcall(main, function(value)
         return debug and debug.traceback and debug.traceback(value, 2) or tostring(value)
     end)
-    if not ok then printError("PellStore crafter failed: " .. tostring(reason)) end
+    if not ok then printError("InvOS crafter failed: " .. tostring(reason)) end
 end

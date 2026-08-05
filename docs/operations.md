@@ -281,14 +281,14 @@ resolved to concrete items so tags need no expansion, conditions and script edit
 applied, and a recipe's serialiser stops mattering — `cucumber:shaped_no_mirror` and KubeJS's
 own `ShapedKubeJSRecipe` need no special handling.
 
-1. Copy `tools/kubejs/pellstore_export.js` into `<server>/kubejs/server_scripts/`.
+1. Copy `tools/kubejs/invos_export.js` into `<server>/kubejs/server_scripts/`.
 2. Restart the server. The script adds, removes and modifies nothing; it fires on
-   `server.load` and writes `kubejs/exported/pellstore_recipes.json`.
+   `server.load` and writes `kubejs/exported/invos_recipes.json`.
 3. Convert, pairing the dump with the jars so display names come along — the recipe manager
    carries no language data:
 
 ```bash
-python tools/recipe_import.py   --jar "C:/Servers/<world>/libraries/net/minecraft/server/1.18.2/server-1.18.2.jar"   --kubejs "C:/Servers/<world>/kubejs/exported/pellstore_recipes.json"   --mods "C:/Servers/<world>/mods"   --out controller/colossal/recipes --shards 24
+python tools/recipe_import.py   --jar "C:/Servers/<world>/libraries/net/minecraft/server/1.18.2/server-1.18.2.jar"   --kubejs "C:/Servers/<world>/kubejs/exported/invos_recipes.json"   --mods "C:/Servers/<world>/mods"   --out controller/colossal/recipes --shards 24
 ```
 
 **`--jar` is not optional if you want vanilla items named.** Without it every vanilla item

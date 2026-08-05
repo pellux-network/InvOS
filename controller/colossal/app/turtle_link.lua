@@ -1,7 +1,7 @@
 local TurtleLink = {}
 TurtleLink.__index = TurtleLink
 
-local PROTOCOL = "pellstore-craft"
+local PROTOCOL = "invos-craft"
 
 -- Rednet addresses computers by ID, but the turtle is bound in config by peripheral
 -- name, and that name is volatile: it derives from the computer ID, so a rebuilt turtle

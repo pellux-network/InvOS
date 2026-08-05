@@ -1,7 +1,7 @@
-// Exports the crafting recipes the game actually has, for the PellStore recipe pack.
+// Exports the crafting recipes the game actually has, for the InvOS recipe pack.
 //
 // Copy this file into <server>/kubejs/server_scripts/ and restart the server. It writes
-// kubejs/exported/pellstore_recipes.json and does nothing else -- it adds, removes and
+// kubejs/exported/invos_recipes.json and does nothing else -- it adds, removes and
 // modifies no recipes.
 //
 // It reads MinecraftServer.getRecipeManager() on server.load, which is the collection a
@@ -29,7 +29,7 @@
 
 // priority: 0
 
-const OUTPUT_PATH = 'kubejs/exported/pellstore_recipes.json'
+const OUTPUT_PATH = 'kubejs/exported/invos_recipes.json'
 const SCHEMA = 2
 
 const $ForgeRegistries = java('net.minecraftforge.registries.ForgeRegistries')
@@ -161,7 +161,7 @@ onEvent('server.load', function (event) {
 
     var payload = {
         schema: SCHEMA,
-        generated_by: 'tools/kubejs/pellstore_export.js',
+        generated_by: 'tools/kubejs/invos_export.js',
         items: itemIds,
         options: optionSets,
         recipes: recipes,
@@ -171,11 +171,11 @@ onEvent('server.load', function (event) {
         .getFileFromPath(OUTPUT_PATH).toPath()
     JsonIO.write(target, JsonIO.of(payload))
 
-    console.info('[pellstore] exported ' + exported + ' of ' + crafting +
+    console.info('[invos] exported ' + exported + ' of ' + crafting +
         ' crafting recipes (' + total + ' in the manager) to ' + target)
-    console.info('[pellstore] ' + itemIds.length + ' items, ' + optionSets.length +
+    console.info('[invos] ' + itemIds.length + ' items, ' + optionSets.length +
         ' distinct ingredient sets')
-    console.info('[pellstore] left out: ' + special + ' special, ' + noResult +
+    console.info('[invos] left out: ' + special + ' special, ' + noResult +
         ' with no fixed result, ' + noLayout + ' with an unusable layout, ' +
         emptyCell + ' with an unsatisfiable ingredient')
 })

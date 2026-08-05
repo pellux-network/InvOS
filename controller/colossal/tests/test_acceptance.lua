@@ -129,7 +129,7 @@ return {
         T.equal(app:count("pickup",key),70)
         T.equal(app:storageCount(key),30)
         T.equal(app:count("drop",key)+app:count("pickup",key)+app:storageCount(key),100)
-        T.contains(app.monitor.allText(),"PELLSTORE")
+        T.contains(app.monitor.allText(),"INVOS")
     end},
     {name="sequential non-stackable deposits use distinct storage slots",run=function()
         local app=Harness();local name="the_vault:chest_upgrade_tool"

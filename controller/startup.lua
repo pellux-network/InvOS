@@ -8,10 +8,10 @@ while true do
     local ok = shell.run(path)
     if ok then break end
     if os.clock() - startedAt >= healthyRunSeconds then delay = 1 end
-    printError("PellStore stopped with an error; restarting in " .. delay .. "s")
+    printError("InvOS stopped with an error; restarting in " .. delay .. "s")
     local slept = pcall(sleep, delay)
     if not slept then
-        printError("PellStore supervisor stopped by operator")
+        printError("InvOS supervisor stopped by operator")
         break
     end
     delay = math.min(delay * 2, 30)

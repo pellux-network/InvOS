@@ -42,7 +42,7 @@ end
 
 local function renderSmall(surface,model,width,height)
     line(surface,width,height,1,palette.gray)
-    write(surface,width,height,2,1,"PELLSTORE",9,palette.white)
+    write(surface,width,height,2,1,"INVOS",9,palette.white)
     local state=model.lifecycle or "BOOTING"
     write(surface,width,height,math.max(2,width-#state),1,state,#state,colorFor(state))
     write(surface,width,height,2,3,formatNumber(model.total_items).." items",width-2,palette.cyan)
@@ -57,7 +57,7 @@ end
 
 local function renderMedium(surface,model,width,height)
     line(surface,width,height,1,palette.gray)
-    write(surface,width,height,2,1,"PELLSTORE",9,palette.white)
+    write(surface,width,height,2,1,"INVOS",9,palette.white)
     local state=model.lifecycle or "BOOTING"
     write(surface,width,height,math.max(2,width-#state),1,state,#state,colorFor(state))
     write(surface,width,height,2,3,formatNumber(model.total_items).." items  "..
@@ -80,7 +80,7 @@ end
 
 local function renderLarge(surface,model,width,height)
     line(surface,width,height,1,palette.gray)
-    write(surface,width,height,2,1,"PELLSTORE",9,palette.white,palette.gray)
+    write(surface,width,height,2,1,"INVOS",9,palette.white,palette.gray)
     local state=model.lifecycle or "BOOTING"
     write(surface,width,height,math.max(2,width-#state-1),1,state,#state,colorFor(state),palette.gray)
     write(surface,width,height,2,3,formatNumber(model.total_items).." ITEMS",18,palette.cyan)

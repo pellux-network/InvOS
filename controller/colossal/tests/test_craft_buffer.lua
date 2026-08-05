@@ -216,7 +216,7 @@ return {
         T.equal(link:poll(), nil, "nothing is pending yet")
         link:send({op="craft", job="craft-1"})
         T.equal(link:poll(), nil, "no reply has arrived")
-        T.equal(link:deliver(7, {ok=true, job="craft-1"}, "pellstore-craft"), true)
+        T.equal(link:deliver(7, {ok=true, job="craft-1"}, "invos-craft"), true)
         local reply = link:poll()
         T.equal(reply.ok, true)
         T.equal(link:poll(), nil, "a reply is consumed once")
@@ -227,7 +227,7 @@ return {
         local link = workingLink()
         link:send({op="craft", job="craft-1"})
         for _ = 1, 5 do link:poll() end
-        link:deliver(7, {ok=true}, "pellstore-craft")
+        link:deliver(7, {ok=true}, "invos-craft")
         for _ = 1, 5 do
             local reply = link:poll()
             if reply then T.equal(reply.ok, true); return end
@@ -243,13 +243,13 @@ return {
     {name="a message from another computer is ignored",run=function()
         local link = workingLink()
         link:send({op="craft", job="craft-1"})
-        T.equal(link:deliver(99, {ok=true}, "pellstore-craft"), false)
+        T.equal(link:deliver(99, {ok=true}, "invos-craft"), false)
         T.equal(link:poll(), nil)
     end},
     {name="a new job never sees a stale reply",run=function()
         local link = workingLink()
         link:send({op="craft", job="craft-1"})
-        link:deliver(7, {ok=true, job="craft-1"}, "pellstore-craft")
+        link:deliver(7, {ok=true, job="craft-1"}, "invos-craft")
         link:send({op="craft", job="craft-2"})
         T.equal(link:poll(), nil, "the previous job's reply must not settle this one")
     end},
