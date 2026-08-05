@@ -107,7 +107,7 @@ return {
         local api = fakeTurtle({{name="minecraft:oak_planks", count=8}})
         local executor = Executor.new({turtle=api})
         -- Stop before crafting so placement can be inspected.
-        local failure = executor:_stage(chestCommand().steps[1])
+        local failure = executor:_stage(chestCommand())
         T.equal(failure, nil)
         for _, cell in ipairs({1,2,3,5,7,9,10,11}) do
             T.equal(api.slots[cell].count, 1, "cell " .. cell)
@@ -161,8 +161,8 @@ return {
     {name="a batched craft pulls per_cell copies into every cell",run=function()
         local api = fakeTurtle({{name="minecraft:oak_planks", count=64}})
         local executor = Executor.new({turtle=api})
-        local failure = executor:_stage({expect="minecraft:oak_planks",
-            cells={1,2,3,5}, per_cell=8})
+        local failure = executor:_stage({steps={{expect="minecraft:oak_planks",
+            cells={1,2,3,5}, per_cell=8}}})
         T.equal(failure, nil)
         for _, cell in ipairs({1,2,3,5}) do
             T.equal(api.slots[cell].count, 8, "cell " .. cell .. " holds the batch")
@@ -226,7 +226,7 @@ return {
     {name="each cell is filled to the batch size",run=function()
         local api = fakeTurtle({{name="minecraft:oak_planks", count=128}})
         local executor = Executor.new({turtle=api})
-        local failure = executor:_stage({expect="minecraft:oak_planks", cells={1,2}, per_cell=64})
+        local failure = executor:_stage({steps={{expect="minecraft:oak_planks", cells={1,2}, per_cell=64}}})
         T.equal(failure, nil)
         T.equal(api.slots[1].count, 64)
         T.equal(api.slots[2].count, 64)
@@ -239,7 +239,7 @@ return {
             {name="minecraft:oak_planks", count=64},
         })
         local executor = Executor.new({turtle=api})
-        local failure = executor:_stage({expect="minecraft:oak_planks", cells={1,2}, per_cell=64})
+        local failure = executor:_stage({steps={{expect="minecraft:oak_planks", cells={1,2}, per_cell=64}}})
         T.equal(failure, nil, "a cell must be filled from more than one buffer stack")
         T.equal(api.slots[1].count, 64)
         T.equal(api.slots[2].count, 64)
@@ -255,6 +255,64 @@ return {
         T.equal(result.ok, false, "the second cell got the wrong item")
         T.equal(result.code, "INGREDIENT_MISMATCH")
         T.equal(held(api), 0)
+    end},
+
+    {name="a multi-ingredient recipe stages whatever order the buffer is in",run=function()
+        -- suckDown always takes the buffer's lowest occupied slot, so filling cells in
+        -- recipe order only works when the buffer happens to agree. The buffer is filled
+        -- by one withdrawal per ingredient and those land wherever there is room, so it
+        -- routinely does not. Every craft tested before this had a single ingredient,
+        -- which is why it never showed: with one item type any order is the right order.
+        local api = fakeTurtle({
+            {name="the_vault:vault_essence", count=2},
+            {name="minecraft:gold_ingot", count=2},
+        })
+        local failure = Executor.new({turtle=api}):_stage({steps={
+            {expect="minecraft:gold_ingot", cells={1, 3}, per_cell=1},
+            {expect="the_vault:vault_essence", cells={5, 7}, per_cell=1},
+        }})
+        T.equal(failure, nil, "the buffer holds exactly what the step needs")
+        T.equal(api.getItemDetail(1).name, "minecraft:gold_ingot")
+        T.equal(api.getItemDetail(3).name, "minecraft:gold_ingot")
+        T.equal(api.getItemDetail(5).name, "the_vault:vault_essence")
+        T.equal(api.getItemDetail(7).name, "the_vault:vault_essence")
+    end},
+    {name="interleaved stacks of the same ingredient still land together",run=function()
+        -- Two withdrawals of one item can be split across slots with another item between
+        -- them, so a cell's ingredient is not necessarily contiguous in the buffer.
+        local api = fakeTurtle({
+            {name="minecraft:gold_ingot", count=1},
+            {name="the_vault:vault_essence", count=2},
+            {name="minecraft:gold_ingot", count=1},
+        })
+        local failure = Executor.new({turtle=api}):_stage({steps={
+            {expect="minecraft:gold_ingot", cells={1, 3}, per_cell=1},
+            {expect="the_vault:vault_essence", cells={5, 7}, per_cell=1},
+        }})
+        T.equal(failure, nil)
+        T.equal(api.getItemDetail(1).name, "minecraft:gold_ingot")
+        T.equal(api.getItemDetail(3).name, "minecraft:gold_ingot")
+        T.equal(api.getItemDetail(5).name, "the_vault:vault_essence")
+    end},
+    {name="an item no cell wants is still a clean refusal",run=function()
+        local api = fakeTurtle({
+            {name="minecraft:dirt", count=1},
+            {name="minecraft:gold_ingot", count=1},
+        })
+        local result = Executor.new({turtle=api}):handle({op="craft", job="craft-1",
+            steps={{expect="minecraft:gold_ingot", cells={1}, per_cell=1}},
+            result={name="mod:thing", count=1}})
+        T.equal(result.ok, false)
+        T.equal(result.code, "INGREDIENT_MISMATCH")
+        T.equal(held(api), 0, "and the turtle keeps nothing")
+    end},
+    {name="a short buffer reports what is missing rather than crafting",run=function()
+        local api = fakeTurtle({{name="minecraft:gold_ingot", count=1}})
+        local failure = Executor.new({turtle=api}):_stage({steps={
+            {expect="minecraft:gold_ingot", cells={1, 3}, per_cell=1},
+        }})
+        T.truthy(failure ~= nil, "two cells needed, one ingot available")
+        T.equal(failure.code, "INGREDIENT_SHORT")
     end},
 
 }
