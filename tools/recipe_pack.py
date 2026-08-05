@@ -93,7 +93,18 @@ def display_names(item_ids, lang):
     return names
 
 
-CRAFTABLE_TYPES = ("minecraft:crafting_shaped", "minecraft:crafting_shapeless")
+# Recipe types a crafty turtle can perform. Some mods register ordinary crafting-table
+# recipes under their own serialiser: those are RecipeType.CRAFTING with a vanilla
+# pattern/key body, and the serialiser only changes matching rules the pack does not rely
+# on. cucumber:shaped_no_mirror is 249 recipes here, much of Mystical Agriculture, and was
+# being discarded as if it were a machine recipe.
+#
+# Its siblings stay out on purpose. cucumber:shaped_tag yields a *tag*, so the output is
+# whichever mod's ingot the game picks and the controller could not verify what it made.
+# cucumber:shaped_transfer_damage gives the output an ingredient's durability.
+SHAPED_TYPES = ("minecraft:crafting_shaped", "cucumber:shaped_no_mirror")
+SHAPELESS_TYPES = ("minecraft:crafting_shapeless",)
+CRAFTABLE_TYPES = SHAPED_TYPES + SHAPELESS_TYPES
 
 
 def normalise_type(kind):
@@ -193,7 +204,7 @@ class Converter:
             "id": recipe_id,
             "output": self.items.index(output_id),
             "count": int(result.get("count", 1)),
-            "shaped": kind == "minecraft:crafting_shaped",
+            "shaped": kind in SHAPED_TYPES,
         }
         if body["shaped"]:
             body["grid"] = self._grid(recipe)

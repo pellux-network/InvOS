@@ -72,11 +72,15 @@ function outputPath() {
 }
 
 // Only the two 3x3 types, because those are the only ones a crafty turtle can perform.
-const CRAFTING_TYPES = ['minecraft:crafting_shaped', 'minecraft:crafting_shapeless']
+// Mirrors tools/recipe_pack.py. cucumber:shaped_no_mirror is an ordinary
+// crafting-table recipe under a custom serialiser; its siblings shaped_tag and
+// shaped_transfer_damage are not representable and stay out.
+const CRAFTING_TYPES = ['minecraft:crafting_shaped', 'minecraft:crafting_shapeless',
+    'cucumber:shaped_no_mirror']
 // An item that should be craftable but is missing from the pack. Logged with the
 // recipe type that produces it, so a filtered-out type is distinguishable from a
 // genuinely uncraftable item. Empty string disables the probe.
-const PROBE = 'the_vault:mystical_powder'
+const PROBE = ''
 
 // Recipe bodies are kept as the Gson objects the game loaded and never converted to JS.
 // A JsonIO.toObject -> JsonIO.of round trip is lossy: it turns strings that look like

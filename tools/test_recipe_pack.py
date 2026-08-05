@@ -234,6 +234,46 @@ class UnqualifiedRecipeTypeTest(unittest.TestCase):
         self.assertIsNone(self.converter.convert("mod:x", self.shaped("smelting")))
 
 
+class CustomGridSerialiserTest(unittest.TestCase):
+    """Some mods register ordinary crafting-table recipes under their own serialiser.
+
+    A turtle can perform those: they are RecipeType.CRAFTING with a vanilla pattern/key
+    body, and the serialiser only changes matching rules the pack does not rely on.
+    Cucumber's shaped_no_mirror is 249 recipes on the live pack, much of Mystical
+    Agriculture, and was being dropped as if it were a machine recipe.
+    """
+
+    def setUp(self):
+        self.converter = Converter()
+
+    def test_shaped_no_mirror_is_a_grid_recipe(self):
+        body = self.converter.convert("ma:x", {
+            "type": "cucumber:shaped_no_mirror",
+            "pattern": ["EEE", "EEE", "EEE"],
+            "key": {"E": {"item": "ma:essence"}},
+            "result": {"item": "ma:ingot", "count": 3}})
+        self.assertIsNotNone(body)
+        self.assertTrue(body["shaped"], "it places an exact grid, mirroring is irrelevant")
+        self.assertEqual(body["count"], 3)
+
+    def test_a_tag_result_is_refused(self):
+        # The output would be whichever mod's ingot the game picks. The controller
+        # identifies a crafted item by exact id, so it could not verify or deliver this.
+        self.assertIsNone(self.converter.convert("ma:x", {
+            "type": "cucumber:shaped_tag",
+            "pattern": ["EEE"], "key": {"E": {"item": "ma:essence"}},
+            "result": {"tag": "forge:ingots/aluminum", "count": 8}}))
+
+    def test_a_damage_transferring_recipe_is_refused(self):
+        # The output inherits durability from an ingredient, which the pack cannot express.
+        self.assertIsNone(self.converter.convert("ma:x", {
+            "type": "cucumber:shaped_transfer_damage", "transfer_nbt": True,
+            "pattern": [" G ", "ISI", " G "],
+            "key": {"G": {"item": "ma:gem"}, "I": {"item": "ma:ingot"},
+                    "S": {"item": "ma:axe"}},
+            "result": {"item": "ma:better_axe"}}))
+
+
 class UnrepresentableIngredientTest(unittest.TestCase):
     """Vanilla only ever writes {"item":...}, {"tag":...} or a list of those. A modpack
     does not, and a recipe the pack cannot represent faithfully must be left out rather
