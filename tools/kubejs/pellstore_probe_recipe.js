@@ -20,6 +20,11 @@ const PROBE_ITEM = 'the_vault:mystical_powder'
 // Registry lookup, avoiding ItemStackJS: its of() is overloaded and KubeJS registers a
 // type wrapper that can make an ItemStack argument ambiguous to Rhino.
 const $ForgeRegistries = java('net.minecraftforge.registries.ForgeRegistries')
+// Compared by identity, never stringified. RecipeType.toString() resolves its own registry
+// key and throws when that key is null -- and a recipe whose type is unregistered is
+// exactly what this is hunting, so the diagnostic must not die on the thing it is looking
+// for. That NPE is what killed the previous two runs.
+const $RecipeType = java('net.minecraft.world.item.crafting.RecipeType')
 
 function itemIdOf(stack) {
     try {
@@ -49,6 +54,7 @@ onEvent('server.load', function (event) {
     var unreadable = 0
     var crafting = 0
     var failed = 0
+    var unnamedType = 0
     var accessor = null
 
     // One recipe must never end the scan. The whole body is guarded, because the recipes
@@ -56,9 +62,17 @@ onEvent('server.load', function (event) {
     all.forEach(function (recipe) {
         total++
         try {
-            var kind = '?'
-            try { kind = String(recipe.getType()) } catch (error) {}
-            if (kind.indexOf('crafting') !== -1) crafting++
+            var isCrafting = false
+            var typeNamed = false
+            try {
+                var recipeType = recipe.getType()
+                isCrafting = (recipeType === $RecipeType.CRAFTING)
+                // Only ask for the name once identity has told us what it is; an
+                // unregistered type has no name and asking for one throws.
+                try { String(recipeType); typeNamed = true } catch (inner) {}
+            } catch (error) {}
+            if (isCrafting) crafting++
+            if (!typeNamed) unnamedType++
 
             var got = resultOf(recipe)
             if (!got || !got.stack) { unreadable++; return }
@@ -72,7 +86,8 @@ onEvent('server.load', function (event) {
             var rid = '?'
             try { rid = String(recipe.getId()) } catch (error) {}
             console.info('[pellstore-probe] MAKES  recipe=' + rid +
-                '  type=' + kind + '  class=' + cls)
+                '  craftingType=' + isCrafting + '  typeRegistered=' + typeNamed +
+                '  class=' + cls)
         } catch (error) {
             failed++
         }
@@ -81,6 +96,6 @@ onEvent('server.load', function (event) {
     console.info('[pellstore-probe] result accessor: ' + accessor)
     console.info('[pellstore-probe] manager holds ' + total + ' recipes, ' + crafting +
         ' of crafting type; ' + unreadable + ' had no readable result, ' + failed +
-        ' threw and were skipped')
+        ' threw and were skipped, ' + unnamedType + ' have an unregistered recipe type')
     console.info('[pellstore-probe] ' + hits + ' produce ' + PROBE_ITEM)
 })
