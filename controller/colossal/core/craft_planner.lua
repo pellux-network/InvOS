@@ -12,7 +12,9 @@ local MAX_CRAFTABLE_CAP = 100000
 -- How many alternatives a single decision may actually try before settling for its
 -- top-ranked option. Both searches roll the ledger back between attempts, so their cost
 -- multiplies: on the live modpack minecraft:planks has 412 members and minecraft:stick
--- has 7 recipes, and an exhaustive search of that never finishes.
+-- has 7 recipes. An exhaustive search does terminate, but it took minutes for a single
+-- plan on host Lua -- and planning runs inline on a keypress, on a computer that is far
+-- slower than the host, so minutes is no better than never here.
 --
 -- Ranking is what makes small caps safe. Members and recipes that are already in stock
 -- sort first, so the case that matters succeeds on the first attempt; the cap only bites
