@@ -80,7 +80,7 @@ const CRAFTING_TYPES = ['minecraft:crafting_shaped', 'minecraft:crafting_shapele
 // An item that should be craftable but is missing from the pack. Logged with the
 // recipe type that produces it, so a filtered-out type is distinguishable from a
 // genuinely uncraftable item. Empty string disables the probe.
-const PROBE = ''
+const PROBE = 'mystical_powder'
 
 // Recipe bodies are kept as the Gson objects the game loaded and never converted to JS.
 // A JsonIO.toObject -> JsonIO.of round trip is lossy: it turns strings that look like
@@ -137,14 +137,19 @@ onEvent('recipes', function (event) {
         if (!recipeJson.has('type')) return
         var rawType = recipeJson.get('type').getAsString()
         typeCounts[rawType] = (typeCounts[rawType] || 0) + 1
-        if (PROBE !== '' && recipeJson.has('result')) {
-            var probeResult = recipeJson.get('result')
-            if (probeResult.isJsonObject() && probeResult.getAsJsonObject().has('item') &&
-                String(probeResult.getAsJsonObject().get('item').getAsString())
-                    .indexOf(PROBE) !== -1) {
+        // Scan the whole serialised recipe, not just result.item. The previous probe
+        // assumed the vanilla result shape and reported "nothing makes this" for a recipe
+        // the operator was demonstrably crafting -- a custom serialiser can put its output
+        // anywhere, or under a different key entirely. Cost is one toString per recipe on
+        // a diagnostic run, which is worth paying to stop guessing.
+        if (PROBE !== '') {
+            var probeText = JsonIO.toString(recipeJson)
+            if (probeText.indexOf(PROBE) !== -1) {
                 probeHits++
-                console.info('[pellstore] PROBE ' + String(recipe.id) +
-                    '  type=' + rawType)
+                if (probeHits <= 25) {
+                    console.info('[pellstore] PROBE ' + String(recipe.id) +
+                        '  type=' + rawType + '  ' + probeText.substring(0, 400))
+                }
             }
         }
         // A resource location with no namespace means minecraft:. Datapacks write plain
@@ -199,9 +204,9 @@ onEvent('recipes', function (event) {
     if (unresolved > 0) {
         console.warn('[pellstore] ' + unresolved + ' tags could not be resolved')
     }
-    if (PROBE !== '' && probeHits === 0) {
-        console.warn('[pellstore] PROBE ' + PROBE + ' is produced by no recipe the game ' +
-            'exposes at all -- not merely one this filters out')
+    if (PROBE !== '') {
+        console.info('[pellstore] PROBE ' + PROBE + ': ' + probeHits +
+            ' recipes mention it anywhere in their json')
     }
     // Every recipe type the game holds that this does not export, biggest first. If an
     // item is missing, the type that makes it is in here.
