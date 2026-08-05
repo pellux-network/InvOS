@@ -143,12 +143,16 @@ onEvent('recipes', function (event) {
         // anywhere, or under a different key entirely. Cost is one toString per recipe on
         // a diagnostic run, which is worth paying to stop guessing.
         if (PROBE !== '') {
-            var probeText = JsonIO.toString(recipeJson)
+            // String(...) first: JsonIO.toString hands back a java.lang.String, whose
+            // substring throws when the end index passes the length instead of clamping
+            // the way JavaScript's does. That killed the whole export on its second hit.
+            var probeText = String(JsonIO.toString(recipeJson))
             if (probeText.indexOf(PROBE) !== -1) {
                 probeHits++
                 if (probeHits <= 25) {
                     console.info('[pellstore] PROBE ' + String(recipe.id) +
-                        '  type=' + rawType + '  ' + probeText.substring(0, 400))
+                        '  type=' + rawType + '  ' +
+                        (probeText.length > 400 ? probeText.substring(0, 400) : probeText))
                 }
             }
         }
