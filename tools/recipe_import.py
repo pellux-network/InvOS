@@ -160,11 +160,28 @@ KUBEJS_SCHEMA = 2
 _SYMBOLS = "abcdefghi"
 
 
+def _as_int(value):
+    """JSON numbers from the dump arrive as floats.
+
+    KubeJS serialises every JS number as a double, so the dump says 1.0 where it means
+    index 1 and 2.0 for schema 2. Only whole values convert; a genuinely fractional one is
+    corruption and must not be rounded into a plausible-looking index.
+    """
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float) and value.is_integer():
+        return int(value)
+    return None
+
+
 def _lookup(table, index, what, recipe_id):
-    if not isinstance(index, int) or index < 1 or index > len(table):
+    whole = _as_int(index)
+    if whole is None or whole < 1 or whole > len(table):
         raise SystemExit("kubejs dump: %s index %r in %r is out of range; the dump and "
                          "pellstore_export.js disagree" % (what, index, recipe_id))
-    return table[index - 1]
+    return table[whole - 1]
 
 
 def _reference(options, items, recipe_id):
@@ -181,10 +198,10 @@ def _reference(options, items, recipe_id):
 
 
 def _shaped(entry, items, options, recipe_id):
-    width = entry.get("width")
-    height = entry.get("height")
+    width = _as_int(entry.get("width"))
+    height = _as_int(entry.get("height"))
     cells = entry.get("cells") or []
-    if not isinstance(width, int) or not isinstance(height, int) or width < 1 or height < 1:
+    if width is None or height is None or width < 1 or height < 1:
         raise SystemExit("kubejs dump: %r is shaped but has no usable size" % recipe_id)
     if len(cells) != width * height:
         raise SystemExit("kubejs dump: %r has %d cells for a %dx%d grid"
@@ -234,7 +251,7 @@ def read_kubejs(path):
     except ValueError as exc:
         raise SystemExit("kubejs dump is not valid json: %s (%s)" % (path, exc))
 
-    schema = payload.get("schema")
+    schema = _as_int(payload.get("schema"))
     if schema != KUBEJS_SCHEMA:
         raise SystemExit("kubejs dump schema %r is not supported (expected %d). Schema 1 "
                          "was read from KubeJS's json view, which cannot see script-added "

@@ -270,6 +270,29 @@ class ReadKubeJsTest(unittest.TestCase):
         with self.assertRaises(SystemExit):
             read_kubejs(handle.name)
 
+    def test_indices_written_as_floats_are_accepted(self):
+        # KubeJS serialises every JS number as a double, so the dump says 1.0 where it
+        # means index 1. Rejecting that would fail the entire import on a real dump while
+        # every hand-written fixture passed.
+        path = self.dump({"schema": 2.0,
+                          "items": ["minecraft:stick", "mod:widget"],
+                          "options": [[1.0]],
+                          "recipes": {"mod:w": {
+                              "shaped": True, "width": 1.0, "height": 1.0,
+                              "cells": [1.0],
+                              "result": {"item": 2.0, "count": 4.0}}}})
+        body = read_kubejs(path)[0]["mod:w"]
+        self.assertEqual(body["pattern"], ["a"])
+        self.assertEqual(body["key"]["a"], {"item": "minecraft:stick"})
+        self.assertEqual(body["result"], {"item": "mod:widget", "count": 4})
+
+    def test_a_fractional_index_is_still_refused(self):
+        path = self.dump({"schema": 2, "items": ["a:b"], "options": [[1]],
+                          "recipes": {"mod:w": {"shaped": False, "cells": [1.5],
+                                                "result": {"item": 1, "count": 1}}}})
+        with self.assertRaises(SystemExit):
+            read_kubejs(path)
+
     def test_an_out_of_range_index_is_refused_rather_than_guessed(self):
         path = self.dump(self.base({"mod:w": {
             "shaped": False, "cells": [99], "result": {"item": 3, "count": 1}}}))
