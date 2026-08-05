@@ -258,43 +258,71 @@ Expect `639 outputs, 0 unreachable`. A non-zero unreachable count means the conv
 
 ### Importing every modded recipe
 
-**Use the runtime dump for a modpack.** Roughly 10% of modded crafting recipes are gated
-behind `conditions`, and the common ones — `quark:flag`, `supplementaries:flag`,
-`thermal:flag`, `sophisticatedcore:item_enabled`, `mysticalagriculture:*` — depend on each
-mod's config, which only exists at runtime. Reading jars cannot evaluate them, so it reports
-recipes that are switched off, including both halves of a mutually exclusive pair.
+**Export from the running game.** Two independent reasons the files on disk are not the
+recipe set:
 
-Quark's chest is the clearest example. `minecraft:chest` from any planks is gated on
-`forge:not(quark:flag variant_chests)`, while `quark:dark_oak_chest` from dark oak planks is
-gated on the same flag being on. A jar scan yields both. The controller would then plan
-`minecraft:chest`, the turtle would craft a `quark:dark_oak_chest`, and the job would block
-on `OUTPUT_MISSING` — a craft that consumed real items and produced the wrong thing.
+*Conditions.* Roughly 10% of modded crafting recipes are gated behind `conditions`, and the
+common ones — `quark:flag`, `supplementaries:flag`, `thermal:flag`,
+`sophisticatedcore:item_enabled`, `mysticalagriculture:*` — depend on each mod's config,
+which only exists at runtime. Quark's chest is the clearest case: `minecraft:chest` from any
+planks is gated on `forge:not(quark:flag variant_chests)` while `quark:dark_oak_chest` is
+gated on the same flag being *on*. A jar scan yields both, so the controller plans
+`minecraft:chest`, the turtle crafts a `quark:dark_oak_chest`, and the job blocks on
+`OUTPUT_MISSING` having already consumed the materials.
+
+*Scripts.* KubeJS scripts add and remove recipes at runtime. This pack adds 10,186 and
+removes 2,409 — none of which exist in any file. Reading KubeJS's own `recipes` event is not
+enough either: `forEachRecipe` walks the recipes loaded from datapacks, not the ones scripts
+add, so it misses thousands of real recipes while still listing thousands that were removed.
+
+So the export reads `MinecraftServer.getRecipeManager()`, which is the collection a crafting
+table matches against. That also removes every special case: ingredients arrive already
+resolved to concrete items so tags need no expansion, conditions and script edits are already
+applied, and a recipe's serialiser stops mattering — `cucumber:shaped_no_mirror` and KubeJS's
+own `ShapedKubeJSRecipe` need no special handling.
 
 1. Copy `tools/kubejs/pellstore_export.js` into `<server>/kubejs/server_scripts/`.
-2. Restart the server, or run `/reload`. The script adds, removes and modifies nothing; it
-   reads the loaded recipe set and writes `kubejs/exported/pellstore_recipes.json`. Prefer a
-   restart on a large pack — `/reload` is server-wide and some mods handle it poorly.
-3. Convert, pairing the dump with the jars so display names come along:
+2. Restart the server. The script adds, removes and modifies nothing; it fires on
+   `server.load` and writes `kubejs/exported/pellstore_recipes.json`.
+3. Convert, pairing the dump with the jars so display names come along — the recipe manager
+   carries no language data:
 
 ```bash
-python tools/recipe_import.py \
-  --kubejs "C:/Servers/<world>/kubejs/exported/pellstore_recipes.json" \
-  --mods "C:/Servers/<world>/mods" \
-  --out controller/colossal/recipes --shards 16
+python tools/recipe_import.py   --jar "C:/Servers/<world>/libraries/net/minecraft/server/1.18.2/server-1.18.2.jar"   --kubejs "C:/Servers/<world>/kubejs/exported/pellstore_recipes.json"   --mods "C:/Servers/<world>/mods"   --out controller/colossal/recipes --shards 24
 ```
 
-The dump is applied last and wins: where it and the jars disagree, the game is right and the
-jars are describing recipes that conditions turned off. Its tags are used as-is rather than
-merged, because the game has already decided what each tag contains.
+**`--jar` is not optional if you want vanilla items named.** Without it every vanilla item
+renders as a raw id, because vanilla's `en_us.json` lives only in the server jar.
 
-The script's console line reports how many recipes and tags it exported. If it does not
-appear, check `logs/kubejs/server.txt` — script errors are logged there with a line number,
-not to `latest.log`.
+With `--kubejs` the dump *replaces* the jar-read recipes rather than merging with them: it
+already is the complete set. Jars contribute only language data.
 
-The script targets KubeJS 1802 (1.18.2). Its Java loader is the lowercase `java('...')`
-function; `Java.loadClass` is KubeJS 6 syntax and fails on 1802 with
-`ReferenceError: "Java" is not defined`. `JsonIO`, `Ingredient` and `Utils` are already
-global bindings and need no loader at all.
+Measured against the live installation:
+
+| | |
+|---|---|
+| recipes in the manager | 45,946 |
+| of crafting type | 26,440 |
+| exported | 26,087 |
+| converted to the pack | 26,087 |
+| distinct outputs | 22,705 |
+| unreachable on load | 0 |
+| pack size | 5.89 MB |
+
+The export leaves out special recipes (map cloning, firework assembly — no fixed output) and
+any whose ingredient nothing satisfies, and reports both counts. The converter additionally
+refuses NBT-constrained ingredients and results: honouring them is impossible when ingredient
+matching is NBT-free, and ignoring them would craft from the wrong stack. A recipe left out is
+uncraftable through this system; it is never crafted wrongly.
+
+The console line reports what it exported. If it does not appear, check
+`logs/kubejs/server.txt` — script errors go there, not to `latest.log`.
+
+Two things about KubeJS 1802's Rhino, each of which cost a server restart to learn: the Java
+loader is the lowercase `java('...')` (`Java.loadClass` is KubeJS 6 syntax), and `const`/`let`
+inside a function that runs more than once raises "redeclaration of var". Exceptions thrown
+inside Java calls are also not reliably catchable, so the script checks for null rather than
+relying on `try`/`catch`.
 
 #### Reading jars directly
 
