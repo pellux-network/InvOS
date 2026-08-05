@@ -9,6 +9,19 @@ local DEFAULT_STACK_LIMIT = 64
 local DEFAULT_DEPTH_LIMIT = 6
 -- Bounds the probe in maxCraftable so a recipe with a free ingredient cannot spin.
 local MAX_CRAFTABLE_CAP = 100000
+-- How many alternatives a single decision may actually try before settling for its
+-- top-ranked option. Both searches roll the ledger back between attempts, so their cost
+-- multiplies: on the live modpack minecraft:planks has 412 members and minecraft:stick
+-- has 7 recipes, and an exhaustive search of that never finishes.
+--
+-- Ranking is what makes small caps safe. Members and recipes that are already in stock
+-- sort first, so the case that matters succeeds on the first attempt; the cap only bites
+-- when nothing on hand fits, and trying the 400th plank type would not have helped.
+local MAX_TAG_TRIALS = 8
+local MAX_RECIPE_TRIALS = 4
+-- A backstop for pathological trees, where each bounded decision is cheap but there are
+-- very many of them. Counts attempted resolutions across the whole plan.
+local RESOLVE_BUDGET = 20000
 
 local function ceilDiv(numerator, denominator)
     local whole = math.floor(numerator / denominator)
@@ -46,21 +59,94 @@ local function availableTo(state, itemId)
     return free + (state.surplus[itemId] or 0)
 end
 
-local function pickRecipe(state, itemId)
+-- Every recipe for an item, best first. Committing to one choice was fine while the pack
+-- was vanilla and nearly every output had a single recipe. A modpack breaks that: in the
+-- live pack minecraft:stick has seven recipes and the two that sort first want a modded
+-- wood nobody stocks, so a single choice reported INSUFFICIENT_MATERIALS with usable
+-- planks on the shelf. The caller tries these in order and rolls back between attempts,
+-- exactly as tag candidates already worked.
+--
+-- Ranking exists so the search normally stops at the first attempt: a recipe whose
+-- ingredients are already in stock is tried before one that merely could be crafted.
+local function orderedRecipes(state, itemId)
     local recipes = state.repo:recipesFor(itemId)
-    if #recipes == 0 then return nil end
-    if #recipes == 1 then return recipes[1] end
+    if #recipes <= 1 then return recipes end
     local pinned = state.prefs and state.prefs:recipeChoice(itemId)
-    if pinned then
-        for _, body in ipairs(recipes) do
-            if body.id == pinned then return body end
+    local ranked = {}
+    for index, body in ipairs(recipes) do
+        local order = cellDemand(body)
+        local stocked = 0
+        for _, reference in ipairs(order) do
+            if type(reference) == "number" and reference > 0 then
+                local ingredient = state.repo:itemAt(reference)
+                if ingredient and availableTo(state, ingredient) > 0 then
+                    stocked = stocked + 1
+                end
+            elseif type(reference) == "string" then
+                for _, member in ipairs(state.repo:expand(reference)) do
+                    if availableTo(state, member) > 0 then stocked = stocked + 1; break end
+                end
+            end
+        end
+        ranked[#ranked + 1] = {body=body, index=index, stocked=stocked,
+            kinds=#order, pinned=(pinned ~= nil and body.id == pinned) and 1 or 0}
+    end
+    table.sort(ranked, function(left, right)
+        if left.pinned ~= right.pinned then return left.pinned > right.pinned end
+        if left.stocked ~= right.stocked then return left.stocked > right.stocked end
+        if left.kinds ~= right.kinds then return left.kinds < right.kinds end
+        return tostring(left.body.id) < tostring(right.body.id)
+    end)
+    local order = {}
+    for index, entry in ipairs(ranked) do order[index] = entry.body end
+    return order
+end
+
+-- Is anything satisfying this reference already on hand? Tag answers are memoised for
+-- the life of the plan: minecraft:planks has 412 members on the live pack, and this is
+-- asked once per candidate per recipe while ranking.
+local function stockedReference(state, reference)
+    if type(reference) == "number" and reference > 0 then
+        local ingredient = state.repo:itemAt(reference)
+        return ingredient ~= nil and availableTo(state, ingredient) > 0
+    end
+    if type(reference) ~= "string" then return false end
+    local cached = state.tagStocked[reference]
+    if cached ~= nil then return cached end
+    local found = false
+    for _, member in ipairs(state.repo:expand(reference)) do
+        if availableTo(state, member) > 0 then found = true; break end
+    end
+    state.tagStocked[reference] = found
+    return found
+end
+
+-- One level of lookahead: does some recipe for this item have every ingredient in stock?
+--
+-- Without it, ranking sees only what is directly on hand. With spruce logs and no planks
+-- at all, every one of the 412 plank types scores identically and the trial order falls
+-- back to item id, so the search spends its whole budget on woods that cannot be made
+-- from the stock present. Lookahead puts spruce_planks first, where it belongs.
+--
+-- Memoised, and deliberately not invalidated as the ledger moves: this only decides trial
+-- order, and every attempt is still verified and rolled back.
+local function craftableFromStock(state, itemId)
+    local cached = state.reachable[itemId]
+    if cached ~= nil then return cached end
+    state.reachable[itemId] = 0
+    local score = 0
+    for _, body in ipairs(state.repo:recipesFor(itemId)) do
+        local order = cellDemand(body)
+        if #order > 0 then
+            local complete = true
+            for _, reference in ipairs(order) do
+                if not stockedReference(state, reference) then complete = false; break end
+            end
+            if complete then score = 1; break end
         end
     end
-    local best = recipes[1]
-    for _, body in ipairs(recipes) do
-        if tostring(body.id) < tostring(best.id) then best = body end
-    end
-    return best
+    state.reachable[itemId] = score
+    return score
 end
 
 -- Preference order for a tag's members: a pin that is actually available, then most
@@ -73,6 +159,7 @@ local function orderedCandidates(state, tagName)
         ranked[#ranked + 1] = {
             item = itemId,
             available = availableTo(state, itemId),
+            reachable = craftableFromStock(state, itemId),
             craftable = state.repo:isCraftable(itemId) and 1 or 0,
         }
     end
@@ -84,6 +171,7 @@ local function orderedCandidates(state, tagName)
             end
         end
         if left.available ~= right.available then return left.available > right.available end
+        if left.reachable ~= right.reachable then return left.reachable > right.reachable end
         if left.craftable ~= right.craftable then return left.craftable > right.craftable end
         return left.item < right.item
     end)
@@ -127,8 +215,9 @@ local function recordShortfall(state, key, amount)
     state.shortfalls[key] = (state.shortfalls[key] or 0) + amount
 end
 
--- Forward declaration: resolve and resolveIngredient are mutually recursive.
+-- Forward declarations: resolve, resolveIngredient and tryRecipe are mutually recursive.
 local resolve
+local tryRecipe
 
 -- Turn one ingredient reference into a concrete item and resolve it. A plain item index
 -- has no choice to make. A tag tries its candidates in rank order and keeps the first
@@ -143,7 +232,9 @@ local function resolveIngredient(state, reference, amount, depth)
 
     local candidates = orderedCandidates(state, reference)
     if #candidates == 0 then return nil, false end
-    for _, candidate in ipairs(candidates) do
+    for index, candidate in ipairs(candidates) do
+        if index > MAX_TAG_TRIALS or state.budget <= 0 then break end
+        state.budget = state.budget - 1
         local saved = snapshot(state)
         state.chosen[reference] = candidate
         if resolve(state, candidate, amount, depth) then return candidate, true end
@@ -188,11 +279,29 @@ function resolve(state, itemId, needed, depth)
         recordShortfall(state, itemId, needed)
         return false
     end
-    local body = pickRecipe(state, itemId)
-    if not body then
+    local recipes = orderedRecipes(state, itemId)
+    if #recipes == 0 then
         recordShortfall(state, itemId, needed)
         return false
     end
+
+    -- Try each recipe and keep the first that genuinely resolves, rolling the ledger back
+    -- between attempts. Ranking means a recipe whose ingredients are in stock is tried
+    -- first, so the common case still stops immediately.
+    for index, candidate in ipairs(recipes) do
+        if index > MAX_RECIPE_TRIALS or state.budget <= 0 then break end
+        state.budget = state.budget - 1
+        local saved = snapshot(state)
+        if tryRecipe(state, itemId, needed, depth, candidate) then return true end
+        restore(state, saved)
+    end
+    -- Nothing worked. Resolve the top-ranked recipe once more so the shortfall names
+    -- concrete items the operator can go and get, rather than nothing at all.
+    tryRecipe(state, itemId, needed, depth, recipes[1])
+    return false
+end
+
+function tryRecipe(state, itemId, needed, depth, body)
     local perCraft = body.count or 1
     if perCraft < 1 then
         recordShortfall(state, itemId, needed)
@@ -309,6 +418,8 @@ function CraftPlanner.plan(request, context)
         stackLimit = context.stack_limit or function() return DEFAULT_STACK_LIMIT end,
         prefs = context.prefs,
         depthLimit = context.depth_limit or DEFAULT_DEPTH_LIMIT,
+        budget = context.resolve_budget or RESOLVE_BUDGET,
+        tagStocked = {}, reachable = {},
         reserved = {}, surplus = {}, withdrawals = {}, shortfalls = {},
         chosen = {}, steps = {}, seen = {},
     }

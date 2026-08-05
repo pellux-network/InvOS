@@ -158,11 +158,24 @@ local function newTurtle(buffer)
 end
 
 -- Routes the service's turtle commands into the real executor.
-local function newLink(turtle, recipes)
+--
+-- What the fake turtle will accept is derived from the command itself rather than from a
+-- table of known recipes. A hardcoded table only ever describes one recipe pack, and it
+-- silently fails every craft the pack routes differently -- swapping the vanilla pack for
+-- the live modded one turned "craft a chest" into two Quark steps the table had never
+-- heard of. Deriving it also makes the check stricter: the grid must hold exactly the
+-- cells the controller asked for, which is the property that actually matters.
+local function newLink(turtle)
     local link = {sent = {}, reply = nil}
     function link:send(command)
         self.sent[#self.sent + 1] = command
-        turtle.recipe = recipes[command.result.name]
+        local slots, runs = {}, nil
+        for _, step in ipairs(command.steps or {}) do
+            runs = runs or step.per_cell
+            for _, cell in ipairs(step.cells or {}) do slots[#slots + 1] = cell end
+        end
+        turtle.recipe = {item = command.result.name, slots = slots,
+            per = math.floor(command.result.count / math.max(runs or 1, 1))}
         self.reply = Executor.new({turtle = turtle}):handle(command)
         return true
     end
@@ -203,13 +216,7 @@ end
 local function run(item, quantity, storage)
     local buffer = newBuffer()
     local turtle = newTurtle(buffer)
-    local link = newLink(turtle, {
-        -- slots are the turtle grid slots each recipe must occupy
-        ["minecraft:oak_planks"] = {item = "minecraft:oak_planks", per = 4, slots = {1}},
-        ["minecraft:stick"] = {item = "minecraft:stick", per = 4, slots = {1, 5}},
-        ["minecraft:chest"] = {item = "minecraft:chest", per = 1,
-            slots = {1, 2, 3, 5, 7, 9, 10, 11}},
-    })
+    local link = newLink(turtle)
     local delivered = {}
     local requests = newRequests(buffer, storage, delivered)
     local craftBuffer = {}
