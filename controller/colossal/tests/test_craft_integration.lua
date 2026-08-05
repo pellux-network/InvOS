@@ -97,11 +97,7 @@ return {
     {name="typing filters the catalogue down to matching recipes",run=function()
         local coordinator = build({})
         coordinator:command({type="OPEN_PAGE", page="crafting"})
-        -- Deliberately specific. On the live modded pack 220 outputs match "chest" and
-        -- the display caps at 60, so the vanilla chest falls outside the page: results are
-        -- taken in catalogue order with no relevance ranking. That is a real usability
-        -- gap worth closing, but it is not what this test is about.
-        coordinator:command({type="CRAFT_QUERY_APPEND", text="minecraft:chest"})
+        coordinator:command({type="CRAFT_QUERY_APPEND", text="chest"})
         coordinator:_syncCraft()
         local state = coordinator:viewModel().ui
         T.truthy(state.craft_result_count > 0, "chest should match something")
@@ -110,7 +106,7 @@ return {
         for _, entry in ipairs(state.craft_results) do
             local label = tostring(entry.display_name or entry.item):lower()
             T.truthy(label:find("chest", 1, true) ~= nil or
-                tostring(entry.item):lower():find("minecraft:chest", 1, true) ~= nil,
+                tostring(entry.item):lower():find("chest", 1, true) ~= nil,
                 "every result must match the query, got " .. tostring(entry.item))
         end
         local found = false
@@ -119,6 +115,61 @@ return {
         end
         T.equal(found, true)
     end},
+    {name="an exact name outranks everything that merely contains it",run=function()
+        -- The catalogue is 22,391 outputs on the live modded pack and the page shows 60.
+        -- Taking the first 60 matches in catalogue order pushed minecraft:chest off the
+        -- page entirely for the query "chest", behind 220 other matches. Relevance has to
+        -- decide what survives truncation, not iteration order.
+        local coordinator = build({})
+        local results = coordinator:_craftSearch("chest")
+        T.truthy(#results > 0, "chest must match something")
+        T.equal(results[1].item, "minecraft:chest",
+            "the exact item is the one the operator meant, got " .. tostring(results[1].item))
+    end},
+    {name="a prefix beats a match buried mid-word",run=function()
+        local coordinator = build({})
+        local results = coordinator:_craftSearch("oak")
+        local prefixAt, buriedAt
+        for index, entry in ipairs(results) do
+            local label = tostring(entry.display_name or entry.item):lower()
+            local path = tostring(entry.item):lower():match("[^:]+$") or ""
+            if not prefixAt and (label:find("^oak") or path:find("^oak")) then
+                prefixAt = index
+            end
+            if not buriedAt and not (label:find("^oak") or path:find("^oak")) then
+                buriedAt = index
+            end
+        end
+        T.truthy(prefixAt ~= nil, "something must start with oak")
+        if buriedAt then
+            T.truthy(prefixAt < buriedAt,
+                "a prefix match must sort above a mid-word one")
+        end
+    end},
+    {name="ranking never returns something that does not match",run=function()
+        local coordinator = build({})
+        for _, entry in ipairs(coordinator:_craftSearch("piston")) do
+            local label = tostring(entry.display_name or entry.item):lower()
+            T.truthy(label:find("piston", 1, true) ~= nil or
+                tostring(entry.item):lower():find("piston", 1, true) ~= nil,
+                "got a non-match: " .. tostring(entry.item))
+        end
+    end},
+    {name="an empty query still lists the catalogue",run=function()
+        -- Nothing to rank by, so this stays cheap: the first page in catalogue order.
+        local coordinator = build({})
+        local results = coordinator:_craftSearch("")
+        T.equal(#results, 60, "an empty query fills the page")
+    end},
+    {name="a query matching nothing returns nothing",run=function()
+        local coordinator = build({})
+        T.equal(#coordinator:_craftSearch("zzzznotathing"), 0)
+    end},
+    {name="results stay capped at one page",run=function()
+        local coordinator = build({})
+        T.truthy(#coordinator:_craftSearch("a") <= 60, "the display cap still holds")
+    end},
+
     {name="planning a craft from stock produces a committable plan",run=function()
         local coordinator = build({["minecraft:oak_log"]=64})
         coordinator:command({type="OPEN_PAGE", page="crafting"})

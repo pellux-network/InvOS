@@ -727,9 +727,9 @@ function Coordinator:_enrichmentProgress()
 end
 
 
--- The recipe catalogue is 639 entries and does not change while the controller runs, so
--- it is built once rather than rebuilt per keystroke. Stock is looked up per displayed
--- result instead, which is bounded by the display limit.
+-- The recipe catalogue runs to tens of thousands of entries on a modded pack and does not
+-- change while the controller runs, so it is built once rather than rebuilt per keystroke.
+-- Stock is looked up per displayed result instead, which is bounded by the display limit.
 function Coordinator:_craftCatalogue()
     if self.craftCatalogue then return self.craftCatalogue end
     local repo = self.deps.recipes
@@ -737,6 +737,24 @@ function Coordinator:_craftCatalogue()
     local ok, listed = pcall(repo.outputs, repo)
     self.craftCatalogue = ok and listed or {}
     return self.craftCatalogue
+end
+
+-- Lowercased display name and bare item path, one string pair per catalogue entry, built
+-- once alongside the catalogue. Deriving these per keystroke means lowercasing and pattern
+-- matching every one of 22,391 entries on every character typed, which is the single
+-- most expensive thing the crafting page could do on a computer this slow.
+--
+-- Namespaced item IDs are lowercase by construction, so they are compared as-is.
+function Coordinator:_craftSearchIndex()
+    if self.craftSearchIndex then return self.craftSearchIndex end
+    local labels, paths = {}, {}
+    for index, entry in ipairs(self:_craftCatalogue()) do
+        local id = tostring(entry.item)
+        labels[index] = tostring(entry.display_name or id):lower()
+        paths[index] = id:match("[^:]+$") or id
+    end
+    self.craftSearchIndex = {labels=labels, paths=paths}
+    return self.craftSearchIndex
 end
 
 function Coordinator:_craftStock(itemId)
@@ -747,16 +765,95 @@ function Coordinator:_craftStock(itemId)
     return quantity
 end
 
+-- Does the needle occur at the start of a word? Written as a scan over plain finds rather
+-- than a pattern, because the needle is operator input and would otherwise have to be
+-- escaped: a query containing "-" or "%" is ordinary, not a malformed pattern.
+local function startsWord(haystack, needle)
+    local from = 1
+    while true do
+        local at = haystack:find(needle, from, true)
+        if not at then return false end
+        if at == 1 then return true end
+        if not haystack:sub(at - 1, at - 1):match("%w") then return true end
+        from = at + 1
+    end
+end
+
+-- How well one entry answers the query, highest first. The exact item an operator typed
+-- outranks the couple of hundred things whose names merely contain it.
+--
+-- The three kinds of exact match are ranked apart rather than lumped together, because
+-- several mods can share a path: "chest" is the exact path of both minecraft:chest and
+-- ae2:chest, and only one of them is named "Chest".
+local function relevance(label, id, path, needle)
+    if id == needle then return 6 end
+    if label == needle then return 5 end
+    if path == needle then return 4 end
+    if path:sub(1, #needle) == needle or label:sub(1, #needle) == needle then return 3 end
+    local inLabel = label:find(needle, 1, true) ~= nil
+    local inPath = path:find(needle, 1, true) ~= nil
+    if not inLabel and not inPath then
+        -- Still allow a namespace match, so "quark" finds that mod's outputs.
+        if id:find(needle, 1, true) then return 1 end
+        return 0
+    end
+    if (inLabel and startsWord(label, needle)) or (inPath and startsWord(path, needle)) then
+        return 2
+    end
+    return 1
+end
+
+local CRAFT_SEARCH_LIMIT = 60
+local CRAFT_BEST_SCORE = 6
+
+-- Rank matches rather than taking the first page of them in catalogue order.
+--
+-- With the 639-entry vanilla pack, iteration order was as good as anything. On the live
+-- modded pack "chest" matches 220 of 22,391 outputs, and minecraft:chest fell off the
+-- 60-row page entirely -- the operator had to know to type "minecraft:chest".
+--
+-- Bucketing by score rather than sorting the matches keeps this a single pass with no
+-- comparison sort, and each bucket stops growing at the display limit, so the work and
+-- the memory are bounded by the page size instead of by how many things matched.
 function Coordinator:_craftSearch(query)
     local needle = tostring(query or ""):lower()
-    local results, limit = {}, 60
-    for _, entry in ipairs(self:_craftCatalogue()) do
-        if #results >= limit then break end
-        local label = tostring(entry.display_name or entry.item):lower()
-        if needle == "" or label:find(needle, 1, true) or
-            tostring(entry.item):lower():find(needle, 1, true) then
-            results[#results + 1] = {item=entry.item, display_name=entry.display_name,
-                quantity=self:_craftStock(entry.item)}
+    local catalogue = self:_craftCatalogue()
+    local results = {}
+
+    local function take(entry)
+        results[#results + 1] = {item=entry.item, display_name=entry.display_name,
+            quantity=self:_craftStock(entry.item)}
+    end
+
+    -- Nothing to rank by, so stay cheap and show the first page as before.
+    if needle == "" then
+        for _, entry in ipairs(catalogue) do
+            if #results >= CRAFT_SEARCH_LIMIT then break end
+            take(entry)
+        end
+        return results
+    end
+
+    local index = self:_craftSearchIndex()
+    local labels, paths = index.labels, index.paths
+    local buckets = {}
+    for position, entry in ipairs(catalogue) do
+        local score = relevance(labels[position], tostring(entry.item),
+            paths[position], needle)
+        if score > 0 then
+            local bucket = buckets[score]
+            if not bucket then bucket = {}; buckets[score] = bucket end
+            if #bucket < CRAFT_SEARCH_LIMIT then bucket[#bucket + 1] = entry end
+        end
+        -- A full bucket of exact matches cannot be improved on, so stop reading.
+        local best = buckets[CRAFT_BEST_SCORE]
+        if best and #best >= CRAFT_SEARCH_LIMIT then break end
+    end
+
+    for score = CRAFT_BEST_SCORE, 1, -1 do
+        for _, entry in ipairs(buckets[score] or {}) do
+            if #results >= CRAFT_SEARCH_LIMIT then return results end
+            take(entry)
         end
     end
     return results
