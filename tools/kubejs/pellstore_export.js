@@ -73,6 +73,10 @@ function outputPath() {
 
 // Only the two 3x3 types, because those are the only ones a crafty turtle can perform.
 const CRAFTING_TYPES = ['minecraft:crafting_shaped', 'minecraft:crafting_shapeless']
+// An item that should be craftable but is missing from the pack. Logged with the
+// recipe type that produces it, so a filtered-out type is distinguishable from a
+// genuinely uncraftable item. Empty string disables the probe.
+const PROBE = 'the_vault:mystical_powder'
 
 // Recipe bodies are kept as the Gson objects the game loaded and never converted to JS.
 // A JsonIO.toObject -> JsonIO.of round trip is lossy: it turns strings that look like
@@ -90,6 +94,12 @@ onEvent('recipes', function (event) {
     var skipped = 0
     var exported = 0
     var unresolved = 0
+    // Diagnostics. PROBE names an item the operator says is craftable but that is missing
+    // from the pack; every recipe producing it is logged with its type, whatever that type
+    // is, so "not craftable" and "craftable by something we filter out" stop looking alike.
+    // Set PROBE to '' to turn it off.
+    var typeCounts = {}
+    var probeHits = 0
 
     // Walk the Gson tree directly rather than converting it. Every tag the exported
     // recipes refer to is collected, so the importer needs no second source and cannot
@@ -121,6 +131,18 @@ onEvent('recipes', function (event) {
             return
         }
         if (!recipeJson.has('type')) return
+        var rawType = recipeJson.get('type').getAsString()
+        typeCounts[rawType] = (typeCounts[rawType] || 0) + 1
+        if (PROBE !== '' && recipeJson.has('result')) {
+            var probeResult = recipeJson.get('result')
+            if (probeResult.isJsonObject() && probeResult.getAsJsonObject().has('item') &&
+                String(probeResult.getAsJsonObject().get('item').getAsString())
+                    .indexOf(PROBE) !== -1) {
+                probeHits++
+                console.info('[pellstore] PROBE ' + String(recipe.id) +
+                    '  type=' + rawType)
+            }
+        }
         // A resource location with no namespace means minecraft:. Datapacks write plain
         // "crafting_shaped" freely, and matching only the qualified form silently dropped
         // 1,135 real grid recipes on this pack -- most of two mods.
@@ -173,4 +195,21 @@ onEvent('recipes', function (event) {
     if (unresolved > 0) {
         console.warn('[pellstore] ' + unresolved + ' tags could not be resolved')
     }
+    if (PROBE !== '' && probeHits === 0) {
+        console.warn('[pellstore] PROBE ' + PROBE + ' is produced by no recipe the game ' +
+            'exposes at all -- not merely one this filters out')
+    }
+    // Every recipe type the game holds that this does not export, biggest first. If an
+    // item is missing, the type that makes it is in here.
+    var names = []
+    for (var key in typeCounts) {
+        if (CRAFTING_TYPES.indexOf(key.indexOf(':') === -1 ? 'minecraft:' + key : key) === -1) {
+            names.push(key)
+        }
+    }
+    names.sort(function (a, b) { return typeCounts[b] - typeCounts[a] })
+    console.info('[pellstore] top non-crafting recipe types held by the game:')
+    names.slice(0, 15).forEach(function (key) {
+        console.info('[pellstore]   ' + key + ': ' + typeCounts[key])
+    })
 })
