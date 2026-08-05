@@ -28,6 +28,7 @@
 // priority: 0
 
 const $KubeJSPaths = java('dev.latvian.mods.kubejs.KubeJSPaths')
+const $Paths = java('java.nio.file.Paths')
 
 // Only the two 3x3 types, because those are the only ones a crafty turtle can perform.
 const CRAFTING_TYPES = ['minecraft:crafting_shaped', 'minecraft:crafting_shapeless']
@@ -99,7 +100,10 @@ onEvent('recipes', function (event) {
         tags[tagName] = items
     })
 
-    var target = $KubeJSPaths.EXPORTED.resolve('pellstore_recipes.json')
+    // Not EXPORTED.resolve('...'): Path.resolve is overloaded on Path and String, and
+    // Rhino refuses the call as ambiguous. Paths.get(String, String...) called with two
+    // strings can only match the varargs form, so there is nothing left to resolve.
+    var target = $Paths.get(String($KubeJSPaths.EXPORTED), 'pellstore_recipes.json')
     JsonIO.write(target, JsonIO.of({
         schema: 1,
         generated_by: 'tools/kubejs/pellstore_export.js',
