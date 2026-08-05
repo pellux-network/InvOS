@@ -121,7 +121,12 @@ onEvent('recipes', function (event) {
             return
         }
         if (!recipeJson.has('type')) return
-        if (CRAFTING_TYPES.indexOf(recipeJson.get('type').getAsString()) === -1) return
+        // A resource location with no namespace means minecraft:. Datapacks write plain
+        // "crafting_shaped" freely, and matching only the qualified form silently dropped
+        // 1,135 real grid recipes on this pack -- most of two mods.
+        var kind = recipeJson.get('type').getAsString()
+        if (kind.indexOf(':') === -1) kind = 'minecraft:' + kind
+        if (CRAFTING_TYPES.indexOf(kind) === -1) return
 
         // Keyed by id: the importer keys recipes by id too, and two mods shipping the same
         // path under different namespaces must stay distinct.

@@ -193,6 +193,47 @@ class ConvertRecipeTest(unittest.TestCase):
             self.converter.convert("minecraft:widget", recipe)
 
 
+class UnqualifiedRecipeTypeTest(unittest.TestCase):
+    """A resource location with no namespace means minecraft:.
+
+    Vanilla writes "minecraft:crafting_shaped", but a datapack may write plain
+    "crafting_shaped" and the game treats them identically. Matching only the qualified
+    form silently dropped 1,135 real grid recipes on the live pack, 146 of them from
+    mysticalagriculture alone -- entire mods looked uncraftable.
+    """
+
+    def setUp(self):
+        self.converter = Converter()
+
+    def shaped(self, kind):
+        return {"type": kind, "pattern": ["#"], "key": {"#": {"item": "minecraft:stick"}},
+                "result": {"item": "mod:widget"}}
+
+    def test_unqualified_shaped_is_converted(self):
+        self.assertIsNotNone(self.converter.convert("mod:x", self.shaped("crafting_shaped")))
+
+    def test_unqualified_shapeless_is_converted(self):
+        body = self.converter.convert("mod:x", {
+            "type": "crafting_shapeless",
+            "ingredients": [{"item": "minecraft:stick"}],
+            "result": {"item": "mod:widget"}})
+        self.assertIsNotNone(body)
+        self.assertFalse(body["shaped"])
+
+    def test_the_qualified_form_still_works(self):
+        body = self.converter.convert("mod:x", self.shaped("minecraft:crafting_shaped"))
+        self.assertIsNotNone(body)
+        self.assertTrue(body["shaped"])
+
+    def test_a_namespaced_lookalike_is_still_refused(self):
+        # create:crafting_shaped would be a different serializer entirely, not a grid
+        # recipe a turtle can perform.
+        self.assertIsNone(self.converter.convert("mod:x", self.shaped("create:crafting_shaped")))
+
+    def test_other_unqualified_types_are_still_refused(self):
+        self.assertIsNone(self.converter.convert("mod:x", self.shaped("smelting")))
+
+
 class UnrepresentableIngredientTest(unittest.TestCase):
     """Vanilla only ever writes {"item":...}, {"tag":...} or a list of those. A modpack
     does not, and a recipe the pack cannot represent faithfully must be left out rather

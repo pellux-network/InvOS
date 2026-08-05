@@ -96,6 +96,19 @@ def display_names(item_ids, lang):
 CRAFTABLE_TYPES = ("minecraft:crafting_shaped", "minecraft:crafting_shapeless")
 
 
+def normalise_type(kind):
+    """A resource location with no namespace means minecraft:.
+
+    Vanilla writes "minecraft:crafting_shaped"; a datapack may write plain
+    "crafting_shaped", and the game treats them identically. Matching only the
+    qualified form dropped 1,135 real grid recipes on the live modpack -- 146
+    from mysticalagriculture alone, so whole mods looked uncraftable.
+    """
+    if not isinstance(kind, str):
+        return ""
+    return kind if ":" in kind else "minecraft:" + kind
+
+
 class Converter:
     """Turns raw recipe JSON into pack recipe bodies.
 
@@ -163,6 +176,7 @@ class Converter:
 
     def convert(self, recipe_id, recipe):
         kind = recipe.get("type")
+        kind = normalise_type(kind)
         if kind not in CRAFTABLE_TYPES:
             return None
         result = recipe.get("result") or {}
