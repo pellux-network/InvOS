@@ -23,7 +23,11 @@ const $ForgeRegistries = java('net.minecraftforge.registries.ForgeRegistries')
 
 function itemIdOf(stack) {
     try {
-        return String($ForgeRegistries.ITEMS.getKey(stack.getItem()))
+        // getKey returns null for an item with no registry entry, and stringifying that
+        // null is itself an NPE inside Rhino -- which killed the previous scan outright.
+        var key = $ForgeRegistries.ITEMS.getKey(stack.getItem())
+        if (key === null || key === undefined) return null
+        return String(key)
     } catch (error) {
         return null
     }
@@ -44,29 +48,39 @@ onEvent('server.load', function (event) {
     var hits = 0
     var unreadable = 0
     var crafting = 0
+    var failed = 0
     var accessor = null
 
+    // One recipe must never end the scan. The whole body is guarded, because the recipes
+    // worth finding here are exactly the unusual ones most likely to throw.
     all.forEach(function (recipe) {
         total++
-        var kind = ''
-        try { kind = String(recipe.getType()) } catch (error) { kind = '?' }
-        if (kind.indexOf('crafting') !== -1) crafting++
+        try {
+            var kind = '?'
+            try { kind = String(recipe.getType()) } catch (error) {}
+            if (kind.indexOf('crafting') !== -1) crafting++
 
-        var got = resultOf(recipe)
-        if (!got || !got.stack) { unreadable++; return }
-        accessor = accessor || got.how
-        var id = itemIdOf(got.stack)
-        if (id === null) { unreadable++; return }
-        if (id.indexOf(PROBE_ITEM) === -1) return
-        hits++
-        var cls = '?'
-        try { cls = String(recipe.getClass().getName()) } catch (error) {}
-        console.info('[pellstore-probe] MAKES  recipe=' + String(recipe.getId()) +
-            '  type=' + kind + '  class=' + cls)
+            var got = resultOf(recipe)
+            if (!got || !got.stack) { unreadable++; return }
+            accessor = accessor || got.how
+            var id = itemIdOf(got.stack)
+            if (id === null) { unreadable++; return }
+            if (id.indexOf(PROBE_ITEM) === -1) return
+            hits++
+            var cls = '?'
+            try { cls = String(recipe.getClass().getName()) } catch (error) {}
+            var rid = '?'
+            try { rid = String(recipe.getId()) } catch (error) {}
+            console.info('[pellstore-probe] MAKES  recipe=' + rid +
+                '  type=' + kind + '  class=' + cls)
+        } catch (error) {
+            failed++
+        }
     })
 
     console.info('[pellstore-probe] result accessor: ' + accessor)
     console.info('[pellstore-probe] manager holds ' + total + ' recipes, ' + crafting +
-        ' of crafting type; ' + unreadable + ' had no readable result')
+        ' of crafting type; ' + unreadable + ' had no readable result, ' + failed +
+        ' threw and were skipped')
     console.info('[pellstore-probe] ' + hits + ' produce ' + PROBE_ITEM)
 })
