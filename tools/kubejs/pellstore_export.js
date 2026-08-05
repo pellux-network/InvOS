@@ -80,7 +80,7 @@ const CRAFTING_TYPES = ['minecraft:crafting_shaped', 'minecraft:crafting_shapele
 // An item that should be craftable but is missing from the pack. Logged with the
 // recipe type that produces it, so a filtered-out type is distinguishable from a
 // genuinely uncraftable item. Empty string disables the probe.
-const PROBE = 'mystical_powder'
+const PROBE = ''
 
 // Recipe bodies are kept as the Gson objects the game loaded and never converted to JS.
 // A JsonIO.toObject -> JsonIO.of round trip is lossy: it turns strings that look like
