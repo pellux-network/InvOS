@@ -27,8 +27,8 @@
 
 // priority: 0
 
-const $KubeJSPaths = java('dev.latvian.mods.kubejs.KubeJSPaths')
-const $Paths = java('java.nio.file.Paths')
+// Where the dump lands, relative to the game directory.
+const OUTPUT_PATH = 'kubejs/exported/pellstore_recipes.json'
 
 // Only the two 3x3 types, because those are the only ones a crafty turtle can perform.
 const CRAFTING_TYPES = ['minecraft:crafting_shaped', 'minecraft:crafting_shapeless']
@@ -100,10 +100,13 @@ onEvent('recipes', function (event) {
         tags[tagName] = items
     })
 
-    // Not EXPORTED.resolve('...'): Path.resolve is overloaded on Path and String, and
-    // Rhino refuses the call as ambiguous. Paths.get(String, String...) called with two
-    // strings can only match the varargs form, so there is nothing left to resolve.
-    var target = $Paths.get(String($KubeJSPaths.EXPORTED), 'pellstore_recipes.json')
+    // Utils.getFileFromPath resolves a string against the game directory and has exactly
+    // one signature, and File.toPath takes no arguments. Both avoid the overload problem,
+    // and neither needs a class loaded -- Utils and JsonIO are already global bindings.
+    // KubeJSPaths.EXPORTED.resolve(...) is ambiguous between resolve(Path) and
+    // resolve(String), and java.nio.file.Paths cannot be loaded at all: the class filter
+    // blocks java.nio regardless of disableClassFilter.
+    var target = Utils.getFileFromPath(OUTPUT_PATH).toPath()
     JsonIO.write(target, JsonIO.of({
         schema: 1,
         generated_by: 'tools/kubejs/pellstore_export.js',
