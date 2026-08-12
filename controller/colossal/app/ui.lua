@@ -413,15 +413,23 @@ end
 -- `render(index, y, selected)` for each visible row. Returns the scroll offset and the window
 -- height so a caller can map a click back to an index. The offset is returned, never stored:
 -- a render that mutates state is what tests/test_ui_purity.lua forbids.
-function UI:_list(top, bottom, count, selection, render)
+-- The windowing half, for a list that scrolls by an explicit offset rather than by a
+-- selection. The Nodes page has no selection: it scrolls with the arrow keys directly.
+function UI:_windowed(top, bottom, count, scroll, render)
     local visible = math.max(0, bottom - top + 1)
-    local scroll = scrollFor(selection, count, visible)
+    scroll = math.max(1, math.min(scroll or 1, math.max(1, (count or 0) - visible + 1)))
     for offset = 0, visible - 1 do
         local index = scroll + offset
         if index > (count or 0) then break end
-        render(index, top + offset, index == selection)
+        render(index, top + offset)
     end
     return scroll, visible
+end
+
+function UI:_list(top, bottom, count, selection, render)
+    local visible = math.max(0, bottom - top + 1)
+    return self:_windowed(top, bottom, count, scrollFor(selection, count, visible),
+        function(index, y) render(index, y, index == selection) end)
 end
 
 -- One list row: an optional status marker, a name, and a right-aligned value. Selection is a
@@ -625,35 +633,42 @@ end
 
 function UI:_storage(state, model)
     local surface = self.surface
-    local width, height = surface.getSize()
-    surface.setTextColor(palette.red); writeClipped(surface, 2, 3, "STORAGE NODES", width - 2)
+    local regions = Layout.regions(surface.getSize())
+    local bandRow = regions.content.top
+    self:_band(bandRow)
+    self:_bandText(2, bandRow, "NODE", regions.width - 2)
+    Draw.rightText(surface, regions.width - 1, bandRow, "USED", Theme.role.muted, Theme.role.panel)
     local nodes = model.nodes or {}
     if #nodes == 0 then
-        surface.setTextColor(palette.lightGray)
-        writeClipped(surface, 2, 5, "No storage nodes configured", width - 3)
-        writeClipped(surface, 2, 6, "Open Setup to add a Colossal Chest", width - 3)
+        Draw.text(surface, 2, bandRow + 1, "No storage nodes configured", regions.width - 3,
+            Theme.role.muted, Theme.role.ground)
+        Draw.text(surface, 2, bandRow + 2, "Open Setup to add a Colossal Chest",
+            regions.width - 3, Theme.role.muted, Theme.role.ground)
         return
     end
-    local bodyTop, visible = listBand(height)
-    local scroll = math.max(1, math.min((state or {}).storage_scroll or 1,
-        math.max(1, #nodes - visible + 1)))
-    for row = 0, visible - 1 do
-        local node = nodes[scroll + row]
-        if node then
-            local y = bodyTop + row
-            surface.setTextColor(stateColor(node.state))
-            writeClipped(surface, 2, y, "o", 1)
-            surface.setTextColor(palette.white)
-            writeClipped(surface, 4, y, node.label or node.id, math.max(1, width - 30))
-            surface.setTextColor(palette.lightGray)
-            local capacity = formatNumber(node.occupied or 0) .. " / " ..
-                formatNumber(node.size or 0) .. " slots"
-            writeClipped(surface, math.max(4, width - #capacity - 10), y, capacity, #capacity)
-            surface.setTextColor(stateColor(node.state))
-            writeClipped(surface, math.max(4, width - #(node.state or "") - 1), y,
-                node.state or "", #(node.state or ""))
-        end
-    end
+    -- A meter is worth more than the raw slot counts here: "62%" answers the question, and
+    -- "420 / 3,075 slots" makes you do the arithmetic yourself.
+    local meterWidth = math.max(0, math.min(10, regions.width - 26))
+    local meterX = regions.width - meterWidth - 6
+    self:_windowed(bandRow + 1, regions.content.bottom, #nodes,
+        (state or {}).storage_scroll or 1, function(index, y)
+            local node = nodes[index]
+            local size = node.size or 0
+            local fraction = size > 0 and ((node.occupied or 0) / size) or 0
+            local percent = tostring(math.floor(fraction * 100 + 0.5)) .. "%"
+            Draw.band(surface, y, Theme.role.ground)
+            Draw.text(surface, 2, y, "o", 1, Theme.statusColor(node.state), Theme.role.ground)
+            Draw.text(surface, 4, y, tostring(node.label or node.id),
+                math.max(1, meterX - 5), Theme.role.text, Theme.role.ground)
+            if meterWidth > 0 then
+                local fill = fraction >= 0.9 and Theme.role.alert
+                    or (fraction >= 0.75 and Theme.role.warn or Theme.role.ok)
+                Draw.meter(surface, meterX, y, meterWidth, fraction, fill, Theme.role.track)
+            end
+            Draw.rightText(surface, regions.width - 1, y, percent,
+                Theme.role.muted, Theme.role.ground)
+        end)
+    self:_strip(regions, model)
 end
 
 function UI:_requests(state, model)

@@ -26,6 +26,19 @@ return {
         screen:_list(1, 8, 0, 1, function() seen = seen + 1 end)
         T.equal(seen, 0)
     end },
+    { name = "a windowed list honours an explicit scroll offset", run = function()
+        local screen, seen = ui(), {}
+        local scroll = screen:_windowed(1, 5, 20, 8, function(index) seen[#seen + 1] = index end)
+        T.equal(scroll, 8)
+        T.equal(seen[1], 8)
+        T.equal(#seen, 5)
+    end },
+    { name = "a windowed list clamps a scroll past the end back onto the last page", run = function()
+        local screen, seen = ui(), {}
+        local scroll = screen:_windowed(1, 5, 20, 99, function(index) seen[#seen + 1] = index end)
+        T.equal(scroll, 16, "twenty rows in a five-row window ends at sixteen")
+        T.equal(seen[#seen], 20, "the last row must be reachable")
+    end },
     { name = "the selected row is filled in the focus colour everywhere", run = function()
         local screen = ui()
         screen:_row(4, true, 1, 20, "o", Theme.role.ok, "Iron Ingot", "1,284")

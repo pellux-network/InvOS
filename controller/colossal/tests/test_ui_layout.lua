@@ -146,8 +146,9 @@ return {
         local state=UI.initialState(); state.page="storage"
         ui:render(state,view())
         T.contains(surface.allText(),"Main Vault")
-        T.contains(surface.allText(),"READY")
-        T.contains(surface.allText(),"420 / 3,075 slots")
+        -- The raw slot counts became a meter and a percentage: "420 / 3,075 slots" made you
+        -- do the arithmetic, and 14% is the answer you wanted from it.
+        T.contains(surface.allText(),"14%")
         T.equal(surface.writesOutsideBounds(),0)
     end },
     { name = "narrow terminals fall back without clipping", run = function()
