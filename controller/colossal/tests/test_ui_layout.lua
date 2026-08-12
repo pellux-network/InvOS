@@ -1,4 +1,5 @@
 local UI = require("app.ui")
+local Theme = require("app.theme")
 local T = require("tests.mock_cc")
 
 local function results()
@@ -25,27 +26,38 @@ return {
         local layout=ui:render(state,view())
         T.contains(surface.line(1),"INVOS")
         T.contains(surface.line(2),"1 SEARCH")
-        T.contains(surface.line(3),"> sto")
+        -- The query sits below the nav rather than directly under it since the Panelled
+        -- redesign put a blank row between the chrome and the content.
+        T.contains(surface.line(4),"> sto")
         T.contains(surface.allText(),"Stone")
         T.contains(surface.allText(),"1,248")
         T.contains(surface.allText(),"All inventories healthy")
         T.truthy(#layout.hit_regions >= 2)
         T.equal(surface.writesOutsideBounds(),0)
     end },
-    { name = "compact search uses a full-width list and selected summary", run = function()
+    -- Was "compact search uses a full-width list and selected summary". The 51-column
+    -- terminal used to get a full-width list and a two-line summary band, because the detail
+    -- pane only appeared at 72 columns. The approved design shows a pane from 40 columns up,
+    -- so this now pins what the summary band was *for* -- knowing what is selected and how to
+    -- act on it -- rather than the band itself.
+    { name = "search at 51 columns identifies the selection and how to act on it", run = function()
         local surface=T.recordingSurface(51,19)
         local ui=UI.new(surface)
         local state=UI.initialState(); state.results=results(); state.result_count=2
         ui:render(state,view())
-        T.contains(surface.line(5),"Stone")
-        T.contains(surface.line(5),"1,248")
-        T.contains(surface.allText(),"Selected: Stone")
-        T.contains(surface.allText(),"Enter to retrieve")
-        T.equal(surface.allText():find("minecraft:stone",1,true),nil)
+        local text=surface.allText()
+        T.contains(text,"Stone")
+        T.contains(text,"1,248")
+        T.contains(text,"minecraft:stone","the pane now reaches down to 40 columns")
+        T.contains(text,"RETRIEVE")
         T.equal(surface.writesOutsideBounds(),0)
     end },
-    { name = "the Selected summary stays readable after scrolling the list to its last row", run = function()
-        -- ui.lua's fallback palette (no `colors` global in tests): cyan=512, black=32768.
+    -- The original bug this guards: the list loop's last fill() left the highlight colour as
+    -- the ambient background, which then bled into whatever was drawn next. Scrolling to the
+    -- last row is what made it visible. The assertion is now "the pane is not wearing the
+    -- selection colour" rather than "the pane is exactly black", because an untouched cell
+    -- reads as nil, which is equally clean.
+    { name = "the selection detail stays readable after scrolling to the last row", run = function()
         local surface=T.recordingSurface(51,19)
         local ui=UI.new(surface)
         local items={}
@@ -58,8 +70,14 @@ return {
         state.results=items; state.result_count=#items; state.selection=#items
         local model=view(); model.search_results=items
         ui:render(state,model)
-        T.contains(surface.allText(),"Selected: Item 20")
-        T.equal(surface.backgroundAt(2,15), 32768)
+        T.contains(surface.allText(),"Item 20")
+        T.contains(surface.allText(),"minecraft:item20","the pane must name the selection")
+        local paneColumn=34 -- inside the pane: at 51 columns the divider sits at 29
+        for y=7,16 do
+            T.equal(surface.backgroundAt(paneColumn,y)==Theme.role.focus, false,
+                "the selection colour bled into the detail pane at row "..y)
+        end
+        T.equal(surface.writesOutsideBounds(),0)
     end },
     { name = "wide search retains a separate identity detail panel", run = function()
         local surface=T.recordingSurface(72,19)
@@ -83,7 +101,12 @@ return {
         local model=view(); model.search_results=items
         ui:render(state,model)
         T.contains(surface.allText(),"Item 20")
-        T.equal(surface.backgroundAt(51,5), 32768)
+        -- Same bleed guard as above, at the width where the pane is widest.
+        for y=7,16 do
+            T.equal(surface.backgroundAt(51,y)==Theme.role.focus, false,
+                "the selection colour bled into the wide detail pane at row "..y)
+        end
+        T.equal(surface.writesOutsideBounds(),0)
     end },
     { name = "quantity overlay states the item availability and controls", run = function()
         local surface=T.recordingSurface(51,19)

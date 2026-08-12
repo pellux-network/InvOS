@@ -536,71 +536,70 @@ end
 
 function UI:_search(state, model, hitRegions)
     local surface = self.surface
-    local width, height = surface.getSize()
-    fill(surface, 3, palette.black)
-    surface.setTextColor(palette.red)
-    writeClipped(surface, 2, 3, "> " .. state.query .. (state.mode == "search" and "_" or ""), width - 2)
-    local bodyTop = 5
-    local wide = width >= 72
-    local summaryTop = height - 4
-    local bodyBottom = wide and height - 3 or summaryTop - 2
-    local split = wide and math.floor(width * 0.62) or width
-    local visible = math.max(0, bodyBottom - bodyTop + 1)
+    local regions = Layout.regions(surface.getSize())
+    local split = regions.split
+    local listTo = split and (split - 1) or regions.width
+    local paneFrom = split and (split + 2) or nil
+
+    local queryRow = regions.content.top + 1
+    Draw.band(surface, queryRow, Theme.role.ground)
+    Draw.text(surface, 2, queryRow, ">", 1, Theme.role.focus, Theme.role.ground)
+    Draw.text(surface, 4, queryRow, state.query .. (state.mode == "search" and "_" or ""),
+        regions.width - 4, Theme.role.text, Theme.role.ground)
+
+    local bandRow = queryRow + 2
+    local bodyTop = bandRow + 1
+    self:_band(bandRow)
+    self:_bandText(2, bandRow, "ITEM", math.max(1, listTo - 2))
+    Draw.rightText(surface, listTo - 1, bandRow, "STOCK", Theme.role.muted, Theme.role.panel)
+    if paneFrom then
+        self:_bandText(paneFrom, bandRow, "SELECTED", regions.width - paneFrom)
+        Draw.divider(surface, split, bandRow, regions.content.bottom, Theme.role.panel)
+    end
+
     local results = model.search_results or state.results or {}
     if #results == 0 then
-        surface.setTextColor(palette.lightGray)
-        writeClipped(surface, 2, bodyTop,
-            state.query == "" and "Start typing to search stored items" or "No matching items", width - 3)
-    else
-        local scroll = state.scroll
-        if state.selection < scroll then scroll = state.selection end
-        if state.selection >= scroll + visible then scroll = state.selection - visible + 1 end
-        for row = 0, visible - 1 do
-            local index = scroll + row
-            local item = results[index]
-            if item then
-                local y = bodyTop + row
-                local selected = index == state.selection
-                fill(surface, y, selected and palette.red or palette.black)
-                surface.setTextColor(selected and palette.black or palette.white)
-                writeClipped(surface, 2, y, (selected and "> " or "  ") ..
-                    tostring(item.display_name or item.name), split - 11)
-                local count = formatNumber(item.quantity)
-                writeClipped(surface, math.max(2, split - #count), y, count, #count)
-                hitRegions[#hitRegions + 1] = {x1=1,y1=y,x2=split,y2=y,
-                    command={type="ACTIVATE",index=index}}
-            end
-        end
-        -- The list loop's last fill() may have left the background on the highlighted
-        -- row's cyan, which bleeds into whatever gets written next since background is
-        -- ambient terminal state, not per-row. Reset it before the detail panel/summary.
-        surface.setBackgroundColor(palette.black)
-        local selected = results[state.selection]
-        if wide and selected then
-            surface.setTextColor(palette.red)
-            writeClipped(surface, split + 2, bodyTop,
-                selected.display_name or selected.name, width - split - 2)
-            surface.setTextColor(palette.lightGray)
-            writeClipped(surface, split + 2, bodyTop + 2, selected.name, width - split - 2)
-            writeClipped(surface, split + 2, bodyTop + 4,
-                formatNumber(selected.quantity) .. " available", width - split - 2)
-            local variantCount = #(selected.variants or {})
-            if variantCount > 1 then
-                writeClipped(surface, split + 2, bodyTop + 5,
-                    variantCount .. " exact variants", width - split - 2)
-            end
-            surface.setTextColor(palette.white)
-            writeClipped(surface, split + 2, math.min(bodyBottom, bodyTop + 7),
-                "Enter to retrieve", width - split - 2)
-        elseif selected and summaryTop > bodyTop then
-            surface.setTextColor(palette.red)
-            local summary="Selected: "..tostring(selected.display_name or selected.name)..
-                "  |  "..formatNumber(selected.quantity).." available"
-            writeClipped(surface,2,summaryTop,summary,width-3)
-            surface.setTextColor(palette.white)
-            writeClipped(surface,2,summaryTop+1,"Enter to retrieve",width-3)
-        end
+        Draw.text(surface, 2, bodyTop,
+            state.query == "" and "Start typing to search stored items" or "No matching items",
+            regions.width - 3, Theme.role.muted, Theme.role.ground)
+        self:_strip(regions, model)
+        return
     end
+
+    self:_list(bodyTop, regions.content.bottom, #results, state.selection,
+        function(index, y, selected)
+            local item = results[index]
+            self:_row(y, selected, 1, listTo, selected and ">" or nil, nil,
+                tostring(item.display_name or item.name), formatNumber(item.quantity))
+            hitRegions[#hitRegions + 1] = {x1=1, y1=y, x2=listTo, y2=y,
+                command={type="ACTIVATE", index=index}}
+        end)
+
+    local selected = results[state.selection]
+    if paneFrom and selected then
+        local paneWidth = regions.width - paneFrom
+        Draw.text(surface, paneFrom, bodyTop, tostring(selected.display_name or selected.name),
+            paneWidth, Theme.role.focus, Theme.role.ground)
+        Draw.text(surface, paneFrom, bodyTop + 1, tostring(selected.name), paneWidth,
+            Theme.role.muted, Theme.role.ground)
+        Draw.text(surface, paneFrom, bodyTop + 3, "STOCK", paneWidth,
+            Theme.role.muted, Theme.role.ground)
+        -- The meter is against a nominal 2048, not a real capacity: an item has no ceiling
+        -- in this system, so this reads as "how much of a lot", never as a percentage full.
+        Draw.meter(surface, paneFrom, bodyTop + 4, math.max(1, paneWidth - 1),
+            math.min(1, (selected.quantity or 0) / 2048), Theme.role.ok, Theme.role.track)
+        Draw.text(surface, paneFrom, bodyTop + 5, formatNumber(selected.quantity) .. " stored",
+            paneWidth, Theme.role.text, Theme.role.ground)
+        local variants = #(selected.variants or {})
+        if variants > 1 then
+            Draw.text(surface, paneFrom, bodyTop + 7, variants .. " exact variants", paneWidth,
+                Theme.role.muted, Theme.role.ground)
+        end
+        local button = "  ENTER  RETRIEVE "
+        Draw.text(surface, paneFrom, math.min(regions.content.bottom, bodyTop + 9), button,
+            math.min(#button, paneWidth), Theme.role.text, Theme.role.brand)
+    end
+    self:_strip(regions, model)
 end
 
 -- Nodes, requests and alerts share one fixed content band (row 5 through height-2).

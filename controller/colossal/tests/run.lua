@@ -40,6 +40,7 @@ local defaultModules = {
     "tests.test_ui",
     "tests.test_ui_layout",
     "tests.test_ui_list",
+    "tests.test_ui_search",
     "tests.test_ui_purity",
     "tests.test_monitor",
     "tests.test_setup",
