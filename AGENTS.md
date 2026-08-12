@@ -16,9 +16,12 @@ Operators drive recovery from the terminal: retry and cancel on the Requests pag
 
 ## Repository layout
 
-- `controller/startup.lua` is the deployable CraftOS entry point.
+- `controller/startup.lua` is the deployable CraftOS entry point. It plays the boot splash
+  (`colossal/app/splash.lua`) once per real cold boot, then supervises `colossal/main.lua`
+  with a capped restart backoff; a splash failure is caught and logged, never blocking boot.
 - `controller/colossal/main.lua` assembles the application.
-- `controller/colossal/app/` contains services, coordination, setup, UI, and monitor rendering.
+- `controller/colossal/app/` contains services, coordination, setup, UI, monitor rendering,
+  and the boot splash.
 - `controller/colossal/core/` contains inventory scanning, indexing, planning, transfers, reconciliation, and registry logic.
 - `controller/colossal/shared/` contains runtime, codec, and durable-store helpers.
 - `controller/colossal/recipes/` holds the generated crafting recipe pack. It is deployed like code, never hand-edited; regenerate it with `tools/recipe_import.py` and see `docs/operations.md`. Hand-written recipes go in `colossal/data/custom_recipes.lua` instead, which takes precedence over it.
@@ -28,15 +31,19 @@ Operators drive recovery from the terminal: retry and cancel on the Requests pag
 - `controller/colossal/deployment_manifest.lua` is the exact runtime deployment allow-list.
 - `docs/operations.md` describes topology, setup, recovery, upgrades, and deployment safety.
 - `docs/backlog.md` lists known gaps, untested paths and polish, ordered by risk.
-- `docs/superpowers/specs/` holds design specs and `docs/superpowers/plans/` holds smaller work items. Pending: `specs/2026-08-04-crafting-system-design.md` (supersedes `specs/2026-08-03-crafting-turtle-design.md`), `plans/2026-08-03-batch-limit-tuning.md`.
+- `docs/assets/wordmark.svg` is the project wordmark used in `README.md`.
+- `CONTRIBUTING.md` is the developer-facing onboarding doc: workflow, test commands, code
+  conventions, and a condensed pointer into this file's live-deployment safety rules.
+- `docs/superpowers/specs/` holds design specs and `docs/superpowers/plans/` holds smaller work items. Pending: `specs/2026-08-04-crafting-system-design.md` (supersedes `specs/2026-08-03-crafting-turtle-design.md`), `specs/2026-08-12-ui-visual-system-design.md`, `plans/2026-08-03-batch-limit-tuning.md`.
 
 ## Live-server safety
 
 - Treat every ComputerCraft directory as production with real players and items.
-- The current live controller is computer `#4`, labeled `StorageController`, under `C:\Servers\Wold's Vaults\world\computercraft\computer\4`. The crafting turtle is `#5`. A folder number is a filesystem id and has nothing to do with a peripheral name.
+- The server no longer runs on this machine. The world is mounted over sshfs as drive `G:`, so the computer tree is `G:\world\computercraft\computer` and the server root (`mods`, `libraries`, `kubejs`) is `G:\` itself. Every path is a network round trip: deployments and backups are slow, and a dropped mount looks like a missing directory rather than an error worth retrying through.
+- The current live controller is computer `#4`, labeled `StorageController`, under `G:\world\computercraft\computer\4`. The crafting turtle is `#5`. A folder number is a filesystem id and has nothing to do with a peripheral name.
 - Before every live write, confirm shutdown explicitly in the current conversation and re-read `colossal/data/config.lua` to verify both numeric ID and label. A confirmation never carries forward to a later deployment. Do not infer quiescence from file mtimes; that reasoning was used once and was wrong even though the outcome was safe.
 - Deploy with `tools/deploy.py`, which enforces the whole gate below in one command and refuses rather than guesses. `docs/operations.md` documents it. Do not hand-roll a deployment script in a scratch directory.
-- `luac.exe` and Python are Windows binaries and cannot open Git Bash `/c/...` paths. `luac` reports "cannot open", which reads like a syntax error; a `/c/Servers/...` path handed to Windows Python silently creates `C:\c\Servers\...` rather than failing.
+- `luac.exe` and Python are Windows binaries and cannot open Git Bash `/c/...` paths. `luac` reports "cannot open", which reads like a syntax error; a `/g/world/...` path handed to Windows Python silently creates `C:\g\world\...` rather than failing. Pass `G:/world/computercraft/computer` in Windows form.
 - Never execute ComputerCraft startup programs, controller runtime, peripheral calls, or turtle actions from the host.
 - Deploy only manifest-approved runtime paths relative to `controller/`; never copy tests, docs, Git metadata, plans, Markdown, or host helpers. Gate every write on `deployment_manifest.lua` so an unlisted path is refused rather than copied.
 - Preserve `colossal/data/`, especially `config.lua`, `aliases.lua`, `metadata.lua`, and any active journal, unless the user explicitly authorizes a fresh install. Back the directory up to a host scratch path before deploying.
