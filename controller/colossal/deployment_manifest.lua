@@ -11,6 +11,7 @@ local M={files={
     "colossal/app/draw.lua",
     "colossal/app/import_service.lua",
     "colossal/app/keymap.lua",
+    "colossal/app/layout.lua",
     "colossal/app/lifecycle.lua",
     "colossal/app/monitor.lua",
     "colossal/app/requests.lua",
