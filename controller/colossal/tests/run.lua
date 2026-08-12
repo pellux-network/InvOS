@@ -57,6 +57,7 @@ local defaultModules = {
     "tests.test_operator_controls",
     "tests.test_responsiveness",
     "tests.test_error_recovery",
+    "tests.test_scan_backoff",
     "tests.test_main",
     "tests.test_coordinator_epoch_gate",
     "tests.test_import_freshness",

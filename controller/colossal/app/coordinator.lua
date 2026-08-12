@@ -45,6 +45,8 @@ function Coordinator.new(deps)
         uiState=copy(deps.initial_ui or {}), nodes={}, nodeById={},
         snapshots={}, scanQueue={}, targeted={}, generation=0, scanRevision={}, automationCursor=1, verificationGate=nil,
         scanCompletedAt={}, scanRefreshInterval=deps.scan_refresh_interval or 2000,
+        scanFailedAt={}, scanFailures={},
+        scanRetryBase=deps.scan_retry_base or 500, scanRetryCap=deps.scan_retry_cap or 10000,
         stallAfter=deps.stall_after or 60000, inFlightSince={}, stalled={},
         metadata=copy(deps.metadata or {}), notices={}, dirty=true,
     }, Coordinator)
@@ -217,10 +219,35 @@ end
 -- snapshot (never scanned, or knocked offline since its last one -- either way treated as
 -- infinitely stale so it wins any tie) or stale past scanRefreshInterval. Returning nil lets
 -- the work loop go quiet instead of rescanning every node forever regardless of freshness.
+-- Records a scan failure and starts the node's backoff. The first failure does not back off
+-- at all, so a peripheral that was merely unloaded for a moment recovers on the very next
+-- pass; only a failure that keeps repeating gets progressively rarer.
+function Coordinator:_noteScanFailure(node, reason, now)
+    self.scanFailures[node.id] = (self.scanFailures[node.id] or 0) + 1
+    self.scanFailedAt[node.id] = now or self.clock()
+    self:_recordError("scanner", reason, node)
+end
+
+-- Zero for the first failure, then doubling from scanRetryBase up to scanRetryCap. Same shape
+-- as the supervisor loop's restart backoff in startup.lua, for the same reason.
+function Coordinator:_scanBackoff(nodeId)
+    local failures = self.scanFailures[nodeId] or 0
+    if failures <= 1 then return 0 end
+    local delay = self.scanRetryBase * (2 ^ (failures - 2))
+    return math.min(delay, self.scanRetryCap)
+end
+
+-- A node whose peripheral has gone from the world -- a multiblock reformed, a chest broken --
+-- can never be scanned, so it never gets a snapshot, so its age is infinite, so it is always
+-- the stalest node and always the next one tried. Without the backoff below that is a scan
+-- attempt, a recorded error and a repaint on every pass of the work loop, forever, which
+-- saturates the controller and makes the terminal stop responding to keys.
 function Coordinator:_staleNodeId(now)
     local bestId, bestAge
     for _, node in ipairs(self.nodes) do
-        if node.state ~= "DISABLED" then
+        local failedAt = self.scanFailedAt[node.id]
+        local backingOff = failedAt and (now - failedAt) < self:_scanBackoff(node.id)
+        if node.state ~= "DISABLED" and not backingOff then
             local age
             if not self.snapshots[node.id] then
                 age = math.huge
@@ -260,14 +287,14 @@ function Coordinator:_scanStep(now)
         -- in-progress step normally does not.
         if not self.snapshots[node.id] then node.state = "SCANNING"; self.dirty = true end
         local ok, scan = pcall(self.scanner.begin, self.scanner, node)
-        if not ok then self:_recordError("scanner", scan, node); return true end
+        if not ok then self:_noteScanFailure(node, scan, now); return true end
         self.activeScan = {state=scan,node=node}
     end
     local active = self.activeScan
     local ok, done, snapshot, reason = pcall(self.scanner.step, self.scanner,
         active.state, self:_budgetFor(active.node))
     if not ok then
-        self:_recordError("scanner", done, active.node)
+        self:_noteScanFailure(active.node, done, now)
         self.activeScan = nil
         return true
     end
@@ -279,9 +306,11 @@ function Coordinator:_scanStep(now)
             self.scanRevision[active.node.id]=(self.scanRevision[active.node.id] or 0)+1
             self.scanCompletedAt[active.node.id] = now
             active.node.state, active.node.reason = "READY", nil
+            self.scanFailedAt[active.node.id] = nil
+            self.scanFailures[active.node.id] = nil
             self.generation = self.generation + 1
             self:_rebuildIndex()
-        else self:_recordError("scanner", reason and reason.message or reason, active.node) end
+        else self:_noteScanFailure(active.node, reason and reason.message or reason, now) end
         -- Only a finished scan changes anything on screen. Marking dirty on every partial
         -- step repainted the terminal and the monitor at the full work-loop rate forever,
         -- rebuilding the whole item list each time.
