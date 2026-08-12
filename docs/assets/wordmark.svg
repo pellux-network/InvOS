@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 180" width="760" height="180" role="img" aria-labelledby="invosWordmarkTitle">
+  <title id="invosWordmarkTitle">InvOS — Inventory Operating System</title>
+  <defs>
+    <linearGradient id="invosRed" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FF5F5F"/>
+      <stop offset="100%" stop-color="#B91C2E"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Badge: small nodes pooling into one, the shape of what InvOS actually does -->
+  <rect x="18" y="18" width="144" height="144" rx="34" fill="url(#invosRed)"/>
+  <line x1="58"  y1="58"  x2="98" y2="98" stroke="#FFFFFF" stroke-opacity="0.85" stroke-width="4" stroke-linecap="round"/>
+  <line x1="122" y1="58"  x2="98" y2="98" stroke="#FFFFFF" stroke-opacity="0.85" stroke-width="4" stroke-linecap="round"/>
+  <line x1="58"  y1="122" x2="98" y2="98" stroke="#FFFFFF" stroke-opacity="0.85" stroke-width="4" stroke-linecap="round"/>
+  <rect x="48"  y="48"  width="20" height="20" rx="5" fill="#FFFFFF"/>
+  <rect x="112" y="48"  width="20" height="20" rx="5" fill="#FFFFFF"/>
+  <rect x="48"  y="112" width="20" height="20" rx="5" fill="#FFFFFF"/>
+  <rect x="82"  y="82"  width="32" height="32" rx="7" fill="#FFFFFF"/>
+
+  <!-- Wordmark -->
+  <text x="192" y="118" font-family="'Segoe UI','Helvetica Neue',Arial,sans-serif" font-weight="700" font-size="92" fill="url(#invosRed)">InvOS</text>
+  <text x="196" y="146" font-family="'Segoe UI','Helvetica Neue',Arial,sans-serif" font-weight="600" font-size="14" letter-spacing="1.8" fill="#8A8F98">INVENTORY OPERATING SYSTEM</text>
+</svg>
