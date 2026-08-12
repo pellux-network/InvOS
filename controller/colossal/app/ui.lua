@@ -673,68 +673,59 @@ end
 
 function UI:_requests(state, model)
     local surface = self.surface
-    local width, height = surface.getSize()
-    surface.setTextColor(palette.red); writeClipped(surface, 2, 3, "REQUESTS", width - 2)
+    local regions = Layout.regions(surface.getSize())
+    local bandRow = regions.content.top
+    self:_band(bandRow)
+    self:_bandText(2, bandRow, "REQUEST", regions.width - 2)
+    Draw.rightText(surface, regions.width - 1, bandRow, "PROGRESS",
+        Theme.role.muted, Theme.role.panel)
     local requests = model.requests or {}
     if #requests == 0 then
-        surface.setTextColor(palette.lightGray)
-        writeClipped(surface, 2, 5, "No requests yet", width - 3)
-        writeClipped(surface, 2, 6, "Press 1 and search for an item to retrieve", width - 3)
+        Draw.text(surface, 2, bandRow + 1, "No requests yet", regions.width - 3,
+            Theme.role.muted, Theme.role.ground)
+        Draw.text(surface, 2, bandRow + 2, "Press 1 and search for an item to retrieve",
+            regions.width - 3, Theme.role.muted, Theme.role.ground)
+        self:_strip(regions, model)
         return
     end
-    local bodyTop, visible = listBand(height)
-    local selection = math.max(1, math.min(#requests, (state or {}).request_selection or 1))
-    local scroll = 1
-    if selection >= scroll + visible then scroll = selection - visible + 1 end
-    for row = 0, visible - 1 do
-        local index = scroll + row
-        local request = requests[index]
-        if request then
-            local y = bodyTop + row
-            local selected = index == selection
-            if selected then fill(surface, y, palette.red) end
-            surface.setTextColor(selected and palette.black or stateColor(request.state))
-            writeClipped(surface, 2, y, request.state or "", 12)
-            surface.setTextColor(selected and palette.black or palette.white)
-            writeClipped(surface, 15, y, request.display_name or request.id, width - 29)
+    self:_list(bandRow + 1, regions.content.bottom, #requests,
+        math.max(1, math.min(#requests, (state or {}).request_selection or 1)),
+        function(index, y, selected)
+            local request = requests[index]
             local progress = formatNumber(request.delivered or 0) .. " / " ..
                 formatNumber(request.requested or 0)
-            surface.setTextColor(selected and palette.black or palette.lightGray)
-            writeClipped(surface, math.max(16, width - #progress - 1), y, progress, #progress)
-        end
-    end
+            self:_row(y, selected, 1, regions.width, "o", Theme.statusColor(request.state),
+                tostring(request.display_name or request.id), progress)
+        end)
+    self:_strip(regions, model)
 end
 
 function UI:_alerts(state, model)
     local surface = self.surface
-    local width, height = surface.getSize()
-    surface.setTextColor(palette.red); writeClipped(surface, 2, 3, "ALERTS", width - 2)
+    local regions = Layout.regions(surface.getSize())
+    local bandRow = regions.content.top
+    self:_band(bandRow)
+    self:_bandText(2, bandRow, "ALERT", regions.width - 2)
     local alerts = model.alerts or {}
     if #alerts == 0 then
-        surface.setTextColor(palette.lime)
-        writeClipped(surface, 2, 5, "No active alerts", width - 3)
-        surface.setTextColor(palette.lightGray)
-        writeClipped(surface, 2, 6, "Storage conditions are healthy", width - 3)
+        Draw.text(surface, 2, bandRow + 1, "No active alerts", regions.width - 3,
+            Theme.role.ok, Theme.role.ground)
+        Draw.text(surface, 2, bandRow + 2, "Storage conditions are healthy",
+            regions.width - 3, Theme.role.muted, Theme.role.ground)
+        self:_strip(regions, model)
         return
     end
-    local bodyTop, visible = listBand(height)
-    local selection = math.max(1, math.min(#alerts, (state or {}).alert_selection or 1))
-    local scroll = 1
-    if selection >= scroll + visible then scroll = selection - visible + 1 end
-    for row = 0, visible - 1 do
-        local index = scroll + row
-        local alert = alerts[index]
-        if alert then
-            local y = bodyTop + row
-            local selected = index == selection
-            if selected then fill(surface, y, palette.red) end
-            surface.setTextColor(selected and palette.black or
-                (alert.severity == "critical" and palette.red or palette.yellow))
-            writeClipped(surface, 2, y, alert.acknowledged and "-" or "!", 1)
-            surface.setTextColor(selected and palette.black or palette.white)
-            writeClipped(surface, 4, y, alert.message, width - 5)
-        end
-    end
+    self:_list(bandRow + 1, regions.content.bottom, #alerts,
+        math.max(1, math.min(#alerts, (state or {}).alert_selection or 1)),
+        function(index, y, selected)
+            local alert = alerts[index]
+            -- An acknowledged alert keeps its severity colour but loses its urgency marker:
+            -- it is still true, it is just no longer asking for attention.
+            local severity = alert.severity == "critical" and Theme.role.alert or Theme.role.warn
+            self:_row(y, selected, 1, regions.width,
+                alert.acknowledged and "-" or "!", severity, tostring(alert.message), nil)
+        end)
+    self:_strip(regions, model)
 end
 
 function UI:_setup(model)
