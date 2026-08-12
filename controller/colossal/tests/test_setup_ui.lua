@@ -4,6 +4,7 @@ keys.left=203;keys.right=205;keys.f10=keys.f10 or 68;keys.escape=keys.escape or 
 
 local Keymap=require("app.keymap")
 local UI=require("app.ui")
+local Theme=require("app.theme")
 local T=require("tests.mock_cc")
 
 return {
@@ -90,4 +91,20 @@ return {
         end
     end},
 
+    { name = "the wizard shows its progress and current step in the header", run = function()
+        local surface = T.recordingSurface(51, 19)
+        local screen = UI.new(surface)
+        local state = UI.initialState()
+        state.page, state.mode, state.setup_step = "setup", "setup", 3
+        state.setup_choices = {{label="chest_1", detail="27 slots"}}
+        screen:render(state, {})
+        local text = surface.allText()
+        T.contains(text, "SETUP")
+        T.contains(text, "3 / 10")
+        T.contains(text, "Assign Pickup")
+        -- The step title is the focus colour, not the brand red the chrome uses. Brand red
+        -- never signals state or position; that separation is the point of the palette.
+        T.equal(surface.foregroundAt(2, 3), Theme.role.focus)
+        T.equal(surface.writesOutsideBounds(), 0)
+    end},
 }

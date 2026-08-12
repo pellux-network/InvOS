@@ -730,20 +730,24 @@ end
 
 function UI:_setup(model)
     local surface = self.surface
-    local width = surface.getSize()
-    surface.setTextColor(palette.red); writeClipped(surface, 2, 3, "SETUP", width - 2)
-    surface.setTextColor(palette.white)
-    writeClipped(surface, 2, 5, "Review or change inventory roles", width - 3)
-    surface.setTextColor(palette.lightGray)
-    writeClipped(surface, 2, 7, "Drop-off: " .. tostring(model.dropoff and model.dropoff.state or "unassigned"), width - 3)
-    writeClipped(surface, 2, 8, "Pickup:  " .. tostring(model.pickup and model.pickup.state or "unassigned"), width - 3)
-    writeClipped(surface, 2, 10, "Enter opens the full setup wizard", width - 3)
+    local regions = Layout.regions(surface.getSize())
+    local bandRow = regions.content.top
+    self:_band(bandRow)
+    self:_bandText(2, bandRow, "SETUP", regions.width - 2)
+    Draw.text(surface, 2, bandRow + 2, "Review or change inventory roles", regions.width - 3,
+        Theme.role.text, Theme.role.ground)
+    local function roleLine(y, label, node)
+        local state = (node or {}).state or "unassigned"
+        Draw.text(surface, 2, y, label, 12, Theme.role.muted, Theme.role.ground)
+        Draw.text(surface, 14, y, tostring(state), regions.width - 15,
+            Theme.statusColor(state), Theme.role.ground)
+    end
+    roleLine(bandRow + 4, "Drop-off", model.dropoff)
+    roleLine(bandRow + 5, "Pickup", model.pickup)
+    Draw.text(surface, 2, bandRow + 7, "Enter opens the full setup wizard", regions.width - 3,
+        Theme.role.muted, Theme.role.ground)
 end
 
--- The retrieve prompt. With a detail pane on screen it replaces the pane's contents, so the
--- list you were reading stays visible and the prompt appears where you were already looking.
--- A floating box over the middle of the list was the old behaviour and it hid the thing you
--- had just selected. Narrow screens have no pane, so they keep the centred box.
 function UI:_overlay(state)
     local surface = self.surface
     local regions = Layout.regions(surface.getSize())
@@ -862,46 +866,39 @@ function UI:_setupWizard(state, model)
         "Read-only validation. Moves no items.",
         "Save the configuration and start.",
     }
-    fill(surface, 1, palette.gray)
-    surface.setTextColor(palette.white)
-    writeClipped(surface, 2, 1, "SETUP WIZARD", 20)
+    local regions = Layout.regions(surface.getSize())
+    Draw.band(surface, regions.header, Theme.role.panel)
+    Draw.text(surface, 2, regions.header, "SETUP WIZARD", 20, Theme.role.brand, Theme.role.panel)
     local progress = tostring(state.setup_step or 1) .. " / " .. #names
-    surface.setTextColor(palette.red)
-    writeClipped(surface, math.max(2, width - #progress - 1), 1, progress, #progress)
-    surface.setTextColor(palette.red)
-    writeClipped(surface, 2, 3, names[state.setup_step or 1] or "Setup", width - 3)
-    surface.setTextColor(palette.lightGray)
-    writeClipped(surface, 2, 4, prompts[state.setup_step or 1] or
-        "Select the exact wired peripheral for this role.", width - 3)
+    Draw.rightText(surface, regions.width - 1, regions.header, progress,
+        Theme.role.text, Theme.role.panel)
+    Draw.text(surface, 2, regions.content.top, names[state.setup_step or 1] or "Setup",
+        regions.width - 3, Theme.role.focus, Theme.role.ground)
+    Draw.text(surface, 2, regions.content.top + 1, prompts[state.setup_step or 1] or
+        "Select the exact wired peripheral for this role.", regions.width - 3,
+        Theme.role.muted, Theme.role.ground)
     local choices = state.setup_choices or {}
     if #choices == 0 then
-        writeClipped(surface, 2, 6, "No choices on this step", width - 3)
-    else
-        for index, choice in ipairs(choices) do
-            local y = 5 + index
-            if y >= height - 3 then break end
-            local selected = index == state.selection
-            fill(surface, y, selected and palette.red or palette.black)
-            surface.setTextColor(selected and palette.black or palette.white)
-            writeClipped(surface, 2, y, (selected and "> " or "  ") ..
-                tostring(choice.label or choice.name), math.max(1, width - 18))
-            surface.setTextColor(selected and palette.black or palette.lightGray)
-            writeClipped(surface, math.max(3, width - #(choice.detail or "") - 1), y,
-                choice.detail or "", #(choice.detail or ""))
-        end
+        Draw.text(surface, 2, regions.content.top + 3, "No choices on this step",
+            regions.width - 3, Theme.role.muted, Theme.role.ground)
     end
+    self:_list(regions.content.top + 3, regions.content.bottom - 1, #choices, state.selection,
+        function(index, y, selected)
+            local choice = choices[index]
+            self:_row(y, selected, 1, regions.width, nil, nil,
+                tostring(choice.label or choice.name), choice.detail)
+        end)
     local issues = state.setup_issues or (model.setup and model.setup.issues) or {}
     if #issues > 0 then
-        surface.setTextColor(palette.yellow)
-        writeClipped(surface, 2, height - 4, "! " .. tostring(issues[1].message), width - 3)
+        Draw.text(surface, 2, regions.content.bottom, "! " .. tostring(issues[1].message),
+            regions.width - 3, Theme.role.warn, Theme.role.ground)
     end
-    fill(surface, height - 1, palette.gray)
-    surface.setTextColor(palette.white)
-    writeClipped(surface, 2, height - 1,
-        "Up/Down  Enter select  Left back  Right next", width - 3)
-    fill(surface, height, palette.black)
-    surface.setTextColor(palette.lightGray)
-    writeClipped(surface, 2, height, "F10 cancel", width - 3)
+    Draw.band(surface, regions.footer, Theme.role.panel)
+    Draw.text(surface, 2, regions.footer, "Up/Down  Enter select  Left back  Right next",
+        regions.width - 3, Theme.role.text, Theme.role.panel)
+    Draw.band(surface, regions.status, Theme.role.ground)
+    Draw.text(surface, 2, regions.status, "F10 cancel", regions.width - 3,
+        Theme.role.muted, Theme.role.ground)
     surface.setCursorBlink(false)
     return {hit_regions={}}
 end
