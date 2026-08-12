@@ -247,6 +247,30 @@ return {
         T.equal(state.craft_scroll, 1, "render must not write a scroll offset back to state")
         T.equal(state.craft_selection, 30)
     end},
+    {name="the crafting page uses the same selection colour as every other page",run=function()
+        local Theme = require("app.theme")
+        local surface = ui()
+        surface:render(crafting({craft_selection=1}), {})
+        local focus = 0
+        for y = 1, 19 do
+            if surface.surface.backgroundAt(2, y) == Theme.role.focus then focus = focus + 1 end
+        end
+        T.truthy(focus >= 1, "crafting used to fill grey while Search filled red")
+    end},
+    {name="the recipe list is labelled",run=function()
+        local surface = ui()
+        surface:render(crafting(), {})
+        local text = surface.surface.allText()
+        T.contains(text, "RECIPE")
+        T.contains(text, "STOCK")
+    end},
+    {name="the plan names items rather than printing raw ids",run=function()
+        local surface = ui()
+        local state = crafting({mode="craft_plan", craft_plan=samplePlan(),
+            craft_item={item="minecraft:chest", display_name="Chest"}})
+        surface:render(state, {})
+        T.contains(surface.surface.allText(), "Chest")
+    end},
     {name="the crafting page never draws outside its surface",run=function()
         for _, mode in ipairs({"craft_search", "craft_quantity", "craft_plan", "craft_jobs"}) do
             for _, size in ipairs({{51,19},{26,12},{18,8}}) do

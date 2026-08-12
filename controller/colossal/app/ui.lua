@@ -829,128 +829,133 @@ end
 -- swapping pages between them would lose the search that found the item.
 function UI:_crafting(state, model, hitRegions)
     local surface = self.surface
-    local width, height = surface.getSize()
-    local bottom = height - 2
+    local regions = Layout.regions(surface.getSize())
+    local bottom = regions.content.bottom
+
+    -- The plan view is handed raw item ids. Anything the recipe list or the chosen item can
+    -- name gets named: "craft 8 x minecraft:oak_planks" is a line nobody reads twice.
+    local function itemName(id)
+        for _, entry in ipairs(state.craft_results or {}) do
+            if entry.item == id then return tostring(entry.display_name or id) end
+        end
+        if state.craft_item and state.craft_item.item == id then
+            return tostring(state.craft_item.display_name or id)
+        end
+        return tostring(id)
+    end
 
     if state.mode == "craft_jobs" then
-        surface.setBackgroundColor(palette.black)
-        writeClipped(surface, 2, 3, "CRAFT JOBS", width - 2)
-        local row = 4
+        local bandRow = regions.content.top
+        self:_band(bandRow)
+        self:_bandText(2, bandRow, "CRAFT JOBS", regions.width - 2)
+        Draw.rightText(surface, regions.width - 1, bandRow, "STATE",
+            Theme.role.muted, Theme.role.panel)
         local jobs = state.craft_jobs or {}
-        local scroll = scrollFor(state.craft_job_selection or 1, #jobs, bottom - 4 + 1)
-        for offset = 0, bottom - 4 do
-            local index = scroll + offset
-            local job = jobs[index]
-            if not job then break end
-            local selected = index == (state.craft_job_selection or 1)
-            fill(surface, row, selected and palette.gray or palette.black)
-            surface.setTextColor(palette.white)
-            local marker = index == 1 and ">" or " "
-            writeClipped(surface, 2, row, marker .. " " .. tostring(job.display_name or job.item),
-                math.max(1, width - 22))
-            surface.setTextColor(stateColor(job.state))
-            local label = tostring(job.state)
-            if job.state == "QUEUED" then label = "QUEUED #" .. tostring(index - 1) end
-            writeClipped(surface, math.max(2, width - #label - 1), row, label, #label)
-            row = row + 1
+        if #jobs == 0 then
+            Draw.text(surface, 2, bandRow + 1, "No craft jobs", regions.width - 2,
+                Theme.role.muted, Theme.role.ground)
         end
-        if (state.craft_job_count or 0) == 0 then
-            surface.setBackgroundColor(palette.black)
-            surface.setTextColor(palette.lightGray)
-            writeClipped(surface, 2, 4, "No craft jobs", width - 2)
-        end
+        self:_list(bandRow + 1, bottom, #jobs, state.craft_job_selection or 1,
+            function(index, y, selected)
+                local job = jobs[index]
+                local label = tostring(job.state)
+                if job.state == "QUEUED" then label = "QUEUED #" .. tostring(index - 1) end
+                self:_row(y, selected, 1, regions.width, nil, nil,
+                    tostring(job.display_name or job.item), label, Theme.statusColor(job.state))
+                hitRegions[#hitRegions + 1] = {x1=1, y1=y, x2=regions.width, y2=y,
+                    command={type="MOVE", delta=index - (state.craft_job_selection or 1)}}
+            end)
+        self:_strip(regions, model)
         return
     end
 
     if state.mode == "craft_plan" then
         local plan = state.craft_plan
-        surface.setBackgroundColor(palette.black)
         if not plan then
-            surface.setTextColor(palette.lightGray)
-            writeClipped(surface, 2, 3, "Planning...", width - 2)
+            Draw.text(surface, 2, regions.content.top, "Planning...", regions.width - 2,
+                Theme.role.muted, Theme.role.ground)
             return
         end
-        surface.setTextColor(palette.white)
-        writeClipped(surface, 2, 3, "PLAN: " .. formatNumber(plan.quantity or 0) .. " x " ..
-            tostring((state.craft_item and state.craft_item.display_name) or plan.item), width - 2)
-        local row = 4
+        local bandRow = regions.content.top
+        self:_band(bandRow)
+        self:_bandText(2, bandRow, "PLAN  " .. formatNumber(plan.quantity or 0) .. " x " ..
+            tostring((state.craft_item and state.craft_item.display_name) or itemName(plan.item)),
+            regions.width - 2)
+        local row = bandRow + 1
         if not plan.ok then
-            surface.setTextColor(palette.red)
-            writeClipped(surface, 2, row, "Cannot craft: missing", width - 2)
+            Draw.text(surface, 2, row, "Cannot craft: missing", regions.width - 2,
+                Theme.role.alert, Theme.role.ground)
             row = row + 1
             for _, missing in ipairs(plan.shortfalls or {}) do
                 if row > bottom then break end
-                writeClipped(surface, 4, row, formatNumber(missing.missing) .. " x " ..
-                    tostring(missing.item), width - 4)
+                Draw.text(surface, 4, row, formatNumber(missing.missing) .. " x " ..
+                    itemName(missing.item), regions.width - 4, Theme.role.text, Theme.role.ground)
                 row = row + 1
             end
+            self:_strip(regions, model)
             return
         end
         for index, choice in ipairs(plan.chosen or {}) do
             if row > bottom then break end
             local selected = index == (state.craft_plan_selection or 1)
-            fill(surface, row, selected and palette.gray or palette.black)
-            surface.setTextColor(palette.yellow)
-            writeClipped(surface, 2, row, tostring(choice.tag) .. " -> " .. tostring(choice.item),
-                width - 2)
+            self:_row(row, selected, 1, regions.width, nil, nil,
+                itemName(choice.item), tostring(choice.tag), Theme.role.warn)
             row = row + 1
         end
-        surface.setBackgroundColor(palette.black)
         for _, step in ipairs(plan.steps or {}) do
             if row > bottom then break end
-            surface.setTextColor(palette.red)
-            writeClipped(surface, 2, row, "craft " .. formatNumber(step.produced) .. " x " ..
-                tostring(step.item), width - 2)
+            Draw.text(surface, 2, row, "craft " .. formatNumber(step.produced) .. " x " ..
+                itemName(step.item), regions.width - 2, Theme.role.craft, Theme.role.ground)
             row = row + 1
         end
-        for _, draw in ipairs(plan.withdrawals or {}) do
+        for _, withdrawal in ipairs(plan.withdrawals or {}) do
             if row > bottom then break end
-            surface.setTextColor(palette.lightGray)
-            writeClipped(surface, 2, row, "use " .. formatNumber(draw.count) .. " x " ..
-                tostring(draw.item), width - 2)
+            Draw.text(surface, 2, row, "use " .. formatNumber(withdrawal.count) .. " x " ..
+                itemName(withdrawal.item), regions.width - 2,
+                Theme.role.muted, Theme.role.ground)
             row = row + 1
         end
         if row <= bottom then
-            surface.setTextColor(palette.white)
-            writeClipped(surface, 2, row, "deliver to " .. tostring(state.craft_destination),
-                width - 2)
+            Draw.text(surface, 2, row, "deliver to " .. tostring(state.craft_destination),
+                regions.width - 2, Theme.role.text, Theme.role.ground)
         end
+        self:_strip(regions, model)
         return
     end
 
     -- craft_search and craft_quantity share the recipe list; the quantity prompt draws
     -- over it as an overlay so the item stays visible while typing.
-    surface.setBackgroundColor(palette.black)
-    surface.setTextColor(palette.white)
-    writeClipped(surface, 2, 3, "Craft: " .. state.craft_query, width - 2)
-    local row = 4
+    local queryRow = regions.content.top
+    Draw.text(surface, 2, queryRow, ">", 1, Theme.role.focus, Theme.role.ground)
+    Draw.text(surface, 4, queryRow,
+        state.craft_query .. (state.mode == "craft_search" and "_" or ""),
+        regions.width - 4, Theme.role.text, Theme.role.ground)
+    local bandRow = queryRow + 1
+    self:_band(bandRow)
+    self:_bandText(2, bandRow, "RECIPE", regions.width - 2)
+    Draw.rightText(surface, regions.width - 1, bandRow, "STOCK",
+        Theme.role.muted, Theme.role.panel)
     local results = state.craft_results or {}
-    local scroll = scrollFor(state.craft_selection or 1, #results, bottom - 4 + 1)
-    for offset = 0, bottom - 4 do
-        local index = scroll + offset
-        local entry = results[index]
-        if not entry then break end
-        local selected = index == (state.craft_selection or 1)
-        fill(surface, row, selected and palette.gray or palette.black)
-        surface.setTextColor(palette.white)
-        writeClipped(surface, 2, row, tostring(entry.display_name or entry.item),
-            math.max(1, width - 18))
-        local stock = "have " .. formatNumber(entry.quantity or 0)
-        surface.setTextColor((entry.quantity or 0) > 0 and palette.lime or palette.lightGray)
-        writeClipped(surface, math.max(2, width - #stock - 1), row, stock, #stock)
-        row = row + 1
+    if #results == 0 then
+        Draw.text(surface, 2, bandRow + 1, "No matching recipes", regions.width - 2,
+            Theme.role.muted, Theme.role.ground)
     end
-    if (state.craft_result_count or 0) == 0 then
-        surface.setBackgroundColor(palette.black)
-        surface.setTextColor(palette.lightGray)
-        writeClipped(surface, 2, 4, "No matching recipes", width - 2)
-    end
+    self:_list(bandRow + 1, bottom, #results, state.craft_selection or 1,
+        function(index, y, selected)
+            local entry = results[index]
+            self:_row(y, selected, 1, regions.width, nil, nil,
+                tostring(entry.display_name or entry.item),
+                "have " .. formatNumber(entry.quantity or 0),
+                (entry.quantity or 0) > 0 and Theme.role.ok or Theme.role.muted)
+            hitRegions[#hitRegions + 1] = {x1=1, y1=y, x2=regions.width, y2=y,
+                command={type="MOVE", delta=index - (state.craft_selection or 1)}}
+        end)
     if state.mode == "craft_quantity" then
-        surface.setBackgroundColor(palette.gray)
-        surface.setTextColor(palette.white)
-        local prompt = "How many? " .. state.craft_quantity_text
-        fill(surface, bottom, palette.gray)
-        writeClipped(surface, 2, bottom, prompt, width - 2)
+        Draw.band(surface, bottom, Theme.role.panel)
+        Draw.text(surface, 2, bottom, "How many? " .. state.craft_quantity_text,
+            regions.width - 2, Theme.role.text, Theme.role.panel)
+    else
+        self:_strip(regions, model)
     end
 end
 
