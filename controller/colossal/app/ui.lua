@@ -34,6 +34,19 @@ local function formatNumber(value)
     return sign .. result
 end
 
+-- Where a list of `count` items must start so that `selection` is on screen, given `visible`
+-- rows. Computed at render time and discarded: writing a scroll offset back into state during
+-- a render would make rendering impure, which tests/test_ui_purity.lua forbids.
+-- The window ends on the selection rather than starting on it, so arrowing down the list
+-- scrolls under a cursor that stays put. Starting the window on the selection instead makes
+-- the cursor jump to the top of a fresh page every time it reaches the bottom of one.
+local function scrollFor(selection, count, visible)
+    if visible < 1 then return 1 end
+    selection = math.max(1, selection or 1)
+    local maxScroll = math.max(1, (count or 0) - visible + 1)
+    return math.max(1, math.min(selection - visible + 1, maxScroll))
+end
+
 local function writeClipped(surface, x, y, text, width)
     local sw, sh = surface.getSize()
     if y < 1 or y > sh or x > sw or width <= 0 then return end
@@ -388,6 +401,86 @@ function UI:_nav(state, regions)
     end
 end
 
+-- A labelled section band. Structure in this UI is background colour or it is nothing: the
+-- CC font has no box-drawing characters, so a heading is a filled row with text on it.
+function UI:_band(y) Draw.band(self.surface, y, Theme.role.panel) end
+
+function UI:_bandText(x, y, text, width)
+    Draw.text(self.surface, x, y, text, width, Theme.role.muted, Theme.role.panel)
+end
+
+-- Draws a scrolling selectable list into rows `top` through `bottom`, calling
+-- `render(index, y, selected)` for each visible row. Returns the scroll offset and the window
+-- height so a caller can map a click back to an index. The offset is returned, never stored:
+-- a render that mutates state is what tests/test_ui_purity.lua forbids.
+function UI:_list(top, bottom, count, selection, render)
+    local visible = math.max(0, bottom - top + 1)
+    local scroll = scrollFor(selection, count, visible)
+    for offset = 0, visible - 1 do
+        local index = scroll + offset
+        if index > (count or 0) then break end
+        render(index, top + offset, index == selection)
+    end
+    return scroll, visible
+end
+
+-- One list row: an optional status marker, a name, and a right-aligned value. Selection is a
+-- filled row in the focus colour with inverted text -- the same on every page. The pages used
+-- to disagree, Search filling red and Crafting filling grey, which read as two products.
+function UI:_row(y, selected, from, to, marker, markerColor, left, right, rightColor)
+    local surface = self.surface
+    local background = selected and Theme.role.focus or Theme.role.ground
+    local primary = selected and Theme.role.ground or Theme.role.text
+    Draw.band(surface, y, background, from, to)
+    if marker then
+        Draw.text(surface, from + 1, y, marker, 1,
+            selected and Theme.role.ground or (markerColor or Theme.role.muted), background)
+    end
+    right = right and tostring(right) or nil
+    local nameWidth = math.max(1, (to - from + 1) - #(right or "") - 4)
+    Draw.text(surface, from + 3, y, left, nameWidth, primary, background)
+    if right then
+        Draw.rightText(surface, to - 1, y, right,
+            selected and Theme.role.ground or (rightColor or Theme.role.muted), background)
+    end
+end
+
+-- Drop-off and Pickup levels, on every page, because they are the two numbers you always want
+-- and a page switch to read them is a page switch too many. Occupancy comes from model.nodes
+-- by role: model.dropoff and model.pickup are built by Coordinator:_nodeForRole, which does
+-- not merge the scan snapshot, so their size and occupied are nil.
+local function nodeByRole(model, role)
+    for _, node in ipairs((model or {}).nodes or {}) do
+        if node.role == role then return node end
+    end
+end
+
+function UI:_strip(regions, model)
+    if not regions.strip then return end
+    local surface = self.surface
+    Draw.band(surface, regions.strip, Theme.role.panel)
+    local half = math.floor(regions.width / 2)
+    local function gauge(x, width, label, node)
+        local size = (node or {}).size or 0
+        local occupied = (node or {}).occupied or 0
+        local fraction = size > 0 and (occupied / size) or 0
+        local percent = tostring(math.floor(fraction * 100 + 0.5)) .. "%"
+        Draw.text(surface, x, regions.strip, label, #label, Theme.role.muted, Theme.role.panel)
+        local meterX = x + #label + 1
+        local meterWidth = math.max(0, width - #label - #percent - 3)
+        if meterWidth > 0 then
+            local fill = fraction >= 0.9 and Theme.role.alert
+                or (fraction >= 0.75 and Theme.role.warn or Theme.role.ok)
+            Draw.meter(surface, meterX, regions.strip, meterWidth, fraction,
+                fill, Theme.role.track)
+        end
+        Draw.text(surface, meterX + meterWidth + 1, regions.strip, percent, #percent,
+            Theme.role.text, Theme.role.panel)
+    end
+    gauge(2, half - 2, "DROP-OFF", nodeByRole(model, "dropoff"))
+    gauge(half + 1, half - 2, "PICKUP", nodeByRole(model, "pickup"))
+end
+
 function UI:_header(state, model)
     local surface = self.surface
     local regions = Layout.regions(surface.getSize())
@@ -731,18 +824,6 @@ function UI:_setupWizard(state, model)
     writeClipped(surface, 2, height, "F10 cancel", width - 3)
     surface.setCursorBlink(false)
     return {hit_regions={}}
-end
-
--- Where a list of `count` items must start so that `selection` is on screen, given `visible`
--- rows. Computed at render time and discarded: writing a scroll offset back into state during
--- a render would make rendering impure, which tests/test_ui_purity.lua forbids.
-local function scrollFor(selection, count, visible)
-    if visible < 1 then return 1 end
-    selection = selection or 1
-    local scroll = math.max(1, math.min(selection, math.max(1, (count or 0) - visible + 1)))
-    if selection < scroll then scroll = selection end
-    if selection >= scroll + visible then scroll = selection - visible + 1 end
-    return math.max(1, scroll)
 end
 
 -- Crafting page. Four views behind one page, because they are steps of one task and
