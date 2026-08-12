@@ -175,22 +175,22 @@ so it scrolls the list actually on screen.
 A meter drawn in whole cells quantises badly: at ten cells, 14% and 24% look identical. The
 subpixel characters at 128-159 each encode a 2x3 grid, which buys horizontal half-cells.
 
-The encoding, as the implementation will assume it: the character is `128 + mask`, where mask
-bits 0-4 are top-left, top-right, middle-left, middle-right, bottom-left, and the sixth
-subpixel is expressed by setting the complement of the other five and swapping foreground with
-background. A left half-column is therefore bits 0, 2 and 4 — `128 + 21` = character 149 — and a
-right half-column is the same glyph with the colours reversed.
+The character is `128 + mask`. Character 149 (`128 + 21`, three stacked subpixels) is the
+half-column.
+
+**Checked in world on 2026-08-12, and the prediction was half wrong.** The index was right; the
+colour roles were inverted. Character 149 paints its **foreground on the right half** of the
+cell and its **background on the left**. The design had assumed the opposite.
 
 So a meter cell is one of three things: filled (a space with the fill colour as background),
-half (character 149, fill as foreground, track as background), or empty (a space with track as
-background).
+half (character 149 with the pair **inverted** — fill as background, track as foreground — so
+that it fills from the left), or empty (a space with track as background).
 
-**That bit order is from memory and cannot be proven from the host suite.** A test can assert
-the module emits character 149 for a half cell, which pins the behaviour against regression, but
-it cannot prove 149 is the glyph CC actually draws as a left half-column. Two mitigations:
-`Draw.subpixel = false` falls back to whole cells everywhere in one edit, and phase 1 ends with
-a deployment that renders all 32 glyphs with their indices on the live terminal so the mapping
-is confirmed by looking at it before any meter depends on it.
+This is the class of thing the host suite structurally cannot catch. A test pins which
+character the module emits; nothing on the host knows which pixels CC lights up for it. The
+glyph sheet that settled it took one deployment and one screenshot, and it is the reason phase
+1 ends with a deployment rather than a green suite. `Draw.subpixel = false` remains as the
+whole-cell fallback, but it was not needed.
 
 ## Testing
 

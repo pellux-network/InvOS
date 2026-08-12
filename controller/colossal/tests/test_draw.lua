@@ -71,11 +71,16 @@ return {
         Draw.meter(surface, 1, 3, 10, nil, FILL, TRACK)
         T.equal(filled(surface, 3, FILL, 20), 0)
     end },
-    { name = "a half-full cell is drawn with the left-half subpixel character", run = function()
+    { name = "a half-full cell fills from the left, not the right", run = function()
         local surface = surfaceOf(20, 3)
         Draw.meter(surface, 1, 1, 10, 0.55, FILL, TRACK)
-        T.equal(filled(surface, 1, FILL, 20), 5, "five whole cells, then a half")
-        T.equal(surface.line(1):sub(6, 6), string.char(Draw.HALF))
+        T.equal(surface.line(1):sub(6, 6), string.char(Draw.HALF), "cell six must be the half")
+        -- Character 149 lights its foreground on the RIGHT half of the cell -- confirmed in
+        -- world, not assumed -- so a meter growing from the left passes the fill as the
+        -- background. If this ever flips, partial cells fill from the wrong side.
+        T.equal(surface.backgroundAt(6, 1), FILL, "the half cell must fill from the left")
+        T.equal(filled(surface, 1, FILL, 20), 6, "five whole cells plus the half cell's ground")
+        T.equal(filled(surface, 1, TRACK, 20), 4)
     end },
     { name = "subpixel off rounds to whole cells and draws no partial character", run = function()
         local surface = surfaceOf(20, 3)
