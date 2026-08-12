@@ -207,6 +207,46 @@ return {
         T.equal(Keymap.command({"char", "1"}, {mode="craft_search", craft_query="ch"}).type,
             "CRAFT_QUERY_APPEND", "a bare digit still types when no shortcut fired")
     end},
+    {name="a long recipe list scrolls to keep the selection visible",run=function()
+        local results = {}
+        for index = 1, 40 do
+            results[index] = {item="minecraft:item"..index,
+                display_name="Recipe "..index, quantity=index}
+        end
+        local surface = ui()
+        surface:render(crafting({craft_results=results, craft_result_count=40,
+            craft_selection=30}), {})
+        local text = surface.surface.allText()
+        T.contains(text, "Recipe 30", "the selected recipe must stay on screen")
+        T.equal(text:find("Recipe 1 ", 1, true), nil,
+            "the list must scroll rather than always starting at the top")
+    end},
+    {name="a long craft job list scrolls to keep the selection visible",run=function()
+        local jobs = {}
+        for index = 1, 40 do
+            jobs[index] = {item="minecraft:item"..index,
+                display_name="Job "..index, state="QUEUED"}
+        end
+        local surface = ui()
+        surface:render(crafting({mode="craft_jobs", craft_jobs=jobs, craft_job_count=40,
+            craft_job_selection=30}), {})
+        local text = surface.surface.allText()
+        T.contains(text, "Job 30", "the selected job must stay on screen")
+        T.equal(text:find("Job 1 ", 1, true), nil,
+            "the list must scroll rather than always starting at the top")
+    end},
+    {name="rendering a scrolled crafting list never mutates UI state",run=function()
+        local results = {}
+        for index = 1, 40 do
+            results[index] = {item="minecraft:item"..index,
+                display_name="Recipe "..index, quantity=index}
+        end
+        local state = crafting({craft_results=results, craft_result_count=40,
+            craft_selection=30, craft_scroll=1})
+        ui():render(state, {})
+        T.equal(state.craft_scroll, 1, "render must not write a scroll offset back to state")
+        T.equal(state.craft_selection, 30)
+    end},
     {name="the crafting page never draws outside its surface",run=function()
         for _, mode in ipairs({"craft_search", "craft_quantity", "craft_plan", "craft_jobs"}) do
             for _, size in ipairs({{51,19},{26,12},{18,8}}) do

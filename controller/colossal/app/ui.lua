@@ -720,6 +720,18 @@ function UI:_setupWizard(state, model)
     return {hit_regions={}}
 end
 
+-- Where a list of `count` items must start so that `selection` is on screen, given `visible`
+-- rows. Computed at render time and discarded: writing a scroll offset back into state during
+-- a render would make rendering impure, which tests/test_ui_purity.lua forbids.
+local function scrollFor(selection, count, visible)
+    if visible < 1 then return 1 end
+    selection = selection or 1
+    local scroll = math.max(1, math.min(selection, math.max(1, (count or 0) - visible + 1)))
+    if selection < scroll then scroll = selection end
+    if selection >= scroll + visible then scroll = selection - visible + 1 end
+    return math.max(1, scroll)
+end
+
 -- Crafting page. Four views behind one page, because they are steps of one task and
 -- swapping pages between them would lose the search that found the item.
 function UI:_crafting(state, model, hitRegions)
@@ -731,8 +743,12 @@ function UI:_crafting(state, model, hitRegions)
         surface.setBackgroundColor(palette.black)
         writeClipped(surface, 2, 3, "CRAFT JOBS", width - 2)
         local row = 4
-        for index, job in ipairs(state.craft_jobs or {}) do
-            if row > bottom then break end
+        local jobs = state.craft_jobs or {}
+        local scroll = scrollFor(state.craft_job_selection or 1, #jobs, bottom - 4 + 1)
+        for offset = 0, bottom - 4 do
+            local index = scroll + offset
+            local job = jobs[index]
+            if not job then break end
             local selected = index == (state.craft_job_selection or 1)
             fill(surface, row, selected and palette.gray or palette.black)
             surface.setTextColor(palette.white)
@@ -815,8 +831,12 @@ function UI:_crafting(state, model, hitRegions)
     surface.setTextColor(palette.white)
     writeClipped(surface, 2, 3, "Craft: " .. state.craft_query, width - 2)
     local row = 4
-    for index, entry in ipairs(state.craft_results or {}) do
-        if row > bottom then break end
+    local results = state.craft_results or {}
+    local scroll = scrollFor(state.craft_selection or 1, #results, bottom - 4 + 1)
+    for offset = 0, bottom - 4 do
+        local index = scroll + offset
+        local entry = results[index]
+        if not entry then break end
         local selected = index == (state.craft_selection or 1)
         fill(surface, row, selected and palette.gray or palette.black)
         surface.setTextColor(palette.white)
