@@ -56,9 +56,16 @@ colour from selection colour from alert colour, and gives status its own ramp.
 | `lightBlue` | `#6FC3DE` | informational |
 | `cyan` | `#3E9BB5` | informational, dim |
 | `purple` | `#6E5AA8` | crafting |
+| `magenta` | `#E0454F` | alert, failure |
 
-`magenta` and `brown` are left at their defaults; nothing needs them and claiming a slot with no
-use for it only makes a later decision harder.
+`brown` is left at its default; nothing needs it and claiming a slot with no use for it only
+makes a later decision harder.
+
+`magenta` exists because brand and alert cannot be the same red. The header draws the wordmark
+in brand crimson and an alert band may sit four rows below it; if both are `#B91C2E` the failure
+does not separate from the chrome, which defeats the point of splitting the roles at all. Alert
+is the brighter, higher-urgency red and is reserved for `ERROR`, `FAILED`, `OFFLINE` and
+critical alert bands. Brand red never signals state.
 
 Pages must never name a slot directly. They name a role — `theme.role.focus`, not `colors.pink` —
 so that changing what selection looks like is one edit rather than a search across five files.
@@ -114,15 +121,24 @@ The shared vocabulary. Replaces four private copies of the same two functions.
 `Layout.regions(width, height)` returns the named bands every page shares:
 
 ```
-header  = 1              nav    = 2
-body    = {top=4, bottom=height-4}
-split   = <x> or nil     strip  = height-3
-footer  = height-2       status = height-1
+header  = 1                        nav    = 2
+content = {top=3, bottom=<...>}    split  = <x> or nil
+strip   = height-2 or nil          footer = height-1
+status  = height
 ```
 
-`split` is nil below the wide breakpoint — 72 columns, the value `ui.lua` already uses for the
-Search page — which is how a page knows to collapse its detail pane rather than each page
-re-deciding. This replaces every magic row number in `ui.lua`, including `listBand`.
+`content` is the band a page carves its own rows from; the shared chrome above and below it is
+fixed so pages cannot disagree about it.
+
+`split` is nil below 40 columns. This is **not** the 72-column breakpoint `ui.lua` uses today:
+the approved mockup shows a detail pane on the 51-column terminal, so the pane has to appear far
+earlier than the current wide layout does. 72 stays only as the point where the pane gets
+generous rather than merely present.
+
+`strip` is nil below 12 rows, and `content` claims the row back when it is absent — the bottom
+meter strip is a luxury, and a screen that small needs its rows for content.
+
+This replaces every magic row number in `ui.lua`, including `listBand`.
 
 ## What each screen becomes
 
