@@ -100,6 +100,7 @@ end
 
 function M.render(surface,model)
     model=model or {}
+    if surface.beginFrame then surface.beginFrame() end
     local width,height=surface.getSize()
     surface.setBackgroundColor(palette.black)
     surface.setTextColor(palette.white)
@@ -109,6 +110,7 @@ function M.render(surface,model)
     surface.setBackgroundColor(palette.black)
     surface.setTextColor(palette.white)
     surface.setCursorBlink(false)
+    if surface.endFrame then surface.endFrame() end
 end
 
 return M

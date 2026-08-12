@@ -14,6 +14,7 @@ local Monitor = require("app.monitor")
 local Requests = require("app.requests")
 local Recovery = require("app.recovery")
 local Search = require("app.search")
+local Buffer = require("app.buffer")
 local Setup = require("app.setup")
 local Theme = require("app.theme")
 local UI = require("app.ui")
@@ -286,7 +287,6 @@ function Main.build(environment)
         record_usage=function(key,timestamp)
             if coordinator then coordinator:recordItemRequested(key,timestamp) end
         end})
-    local ui=UI.new(termApi.current and termApi.current() or termApi)
     local uiState=UI.initialState()
     if not config.configured then
         uiState.page,uiState.mode,uiState.setup_step="setup","setup",1
@@ -299,9 +299,21 @@ function Main.build(environment)
 
     -- The palette is per surface, and a monitor bound after startup gets its own when the
     -- peripheral event lands. A surface with no palette API renders in stock colours.
-    Theme.apply(termApi.current and termApi.current() or termApi)
+    local terminalSurface=termApi.current and termApi.current() or termApi
+    Theme.apply(terminalSurface)
     Theme.apply(monitorSurface)
     Theme.apply(craftMonitorSurface)
+
+    -- Wrapped after the palette, because a window copies its parent's palette when it is
+    -- created. Every render then lands in one blit instead of clearing the screen and
+    -- repainting it in view of the player.
+    terminalSurface=Buffer.wrap(terminalSurface)
+    monitorSurface=Buffer.wrap(monitorSurface)
+    craftMonitorSurface=Buffer.wrap(craftMonitorSurface)
+
+    -- Built from the buffered surface, not the raw one: constructing the UI before the wrap
+    -- would leave it drawing straight to the screen and the buffering would do nothing.
+    local ui=UI.new(terminalSurface)
 
     -- Crafting is optional. Without a bound buffer and turtle the modules are simply not
     -- built, the coordinator sees no craft service, and everything else runs unchanged.

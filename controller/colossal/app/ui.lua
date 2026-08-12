@@ -1037,6 +1037,10 @@ end
 function UI:render(state, model)
     model = model or {}
     local surface = self.surface
+    -- Drawn hidden and shown once, when the surface is buffered. Optional: an unbuffered
+    -- surface (the host suite, or a CC surface that would not give us a window) has neither
+    -- method and renders exactly as before.
+    if surface.beginFrame then surface.beginFrame() end
     surface.setBackgroundColor(palette.black)
     surface.setTextColor(palette.white)
     surface.clear()
@@ -1054,6 +1058,7 @@ function UI:render(state, model)
     surface.setBackgroundColor(palette.black)
     surface.setTextColor(palette.white)
     surface.setCursorBlink(state.mode == "search" or state.mode == "craft_search")
+    if surface.endFrame then surface.endFrame() end
     return { hit_regions=hitRegions }
 end
 

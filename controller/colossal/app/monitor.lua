@@ -126,12 +126,14 @@ local function renderLarge(surface,model,width,height)
 end
 
 function M.render(surface,model)
+    if surface.beginFrame then surface.beginFrame() end
     local width,height=surface.getSize()
     surface.setBackgroundColor(palette.black); surface.setTextColor(palette.white); surface.clear()
     if width<24 or height<8 then renderSmall(surface,model,width,height)
     elseif width<45 or height<14 then renderMedium(surface,model,width,height)
     else renderLarge(surface,model,width,height) end
     surface.setBackgroundColor(palette.black); surface.setTextColor(palette.white); surface.setCursorBlink(false)
+    if surface.endFrame then surface.endFrame() end
 end
 
 return M
