@@ -1040,13 +1040,24 @@ function UI:_crafting(state, model, hitRegions)
     if state.mode ~= "craft_quantity" then self:_strip(regions, model) end
 end
 
+-- Every path through a render must end the frame it began. A frame begun and never ended
+-- leaves the buffered window hidden forever: the application carries on working perfectly --
+-- reading keys, scanning, transferring -- while the screen stays frozen on the last frame
+-- that was shown. That is indistinguishable from a hang, and it is what the setup wizard's
+-- early return caused. Hence the single entry and exit here, and the pcall: an error inside a
+-- page renderer must not be able to hide the display either.
 function UI:render(state, model)
+    local surface = self.surface
+    if surface.beginFrame then surface.beginFrame() end
+    local ok, result = pcall(self._frame, self, state, model)
+    if surface.endFrame then surface.endFrame() end
+    if not ok then error(result, 0) end
+    return result
+end
+
+function UI:_frame(state, model)
     model = model or {}
     local surface = self.surface
-    -- Drawn hidden and shown once, when the surface is buffered. Optional: an unbuffered
-    -- surface (the host suite, or a CC surface that would not give us a window) has neither
-    -- method and renders exactly as before.
-    if surface.beginFrame then surface.beginFrame() end
     surface.setBackgroundColor(Theme.role.ground)
     surface.setTextColor(Theme.role.text)
     surface.clear()
@@ -1064,7 +1075,6 @@ function UI:render(state, model)
     surface.setBackgroundColor(Theme.role.ground)
     surface.setTextColor(Theme.role.text)
     surface.setCursorBlink(state.mode == "search" or state.mode == "craft_search")
-    if surface.endFrame then surface.endFrame() end
     return { hit_regions=hitRegions }
 end
 

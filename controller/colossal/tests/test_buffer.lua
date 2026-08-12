@@ -72,4 +72,39 @@ return {
         local api = {create = function() error("no windows here") end}
         T.equal(Buffer.wrap(surface, api), surface)
     end },
+    { name = "every render path ends the frame it began", run = function()
+        local UI = require("app.ui")
+        -- A frame begun and never ended leaves the buffered window hidden forever: the
+        -- application keeps running perfectly and the screen freezes on the last good frame.
+        local frames = {begun = 0, ended = 0}
+        local surface = T.recordingSurface(51, 19)
+        surface.beginFrame = function() frames.begun = frames.begun + 1 end
+        surface.endFrame = function() frames.ended = frames.ended + 1 end
+        local screen = UI.new(surface)
+        for _, page in ipairs({"search", "storage", "requests", "alerts", "crafting", "setup"}) do
+            local state = UI.initialState()
+            state.page, state.mode = page, "page"
+            screen:render(state, {lifecycle="READY"})
+        end
+        -- The setup wizard is the one render path that returns early.
+        local wizard = UI.initialState()
+        wizard.page, wizard.mode, wizard.setup_step = "setup", "setup", 1
+        screen:render(wizard, {lifecycle="READY"})
+        T.equal(frames.ended, frames.begun,
+            "began " .. frames.begun .. " frames but ended " .. frames.ended)
+    end },
+    { name = "a render that throws still ends its frame", run = function()
+        local UI = require("app.ui")
+        local frames = {begun = 0, ended = 0}
+        local surface = T.recordingSurface(51, 19)
+        surface.beginFrame = function() frames.begun = frames.begun + 1 end
+        surface.endFrame = function() frames.ended = frames.ended + 1 end
+        local screen = UI.new(surface)
+        -- A model shaped wrongly enough to break a page renderer.
+        local state = UI.initialState()
+        state.page, state.mode = "requests", "page"
+        pcall(screen.render, screen, state, {lifecycle="READY", requests="not a table"})
+        T.equal(frames.begun, 1)
+        T.equal(frames.ended, 1, "an error must not leave the window hidden forever")
+    end },
 }
