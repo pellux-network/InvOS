@@ -89,13 +89,13 @@ function M.memoryFs(initial)
 end
 
 function M.recordingSurface(width, height)
-    local cells, backgrounds, cursorX, cursorY = {}, {}, 1, 1
-    local outside, background = 0, 32768
-    for y = 1, height do cells[y], backgrounds[y] = {}, {} end
+    local cells, backgrounds, foregrounds, cursorX, cursorY = {}, {}, {}, 1, 1
+    local outside, background, foreground = 0, 32768, 1
+    for y = 1, height do cells[y], backgrounds[y], foregrounds[y] = {}, {}, {} end
     local surface = {}
     function surface.getSize() return width, height end
     function surface.clear()
-        for y = 1, height do cells[y], backgrounds[y] = {}, {} end
+        for y = 1, height do cells[y], backgrounds[y], foregrounds[y] = {}, {}, {} end
         cursorX, cursorY = 1, 1
     end
     function surface.setCursorPos(x, y)
@@ -104,7 +104,7 @@ function M.recordingSurface(width, height)
     end
     function surface.getCursorPos() return cursorX, cursorY end
     function surface.setCursorBlink(_) end
-    function surface.setTextColor(_) end
+    function surface.setTextColor(value) foreground=value end
     function surface.setBackgroundColor(value) background=value end
     function surface.setTextScale(_) end
     function surface.write(value)
@@ -116,6 +116,7 @@ function M.recordingSurface(width, height)
         for index = 1, #value do
             cells[cursorY][cursorX + index - 1] = value:sub(index, index)
             backgrounds[cursorY][cursorX + index - 1] = background
+            foregrounds[cursorY][cursorX + index - 1] = foreground
         end
         cursorX = cursorX + #value
     end
@@ -130,6 +131,10 @@ function M.recordingSurface(width, height)
         return table.concat(lines, "\n")
     end
     function surface.backgroundAt(x,y) return backgrounds[y] and backgrounds[y][x] end
+    -- Foreground was untracked until a half-filled meter cell shipped with its fill on the
+    -- wrong side of the character: every assertion available could only see the background,
+    -- so nothing in the suite could tell which half was lit.
+    function surface.foregroundAt(x,y) return foregrounds[y] and foregrounds[y][x] end
     function surface.writesOutsideBounds() return outside end
     return surface
 end

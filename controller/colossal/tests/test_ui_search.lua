@@ -75,6 +75,57 @@ return {
         T.equal(surface.writesOutsideBounds(), 0)
         T.contains(surface.allText(), "Item1")
     end },
+    -- Quantities chosen so the old formula and the new one disagree loudly. Against the old
+    -- fixed 2048 denominator, 50 reads as 2% -- indistinguishable from empty. Against the
+    -- largest item actually on screen it reads as half, which is the true relationship.
+    { name = "the stock meter compares against the largest item in view", run = function()
+        local function barCells(selection)
+            local state = UI.initialState()
+            state.results = {result("big", "Big", 100), result("small", "Small", 50)}
+            state.result_count, state.selection = 2, selection
+            local screen = UI.new(T.recordingSurface(51, 19))
+            screen:render(state, {lifecycle="READY", search_results=state.results})
+            local lit = 0
+            for y = 1, 19 do
+                for x = 31, 50 do
+                    if screen.surface.backgroundAt(x, y) == Theme.role.ok then lit = lit + 1 end
+                end
+            end
+            return lit
+        end
+        local half, whole = barCells(2), barCells(1)
+        T.truthy(whole >= 15, "the largest item must fill its own bar, got " .. whole)
+        T.truthy(half > 4 and half < whole - 2,
+            "50 of a 100 maximum must read as about half, got " .. half .. " of " .. whole)
+    end },
+    { name = "the pane reports stacks, which is the unit players think in", run = function()
+        local surface = render(51, 19, stateWith(8, 1))
+        T.contains(surface.allText(), "stacks")
+    end },
+    { name = "the retrieve prompt uses the pane, not a box over the list", run = function()
+        local state = stateWith(8, 3)
+        local screen = UI.new(T.recordingSurface(51, 19))
+        state = screen:reduce(state, {type="OPEN_QUANTITY"})
+        screen:render(state, {lifecycle="READY", search_results=state.results})
+        local text = screen.surface.allText()
+        T.contains(text, "Retrieve")
+        T.contains(text, "Amount")
+        T.contains(text, "Item1", "the list must stay visible behind the prompt")
+        T.contains(text, "Item8")
+        -- The old overlay filled banded rows straight across the divider column. Row 12 is an
+        -- unselected list row -- row 9 holds the selection and is legitimately filled.
+        T.equal(screen.surface.backgroundAt(10, 12), Theme.role.ground,
+            "the prompt must not paint over the list")
+    end },
+    { name = "a terminal too narrow for a pane still gets a usable prompt", run = function()
+        local state = stateWith(8, 3)
+        local screen = UI.new(T.recordingSurface(30, 19))
+        state = screen:reduce(state, {type="OPEN_QUANTITY"})
+        screen:render(state, {lifecycle="READY", search_results=state.results})
+        T.contains(screen.surface.allText(), "Retrieve")
+        T.contains(screen.surface.allText(), "A all")
+        T.equal(screen.surface.writesOutsideBounds(), 0)
+    end },
     { name = "the search page never draws outside its surface", run = function()
         for _, size in ipairs({{51,19},{80,24},{40,14},{26,12},{18,8}}) do
             local surface = render(size[1], size[2], stateWith(40, 30))

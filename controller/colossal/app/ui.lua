@@ -584,19 +584,33 @@ function UI:_search(state, model, hitRegions)
             Theme.role.muted, Theme.role.ground)
         Draw.text(surface, paneFrom, bodyTop + 3, "STOCK", paneWidth,
             Theme.role.muted, Theme.role.ground)
-        -- The meter is against a nominal 2048, not a real capacity: an item has no ceiling
-        -- in this system, so this reads as "how much of a lot", never as a percentage full.
+        -- Measured against the largest item currently on screen, not against a fixed
+        -- constant. Nothing here has a real ceiling -- an item can always be stored more of
+        -- -- so an absolute bar can only be arbitrary. Relative to what you are looking at,
+        -- the bar answers a question you actually have: is this a lot, or is it a little?
+        local largest = 0
+        for _, item in ipairs(results) do largest = math.max(largest, item.quantity or 0) end
         Draw.meter(surface, paneFrom, bodyTop + 4, math.max(1, paneWidth - 1),
-            math.min(1, (selected.quantity or 0) / 2048), Theme.role.ok, Theme.role.track)
+            largest > 0 and ((selected.quantity or 0) / largest) or 0,
+            Theme.role.ok, Theme.role.track)
         Draw.text(surface, paneFrom, bodyTop + 5, formatNumber(selected.quantity) .. " stored",
             paneWidth, Theme.role.text, Theme.role.ground)
+        local perStack = selected.max_count or 64
+        if perStack > 1 then
+            local stacks = math.floor((selected.quantity or 0) / perStack)
+            local loose = (selected.quantity or 0) % perStack
+            local text = formatNumber(stacks) .. " stacks"
+            if loose > 0 then text = text .. " + " .. loose end
+            Draw.text(surface, paneFrom, bodyTop + 6, text, paneWidth,
+                Theme.role.muted, Theme.role.ground)
+        end
         local variants = #(selected.variants or {})
         if variants > 1 then
-            Draw.text(surface, paneFrom, bodyTop + 7, variants .. " exact variants", paneWidth,
+            Draw.text(surface, paneFrom, bodyTop + 8, variants .. " exact variants", paneWidth,
                 Theme.role.muted, Theme.role.ground)
         end
         local button = "  ENTER  RETRIEVE "
-        Draw.text(surface, paneFrom, math.min(regions.content.bottom, bodyTop + 9), button,
+        Draw.text(surface, paneFrom, math.min(regions.content.bottom, bodyTop + 10), button,
             math.min(#button, paneWidth), Theme.role.text, Theme.role.brand)
     end
     self:_strip(regions, model)
@@ -720,39 +734,100 @@ function UI:_setup(model)
     writeClipped(surface, 2, 10, "Enter opens the full setup wizard", width - 3)
 end
 
+-- The retrieve prompt. With a detail pane on screen it replaces the pane's contents, so the
+-- list you were reading stays visible and the prompt appears where you were already looking.
+-- A floating box over the middle of the list was the old behaviour and it hid the thing you
+-- had just selected. Narrow screens have no pane, so they keep the centred box.
 function UI:_overlay(state)
     local surface = self.surface
-    local width, height = surface.getSize()
-    local boxWidth = math.min(40, width - 4)
-    if boxWidth < 18 then return end
-    local left = math.floor((width - boxWidth) / 2) + 1
-    local top = math.max(4, math.floor((height - 7) / 2))
-    for y = top, math.min(height - 1, top + 6) do fill(surface, y, palette.gray) end
+    local regions = Layout.regions(surface.getSize())
+    if regions.split then
+        self:_panePrompt(state, regions)
+    else
+        self:_boxPrompt(state, regions)
+    end
+end
+
+function UI:_panePrompt(state, regions)
+    local surface = self.surface
+    local paneFrom = regions.split + 2
+    local paneWidth = regions.width - paneFrom
+    local top = regions.content.top + 4
+    for y = top, regions.content.bottom do
+        Draw.band(surface, y, Theme.role.ground, paneFrom, regions.width)
+    end
     if state.mode == "quantity" then
-        surface.setTextColor(palette.red)
-        writeClipped(surface, left + 2, top, "Retrieve " ..
-            tostring(state.identity.display_name or state.identity.name), boxWidth - 4)
-        surface.setTextColor(palette.white)
-        writeClipped(surface, left + 2, top + 1,
-            formatNumber(state.identity.available) .. " available", boxWidth - 4)
-        writeClipped(surface, left + 2, top + 2,
-            "Amount: " .. (state.quantity_text ~= "" and state.quantity_text or "_"), boxWidth - 4)
-        surface.setTextColor(palette.lightGray)
-        writeClipped(surface, left + 2, top + 4, "Enter 1   S stack   A all", boxWidth - 4)
-        writeClipped(surface, left + 2, top + 5, "Digits exact   F10 back", boxWidth - 4)
+        Draw.text(surface, paneFrom, top, "Retrieve", paneWidth,
+            Theme.role.focus, Theme.role.ground)
+        Draw.text(surface, paneFrom, top + 1,
+            tostring(state.identity.display_name or state.identity.name), paneWidth,
+            Theme.role.text, Theme.role.ground)
+        Draw.text(surface, paneFrom, top + 2,
+            formatNumber(state.identity.available) .. " available", paneWidth,
+            Theme.role.muted, Theme.role.ground)
+        Draw.text(surface, paneFrom, top + 4,
+            "Amount: " .. (state.quantity_text ~= "" and state.quantity_text or "_"), paneWidth,
+            Theme.role.text, Theme.role.ground)
+        Draw.text(surface, paneFrom, top + 6, "Enter 1   S stack", paneWidth,
+            Theme.role.muted, Theme.role.ground)
+        Draw.text(surface, paneFrom, top + 7, "A all   F10 back", paneWidth,
+            Theme.role.muted, Theme.role.ground)
     elseif state.mode == "variant" then
-        surface.setTextColor(palette.red)
-        writeClipped(surface, left + 2, top, "Choose exact variant", boxWidth - 4)
+        Draw.text(surface, paneFrom, top, "Exact variant", paneWidth,
+            Theme.role.focus, Theme.role.ground)
+        local variants = state.variants or {}
+        self:_list(top + 1, math.min(regions.content.bottom - 1, top + 6), #variants,
+            state.variant_selection, function(index, y, selected)
+                self:_row(y, selected, paneFrom - 1, regions.width, nil, nil,
+                    tostring(variants[index].display_name), nil)
+            end)
+        Draw.text(surface, paneFrom, regions.content.bottom, "Enter select   F10 back",
+            paneWidth, Theme.role.muted, Theme.role.ground)
+    end
+end
+
+function UI:_boxPrompt(state, regions)
+    local surface = self.surface
+    local boxWidth = math.min(40, regions.width - 4)
+    if boxWidth < 18 then return end
+    local left = math.floor((regions.width - boxWidth) / 2) + 1
+    local top = math.max(regions.content.top, math.floor((regions.height - 7) / 2))
+    for y = top, math.min(regions.content.bottom, top + 6) do
+        Draw.band(surface, y, Theme.role.panel, left, left + boxWidth - 1)
+    end
+    if state.mode == "quantity" then
+        Draw.text(surface, left + 2, top, "Retrieve " ..
+            tostring(state.identity.display_name or state.identity.name), boxWidth - 4,
+            Theme.role.focus, Theme.role.panel)
+        Draw.text(surface, left + 2, top + 1,
+            formatNumber(state.identity.available) .. " available", boxWidth - 4,
+            Theme.role.text, Theme.role.panel)
+        Draw.text(surface, left + 2, top + 2,
+            "Amount: " .. (state.quantity_text ~= "" and state.quantity_text or "_"),
+            boxWidth - 4, Theme.role.text, Theme.role.panel)
+        Draw.text(surface, left + 2, top + 4, "Enter 1   S stack   A all", boxWidth - 4,
+            Theme.role.muted, Theme.role.panel)
+        Draw.text(surface, left + 2, top + 5, "Digits exact   F10 back", boxWidth - 4,
+            Theme.role.muted, Theme.role.panel)
+        if boxWidth - 4 < 25 then
+            -- 25 characters of hint do not fit a 30-column terminal, and the clipped
+            -- remainder silently dropped "A all" -- the one shortcut worth knowing.
+            Draw.text(surface, left + 2, top + 4, "Enter 1   S stack", boxWidth - 4,
+                Theme.role.muted, Theme.role.panel)
+            Draw.text(surface, left + 2, top + 5, "A all   F10 back", boxWidth - 4,
+                Theme.role.muted, Theme.role.panel)
+        end
+    elseif state.mode == "variant" then
+        Draw.text(surface, left + 2, top, "Choose exact variant", boxWidth - 4,
+            Theme.role.focus, Theme.role.panel)
         for index, variant in ipairs(state.variants or {}) do
             if index > 4 then break end
-            surface.setTextColor(index == state.variant_selection and palette.black or palette.white)
-            if index == state.variant_selection then fill(surface, top + index, palette.red) end
-            writeClipped(surface, left + 2, top + index,
-                (index == state.variant_selection and "> " or "  ") .. variant.display_name,
-                boxWidth - 4)
+            local selected = index == state.variant_selection
+            self:_row(top + index, selected, left, left + boxWidth - 1, nil, nil,
+                tostring(variant.display_name), nil)
         end
-        surface.setTextColor(palette.lightGray)
-        writeClipped(surface, left + 2, top + 5, "Enter select   F10 back", boxWidth - 4)
+        Draw.text(surface, left + 2, top + 5, "Enter select   F10 back", boxWidth - 4,
+            Theme.role.muted, Theme.role.panel)
     end
 end
 

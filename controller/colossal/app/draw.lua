@@ -1,15 +1,15 @@
 local M = {}
 
 -- The 2x3 subpixel characters live at 128-159, the index being 128 plus a five-bit mask.
--- Character 149 (128 + 21, three stacked subpixels) is the half-column, and this was checked
--- in world on 2026-08-12 rather than reasoned about: it paints its FOREGROUND on the right
--- half of the cell and its BACKGROUND on the left. The prediction here had those two the
--- other way round, which is exactly the kind of thing the host suite cannot catch -- a test
--- can pin which character is emitted, never which pixels CC lights up for it.
+-- Character 149 (128 + 21, three stacked subpixels) is the half-column, and it paints its
+-- FOREGROUND on the left half of the cell. So a meter filling from the left passes the fill
+-- as the foreground -- the same way round as an ordinary character.
 --
--- So a meter filling from the left passes the pair inverted: fill as the background, track as
--- the foreground. Get that backwards and every partial cell fills from the wrong side, which
--- reads as a meter that jitters backwards as it grows.
+-- Established from a rendered meter, not from a glyph sheet. A sheet showing 149 in isolation
+-- on a dark ground is genuinely ambiguous about which half is lit; a meter is not, because
+-- getting it backwards leaves a one-cell dark gap between the solid run and the partial cell,
+-- and the fill reads as a sliver floating away from the bar. If a future change makes meters
+-- look gappy again, this is the line that is wrong.
 M.HALF = 149
 M.subpixel = true
 
@@ -82,9 +82,7 @@ function M.meter(surface, x, y, cells, fraction, fill, track)
         if index < whole then
             M.band(surface, y, fill, cellX, cellX)
         elseif index == whole and partial then
-            -- Inverted deliberately: 149 lights its foreground on the right half, so the
-            -- fill has to arrive as the background to appear on the left. See M.HALF above.
-            M.text(surface, cellX, y, string.char(M.HALF), 1, track, fill)
+            M.text(surface, cellX, y, string.char(M.HALF), 1, fill, track)
         else
             M.band(surface, y, track, cellX, cellX)
         end

@@ -114,7 +114,10 @@ return {
         local state=UI.initialState(); state.results=results(); state.result_count=2
         state=ui:reduce(state,{type="OPEN_QUANTITY"})
         ui:render(state,view())
-        T.contains(surface.allText(),"Retrieve Stone")
+        -- The prompt moved into the detail pane, which is 20 columns wide, so the item name
+        -- now sits on its own line under the verb rather than beside it.
+        T.contains(surface.allText(),"Retrieve")
+        T.contains(surface.allText(),"Stone")
         T.contains(surface.allText(),"1,248 available")
         T.contains(surface.allText(),"Enter 1")
         T.contains(surface.allText(),"S stack")
