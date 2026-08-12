@@ -5,12 +5,6 @@ local Theme = require("app.theme")
 local UI = {}
 UI.__index = UI
 
-local palette = colors or {
-    white=1, orange=2, magenta=4, lightBlue=8, yellow=16, lime=32,
-    pink=64, gray=128, lightGray=256, cyan=512, purple=1024, blue=2048,
-    brown=4096, green=8192, red=16384, black=32768,
-}
-
 local function copy(value, seen)
     if type(value) ~= "table" then return value end
     seen = seen or {}
@@ -45,35 +39,6 @@ local function scrollFor(selection, count, visible)
     selection = math.max(1, selection or 1)
     local maxScroll = math.max(1, (count or 0) - visible + 1)
     return math.max(1, math.min(selection - visible + 1, maxScroll))
-end
-
-local function writeClipped(surface, x, y, text, width)
-    local sw, sh = surface.getSize()
-    if y < 1 or y > sh or x > sw or width <= 0 then return end
-    text = tostring(text or "")
-    if x < 1 then
-        local remove = 1 - x
-        text = text:sub(remove + 1)
-        width, x = width - remove, 1
-    end
-    if width <= 0 then return end
-    text = text:sub(1, math.min(width, sw - x + 1))
-    if #text > 0 then surface.setCursorPos(x, y); surface.write(text) end
-end
-
-local function fill(surface, y, color)
-    local width, height = surface.getSize()
-    if y < 1 or y > height then return end
-    surface.setBackgroundColor(color)
-    surface.setCursorPos(1, y)
-    surface.write(string.rep(" ", width))
-end
-
-local function stateColor(state)
-    if state == "READY" or state == "COMPLETE" then return palette.lime end
-    if state == "DEGRADED" or state == "BLOCKED" or state == "PARTIAL" then return palette.yellow end
-    if state == "ERROR" or state == "FAILED" or state == "OFFLINE" then return palette.red end
-    return palette.orange
 end
 
 function UI.new(surface)
@@ -1044,8 +1009,8 @@ function UI:render(state, model)
     -- surface (the host suite, or a CC surface that would not give us a window) has neither
     -- method and renders exactly as before.
     if surface.beginFrame then surface.beginFrame() end
-    surface.setBackgroundColor(palette.black)
-    surface.setTextColor(palette.white)
+    surface.setBackgroundColor(Theme.role.ground)
+    surface.setTextColor(Theme.role.text)
     surface.clear()
     if state.mode == "setup" then return self:_setupWizard(state, model) end
     self:_header(state, model)
@@ -1058,8 +1023,8 @@ function UI:render(state, model)
     else self:_setup(model) end
     self:_footer(state, model)
     if state.mode == "quantity" or state.mode == "variant" then self:_overlay(state) end
-    surface.setBackgroundColor(palette.black)
-    surface.setTextColor(palette.white)
+    surface.setBackgroundColor(Theme.role.ground)
+    surface.setTextColor(Theme.role.text)
     surface.setCursorBlink(state.mode == "search" or state.mode == "craft_search")
     if surface.endFrame then surface.endFrame() end
     return { hit_regions=hitRegions }
