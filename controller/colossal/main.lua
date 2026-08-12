@@ -15,6 +15,7 @@ local Requests = require("app.requests")
 local Recovery = require("app.recovery")
 local Search = require("app.search")
 local Setup = require("app.setup")
+local Theme = require("app.theme")
 local UI = require("app.ui")
 local CraftPlanner = require("core.craft_planner")
 local CraftPrefs = require("core.craft_prefs")
@@ -296,6 +297,12 @@ function Main.build(environment)
     local craftMonitorSurface=env.craft_monitor_surface or
         boundMonitor(peripheralApi,monitors.crafting,false)
 
+    -- The palette is per surface, and a monitor bound after startup gets its own when the
+    -- peripheral event lands. A surface with no palette API renders in stock colours.
+    Theme.apply(termApi.current and termApi.current() or termApi)
+    Theme.apply(monitorSurface)
+    Theme.apply(craftMonitorSurface)
+
     -- Crafting is optional. Without a bound buffer and turtle the modules are simply not
     -- built, the coordinator sees no craft service, and everything else runs unchanged.
     local crafts, link
@@ -407,6 +414,9 @@ if ...==nil then
     local ok,reason=xpcall(function() Main.run() end,function(value)
         return debug and debug.traceback and debug.traceback(value,2) or tostring(value)
     end)
+    -- setPaletteColour changes the terminal, not the program. Leaving InvOS colours behind
+    -- looks like a corrupted computer rather than a program that forgot to tidy up.
+    pcall(Theme.restore, term.current and term.current() or term)
     if not ok then printError("InvOS failed: "..tostring(reason)) end
 end
 

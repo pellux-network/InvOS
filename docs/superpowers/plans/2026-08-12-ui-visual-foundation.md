@@ -955,6 +955,16 @@ This is where the foundation stops being theoretical. The splash moves onto `Dra
 private glyph table; the header and footer move onto `Theme` and `Layout` and gain the active
 nav tab; and the palette gets applied and — critically — restored.
 
+**The splash is also upgraded, not merely ported.** Same ~1.5s budget, because it blocks every
+cold boot and the existing timing test holds it to under 2.5s:
+
+- The wipe gains a **leading edge**: the newest two columns paint in `focus` coral, everything
+  behind them in `brand` crimson, so the wordmark reads as being drawn rather than revealed.
+- When it lands, a **single pulse** — one frame of the whole wordmark in coral, then back to
+  crimson. One pulse, not a loop; a looping splash reads as a hang.
+- The `####----` bar becomes a real `Draw.meter` in `brand` over `track`, which is the same
+  meter the rest of the UI uses, so the boot screen and the application agree.
+
 **Files:**
 - Modify: `controller/colossal/app/splash.lua`
 - Modify: `controller/colossal/app/ui.lua` (`UI:_header`, `UI:_footer`, `navigationBar`)

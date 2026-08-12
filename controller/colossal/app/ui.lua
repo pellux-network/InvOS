@@ -1,3 +1,7 @@
+local Draw = require("app.draw")
+local Layout = require("app.layout")
+local Theme = require("app.theme")
+
 local UI = {}
 UI.__index = UI
 
@@ -350,42 +354,50 @@ end
 -- spacing first and only then its longer labels. Every page keeps its digit visible:
 -- a shortcut the header does not advertise is a shortcut nobody presses.
 local NAV_PAGES = {
-    {digit="1", long="SEARCH", short="SEARCH"},
-    {digit="2", long="NODES", short="NODES"},
-    {digit="3", long="REQUESTS", short="REQS"},
-    {digit="4", long="ALERTS", short="ALERTS"},
-    {digit="5", long="SETUP", short="SETUP"},
-    {digit="6", long="CRAFTING", short="CRAFT"},
+    {digit="1", long="SEARCH", short="SEARCH", page="search"},
+    {digit="2", long="NODES", short="NODES", page="storage"},
+    {digit="3", long="REQUESTS", short="REQS", page="requests"},
+    {digit="4", long="ALERTS", short="ALERTS", page="alerts"},
+    {digit="5", long="SETUP", short="SETUP", page="setup"},
+    {digit="6", long="CRAFTING", short="CRAFT", page="crafting"},
 }
 
-local function navigationBar(width)
-    local shortest
+-- The page you are on is filled, because a bar whose six entries all look identical tells
+-- you nothing about where you are.
+function UI:_nav(state, regions)
+    local surface = self.surface
     for _, label in ipairs({"long", "short"}) do
-        for _, gap in ipairs({"  ", " "}) do
-            local parts = {}
-            for index, page in ipairs(NAV_PAGES) do
-                parts[index] = page.digit .. " " .. page[label]
+        for _, gap in ipairs({2, 1}) do
+            local total = -gap
+            for _, entry in ipairs(NAV_PAGES) do
+                total = total + #entry.digit + 1 + #entry[label] + gap
             end
-            local bar = table.concat(parts, gap)
-            if #bar <= width then return bar end
-            shortest = bar
+            if total <= regions.width - 2 then
+                local x = 2
+                for _, entry in ipairs(NAV_PAGES) do
+                    local text = entry.digit .. " " .. entry[label]
+                    local active = entry.page == state.page
+                    Draw.text(surface, x, regions.nav, text, #text,
+                        active and Theme.role.ground or Theme.role.muted,
+                        active and Theme.role.focus or Theme.role.ground)
+                    x = x + #text + gap
+                end
+                return
+            end
         end
     end
-    return shortest
 end
 
 function UI:_header(state, model)
     local surface = self.surface
-    local width = surface.getSize()
-    fill(surface, 1, palette.gray)
-    surface.setTextColor(palette.white)
-    writeClipped(surface, 2, 1, "INVOS", 20)
+    local regions = Layout.regions(surface.getSize())
+    Draw.band(surface, regions.header, Theme.role.panel)
+    Draw.text(surface, 2, regions.header, "INVOS", 20, Theme.role.brand, Theme.role.panel)
     local lifecycle = model.lifecycle or "BOOTING"
-    surface.setTextColor(stateColor(lifecycle))
-    writeClipped(surface, math.max(1, width - #lifecycle - 1), 1, lifecycle, #lifecycle)
-    fill(surface, 2, palette.black)
-    surface.setTextColor(palette.lightGray)
-    writeClipped(surface, 2, 2, navigationBar(width - 2), width - 2)
+    Draw.rightText(surface, regions.width - 1, regions.header, lifecycle,
+        Theme.statusColor(lifecycle), Theme.role.panel)
+    Draw.band(surface, regions.nav, Theme.role.ground)
+    self:_nav(state, regions)
 end
 
 local function footerHelp(state)
@@ -417,15 +429,16 @@ end
 
 function UI:_footer(state, model)
     local surface = self.surface
-    local width, height = surface.getSize()
-    if height < 2 then return end
-    fill(surface, height - 1, palette.gray)
-    surface.setTextColor(palette.white)
-    writeClipped(surface, 2, height - 1, footerHelp(state), width - 2)
-    fill(surface, height, palette.black)
-    surface.setTextColor(state.notice and palette.red or palette.lightGray)
-    writeClipped(surface, 2, height,
-        state.notice or enrichmentText(model.enrichment) or model.lifecycle_reason or "", width - 2)
+    local regions = Layout.regions(surface.getSize())
+    if regions.height < 2 then return end
+    Draw.band(surface, regions.footer, Theme.role.panel)
+    Draw.text(surface, 2, regions.footer, footerHelp(state), regions.width - 2,
+        Theme.role.text, Theme.role.panel)
+    Draw.band(surface, regions.status, Theme.role.ground)
+    Draw.text(surface, 2, regions.status,
+        state.notice or enrichmentText(model.enrichment) or model.lifecycle_reason or "",
+        regions.width - 2,
+        state.notice and Theme.role.alert or Theme.role.muted, Theme.role.ground)
 end
 
 function UI:_search(state, model, hitRegions)

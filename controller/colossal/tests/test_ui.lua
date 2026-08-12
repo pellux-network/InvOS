@@ -174,4 +174,32 @@ return {
         state=ui:reduce(state,{type="QUERY_APPEND",text="1"})
         T.equal(state.query,"1")
     end },
+    { name = "the active page is marked in the navigation bar", run = function()
+        local Theme=require("app.theme")
+        local surface=T.recordingSurface(51,19)
+        local ui=UI.new(surface)
+        ui:render(UI.initialState(),{lifecycle="READY"})
+        local function markedCells()
+            local count=0
+            for x=1,51 do
+                if surface.backgroundAt(x,2)==Theme.role.focus then count=count+1 end
+            end
+            return count
+        end
+        T.truthy(markedCells()>0,
+            "the page you are on must be distinguishable from the five you are not")
+        T.truthy(markedCells()<20,"only the active tab should be filled, not the whole bar")
+        local onCrafting=ui:reduce(UI.initialState(),{type="OPEN_PAGE",page="crafting"})
+        surface.clear()
+        ui:render(onCrafting,{lifecycle="READY"})
+        T.truthy(surface.line(2):find("CRAFT",1,true)~=nil,"crafting must still be listed")
+    end },
+    { name = "the navigation bar still lists every page after restyling", run = function()
+        local ui=UI.new(T.recordingSurface(80,19))
+        ui:render(UI.initialState(),{lifecycle="READY"})
+        local nav=ui.surface.line(2)
+        for _,label in ipairs({"SEARCH","NODES","REQUESTS","ALERTS","SETUP","CRAFTING"}) do
+            T.contains(nav,label)
+        end
+    end },
 }

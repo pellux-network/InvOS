@@ -3,6 +3,7 @@
 -- A rendering bug in it must never be able to keep the real application from starting.
 package.path = "/colossal/?.lua;/colossal/?/init.lua;" .. package.path
 local Splash = require("app.splash")
+local Theme = require("app.theme")
 local splashOk, splashReason = pcall(Splash.play, term.current and term.current() or term, sleep)
 if not splashOk then printError("InvOS splash failed: " .. tostring(splashReason)) end
 
@@ -24,3 +25,7 @@ while true do
     end
     delay = math.min(delay * 2, 30)
 end
+
+-- The loop above exits when the application stops cleanly or the operator interrupts the
+-- backoff. Either way the terminal must not be left in InvOS colours.
+pcall(Theme.restore, term.current and term.current() or term)

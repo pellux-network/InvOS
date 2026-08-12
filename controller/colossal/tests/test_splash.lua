@@ -1,5 +1,18 @@
 local Splash = require("app.splash")
+local Theme = require("app.theme")
 local T = require("tests.mock_cc")
+
+-- How many cells anywhere on the surface carry `color` as their background. The wordmark is
+-- painted rather than written since it moved onto Draw.blockText, so it is counted, not found.
+local function paintedCells(surface, color, width, height)
+    local count = 0
+    for y = 1, height do
+        for x = 1, width do
+            if surface.backgroundAt(x, y) == color then count = count + 1 end
+        end
+    end
+    return count
+end
 
 local function fakeSleep()
     local calls = {}
@@ -12,7 +25,11 @@ return {
         local sleepFn = fakeSleep()
         Splash.play(surface, sleepFn)
         local text = surface.allText()
-        T.contains(text, "#####")
+        -- The wordmark used to be written as literal '#' characters. Draw.blockText paints
+        -- background cells instead, so it is solid rather than hatched and there is no text
+        -- to search for -- only colour.
+        local painted = paintedCells(surface, Theme.role.brand, 51, 19)
+        T.truthy(painted > 40, "expected a wordmark painted in brand colour, got " .. painted)
         T.contains(text, "INVENTORY OPERATING SYSTEM")
         T.equal(surface.writesOutsideBounds(), 0)
     end},
@@ -38,6 +55,42 @@ return {
         for _, seconds in ipairs(calls) do total = total + seconds end
         T.truthy(total > 1 and total < 2.5,
             "expected roughly 1.5-2s of animation, got " .. total)
+    end},
+    {name="the wordmark wipes in rather than appearing all at once",run=function()
+        local surface = T.recordingSurface(51, 19)
+        local widths, frames = {}, 0
+        Splash.play(surface, function()
+            frames = frames + 1
+            local rightmost = 0
+            for y = 1, 19 do
+                for x = 1, 51 do
+                    local background = surface.backgroundAt(x, y)
+                    if (background == Theme.role.brand or background == Theme.role.focus)
+                        and x > rightmost then rightmost = x end
+                end
+            end
+            widths[#widths + 1] = rightmost
+        end)
+        T.truthy(frames > 1, "expected more than one frame")
+        local grew = false
+        for index = 2, #widths do
+            if widths[index] > widths[index - 1] then grew = true end
+        end
+        T.truthy(grew, "the wordmark must wipe in, not appear all at once")
+    end},
+    {name="the wipe has a leading edge and the landing pulses once",run=function()
+        local surface = T.recordingSurface(51, 19)
+        local coralFrames, frames = 0, 0
+        Splash.play(surface, function()
+            frames = frames + 1
+            if paintedCells(surface, Theme.role.focus, 51, 19) > 0 then
+                coralFrames = coralFrames + 1
+            end
+        end)
+        T.truthy(coralFrames > 0,
+            "the leading edge and the pulse are both coral; neither appeared")
+        T.truthy(coralFrames < frames,
+            "coral on every frame means the wordmark never settles to brand crimson")
     end},
     {name="play defaults to the global sleep when no sleep function is given",run=function()
         local previousSleep = sleep
