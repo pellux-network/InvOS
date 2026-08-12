@@ -966,8 +966,12 @@ function UI:_crafting(state, model, hitRegions)
         return
     end
 
-    -- craft_search and craft_quantity share the recipe list; the quantity prompt draws
-    -- over it as an overlay so the item stays visible while typing.
+    -- craft_search and craft_quantity share the recipe list, laid out exactly like Search:
+    -- the same split, the same bands, and the quantity prompt in the pane rather than a band
+    -- across the bottom, so the list you were reading stays where you were reading it.
+    local split = regions.split
+    local listTo = split and (split - 1) or regions.width
+    local paneFrom = split and (split + 2) or nil
     local queryRow = regions.content.top
     Draw.text(surface, 2, queryRow, ">", 1, Theme.role.focus, Theme.role.ground)
     Draw.text(surface, 4, queryRow,
@@ -975,31 +979,65 @@ function UI:_crafting(state, model, hitRegions)
         regions.width - 4, Theme.role.text, Theme.role.ground)
     local bandRow = queryRow + 1
     self:_band(bandRow)
-    self:_bandText(2, bandRow, "RECIPE", regions.width - 2)
-    Draw.rightText(surface, regions.width - 1, bandRow, "STOCK",
-        Theme.role.muted, Theme.role.panel)
+    self:_bandText(2, bandRow, "RECIPE", math.max(1, listTo - 2))
+    Draw.rightText(surface, listTo - 1, bandRow, "STOCK", Theme.role.muted, Theme.role.panel)
+    if paneFrom then
+        self:_bandText(paneFrom, bandRow, "SELECTED", regions.width - paneFrom)
+        Draw.divider(surface, split, bandRow, bottom, Theme.role.panel)
+    end
     local results = state.craft_results or {}
     if #results == 0 then
-        Draw.text(surface, 2, bandRow + 1, "No matching recipes", regions.width - 2,
+        Draw.text(surface, 2, bandRow + 1, "No matching recipes", math.max(1, listTo - 2),
             Theme.role.muted, Theme.role.ground)
     end
     self:_list(bandRow + 1, bottom, #results, state.craft_selection or 1,
         function(index, y, selected)
             local entry = results[index]
-            self:_row(y, selected, 1, regions.width, nil, nil,
+            self:_row(y, selected, 1, listTo, selected and ">" or nil, nil,
                 tostring(entry.display_name or entry.item),
                 "have " .. formatNumber(entry.quantity or 0),
                 (entry.quantity or 0) > 0 and Theme.role.ok or Theme.role.muted)
-            hitRegions[#hitRegions + 1] = {x1=1, y1=y, x2=regions.width, y2=y,
+            hitRegions[#hitRegions + 1] = {x1=1, y1=y, x2=listTo, y2=y,
                 command={type="MOVE", delta=index - (state.craft_selection or 1)}}
         end)
-    if state.mode == "craft_quantity" then
+
+    local chosen = results[state.craft_selection or 1]
+    if paneFrom and state.mode == "craft_quantity" then
+        local paneWidth = regions.width - paneFrom
+        local item = state.craft_item or {}
+        Draw.text(surface, paneFrom, bandRow + 1, "How many?", paneWidth,
+            Theme.role.focus, Theme.role.ground)
+        Draw.text(surface, paneFrom, bandRow + 2,
+            tostring(item.display_name or item.item or ""), paneWidth,
+            Theme.role.text, Theme.role.ground)
+        Draw.text(surface, paneFrom, bandRow + 4,
+            (state.craft_quantity_text ~= "" and state.craft_quantity_text or "_"), paneWidth,
+            Theme.role.text, Theme.role.ground)
+        Draw.text(surface, paneFrom, bandRow + 6, "Enter plan", paneWidth,
+            Theme.role.muted, Theme.role.ground)
+        Draw.text(surface, paneFrom, bandRow + 7, "A max   F10 back", paneWidth,
+            Theme.role.muted, Theme.role.ground)
+    elseif paneFrom and chosen then
+        local paneWidth = regions.width - paneFrom
+        Draw.text(surface, paneFrom, bandRow + 1,
+            tostring(chosen.display_name or chosen.item), paneWidth,
+            Theme.role.focus, Theme.role.ground)
+        Draw.text(surface, paneFrom, bandRow + 2, tostring(chosen.item), paneWidth,
+            Theme.role.muted, Theme.role.ground)
+        Draw.text(surface, paneFrom, bandRow + 4, "IN STOCK", paneWidth,
+            Theme.role.muted, Theme.role.ground)
+        Draw.text(surface, paneFrom, bandRow + 5, formatNumber(chosen.quantity or 0), paneWidth,
+            (chosen.quantity or 0) > 0 and Theme.role.ok or Theme.role.muted, Theme.role.ground)
+        local button = "  ENTER  CHOOSE  "
+        Draw.text(surface, paneFrom, math.min(bottom, bandRow + 8), button,
+            math.min(#button, paneWidth), Theme.role.text, Theme.role.brand)
+    elseif state.mode == "craft_quantity" then
+        -- No pane to put it in, so the narrow layout keeps the band it always had.
         Draw.band(surface, bottom, Theme.role.panel)
         Draw.text(surface, 2, bottom, "How many? " .. state.craft_quantity_text,
             regions.width - 2, Theme.role.text, Theme.role.panel)
-    else
-        self:_strip(regions, model)
     end
+    if state.mode ~= "craft_quantity" then self:_strip(regions, model) end
 end
 
 function UI:render(state, model)

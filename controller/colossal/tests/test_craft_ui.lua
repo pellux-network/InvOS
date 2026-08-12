@@ -271,6 +271,25 @@ return {
         surface:render(state, {})
         T.contains(surface.surface.allText(), "Chest")
     end},
+    {name="the crafting page has a detail pane like Search",run=function()
+        local surface = ui()
+        surface:render(crafting({craft_selection=1}), {})
+        local text = surface.surface.allText()
+        T.contains(text, "SELECTED", "crafting must be banded the same way Search is")
+        T.contains(text, "minecraft:chest", "the pane must name the exact recipe output")
+        T.contains(text, "ENTER")
+    end},
+    {name="the quantity prompt uses the pane rather than a band across the bottom",run=function()
+        local surface = ui()
+        local state = crafting({mode="craft_quantity", craft_quantity_text="12",
+            craft_item={item="minecraft:chest", display_name="Chest"}})
+        surface:render(state, {})
+        local text = surface.surface.allText()
+        T.contains(text, "How many")
+        T.contains(text, "12")
+        T.contains(text, "Chest", "the recipe list must stay visible while typing")
+        T.contains(text, "Stick", "and so must the rest of the list")
+    end},
     {name="the crafting page never draws outside its surface",run=function()
         for _, mode in ipairs({"craft_search", "craft_quantity", "craft_plan", "craft_jobs"}) do
             for _, size in ipairs({{51,19},{26,12},{18,8}}) do
