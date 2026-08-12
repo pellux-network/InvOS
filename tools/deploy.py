@@ -174,6 +174,14 @@ def deploy(source_root, target_root, manifest_path, label):
             unchanged += 1
             continue
         dst.parent.mkdir(parents=True, exist_ok=True)
+        # Unlink first. Opening "wb" is supposed to truncate, but over the sshfs mount it does
+        # not reliably do so: writing a shorter file left the previous version's tail in place
+        # past the new end, and the module stopped parsing. Verified on 2026-08-12, where a
+        # 138-line draw.lua landed as 150 lines and two consecutive deployments reproduced it.
+        # The verify and parse steps caught it both times, which is the only reason it was
+        # never booted; this makes the write itself correct rather than relying on the gate.
+        if dst.is_file():
+            dst.unlink()
         dst.write_bytes(payload)
         written += 1
     say("   wrote %d, unchanged %d" % (written, unchanged))
