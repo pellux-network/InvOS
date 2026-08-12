@@ -74,8 +74,11 @@ function M.command(event, state)
     if state.mode ~= "search" and state.mode ~= "craft_search" and
         state.mode ~= "craft_plan" and key == keys.p then return {type="TOGGLE_PAUSE"} end
 
+    -- Digits stay page shortcuts inside both search boxes, exactly as they are on the
+    -- Search page: the paired char event is suppressed so the digit never lands in the
+    -- query. Only the quantity boxes claim digits, because there they are the input.
     if state.mode ~= "quantity" and state.mode ~= "variant" and
-        state.mode ~= "craft_search" and state.mode ~= "craft_quantity" then
+        state.mode ~= "craft_quantity" then
         local pages, digits = {}, {}
         if keys.one then pages[keys.one],digits[keys.one]="search","1" end
         if keys.two then pages[keys.two],digits[keys.two]="storage","2" end

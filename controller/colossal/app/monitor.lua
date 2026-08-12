@@ -1,7 +1,7 @@
 local M = {}
 
 local palette = colors or {
-    white=1, yellow=16, lime=32, gray=128, lightGray=256, cyan=512,
+    white=1, orange=2, yellow=16, lime=32, gray=128, lightGray=256, cyan=512,
     red=16384, black=32768,
 }
 
@@ -15,7 +15,7 @@ local function colorFor(state)
     if state=="READY" or state=="COMPLETE" then return palette.lime end
     if state=="DEGRADED" or state=="BLOCKED" or state=="PARTIAL" then return palette.yellow end
     if state=="ERROR" or state=="FAILED" or state=="OFFLINE" then return palette.red end
-    return palette.cyan
+    return palette.orange
 end
 
 local function write(surface,sw,sh,x,y,text,width,color,background)
@@ -42,10 +42,10 @@ end
 
 local function renderSmall(surface,model,width,height)
     line(surface,width,height,1,palette.gray)
-    write(surface,width,height,2,1,"INVOS",9,palette.white)
+    write(surface,width,height,2,1,"INVOS",9,palette.red)
     local state=model.lifecycle or "BOOTING"
     write(surface,width,height,math.max(2,width-#state),1,state,#state,colorFor(state))
-    write(surface,width,height,2,3,formatNumber(model.total_items).." items",width-2,palette.cyan)
+    write(surface,width,height,2,3,formatNumber(model.total_items).." items",width-2,palette.red)
     write(surface,width,height,2,4,formatNumber(model.total_types).." types",width-2,palette.lightGray)
     if model.highest_alert then write(surface,width,height,2,height,model.highest_alert.message,width-2,palette.red) end
 end
@@ -57,11 +57,11 @@ end
 
 local function renderMedium(surface,model,width,height)
     line(surface,width,height,1,palette.gray)
-    write(surface,width,height,2,1,"INVOS",9,palette.white)
+    write(surface,width,height,2,1,"INVOS",9,palette.red)
     local state=model.lifecycle or "BOOTING"
     write(surface,width,height,math.max(2,width-#state),1,state,#state,colorFor(state))
     write(surface,width,height,2,3,formatNumber(model.total_items).." items  "..
-        formatNumber(model.total_types).." types",width-2,palette.cyan)
+        formatNumber(model.total_types).." types",width-2,palette.red)
     local enriching=enrichmentText(model.enrichment)
     if enriching then write(surface,width,height,2,4,enriching,width-2,palette.lightGray) end
     write(surface,width,height,2,5,"DROP-OFF > STORAGE > PICKUP",width-2,palette.lightGray)
@@ -80,10 +80,10 @@ end
 
 local function renderLarge(surface,model,width,height)
     line(surface,width,height,1,palette.gray)
-    write(surface,width,height,2,1,"INVOS",9,palette.white,palette.gray)
+    write(surface,width,height,2,1,"INVOS",9,palette.red,palette.gray)
     local state=model.lifecycle or "BOOTING"
     write(surface,width,height,math.max(2,width-#state-1),1,state,#state,colorFor(state),palette.gray)
-    write(surface,width,height,2,3,formatNumber(model.total_items).." ITEMS",18,palette.cyan)
+    write(surface,width,height,2,3,formatNumber(model.total_items).." ITEMS",18,palette.red)
     write(surface,width,height,22,3,formatNumber(model.total_types).." TYPES",16,palette.lightGray)
     local enriching=enrichmentText(model.enrichment)
     if enriching then write(surface,width,height,2,4,enriching,width-2,palette.lightGray) end
@@ -93,8 +93,8 @@ local function renderLarge(surface,model,width,height)
 
     local right=math.max(30,math.floor(width*0.56))
     local leftEnd=right-2
-    write(surface,width,height,2,7,"STORAGE NODES",leftEnd-1,palette.cyan)
-    write(surface,width,height,right,7,"CURRENT ACTIVITY",width-right+1,palette.cyan)
+    write(surface,width,height,2,7,"STORAGE NODES",leftEnd-1,palette.red)
+    write(surface,width,height,right,7,"CURRENT ACTIVITY",width-right+1,palette.red)
     local row,nodeBottom=8,math.min(11,height-5)
     for _,node in ipairs(model.nodes or {}) do
         if row>nodeBottom then break end
@@ -119,8 +119,8 @@ local function renderLarge(surface,model,width,height)
 
     local dropCenter=math.floor(width*0.30)
     local pickupCenter=math.floor(width*0.70)
-    writeCentered(surface,width,height,dropCenter,height-1,"DROP-OFF",palette.cyan)
-    writeCentered(surface,width,height,pickupCenter,height-1,"PICKUP",palette.cyan)
+    writeCentered(surface,width,height,dropCenter,height-1,"DROP-OFF",palette.red)
+    writeCentered(surface,width,height,pickupCenter,height-1,"PICKUP",palette.red)
     writeCentered(surface,width,height,dropCenter,height,"v",palette.white)
     writeCentered(surface,width,height,pickupCenter,height,"v",palette.white)
 end

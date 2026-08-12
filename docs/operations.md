@@ -179,9 +179,16 @@ refuses rather than guesses at every step.
 corroboration, but an idle controller can sit still for a few seconds; the sample is not
 evidence on its own.
 
+The server does not run on this machine. Its filesystem is mounted over sshfs as drive `G:`,
+so `G:\` is the server root and the computer tree is `G:\world\computercraft\computer`:
+
 ```bash
-python tools/deploy.py --computers "C:/Servers/<world>/world/computercraft/computer"
+python tools/deploy.py --computers "G:/world/computercraft/computer"
 ```
+
+Every path there is a network round trip, so the backup and verify passes take noticeably
+longer than a local deployment; that is the mount, not a hang. If the mount has dropped, the
+tree simply looks absent and the script refuses at step 1 — remount rather than retry.
 
 Defaults are `--controller-id 4` and `--turtle-id 5`; pass `--no-turtle` for an
 installation without crafting. Backups go to `.deploy-backups/` in the repository, which is
@@ -190,8 +197,8 @@ git-ignored.
 The gate runs in this order and stops at the first refusal:
 
 1. **The target is really the live tree.** It anchors on an existing
-   `<computers>/<id>/colossal/data/config.lua`. A Git Bash `/c/...` path handed to Windows
-   Python resolves against the drive root and silently creates `C:\c\Servers\...`, so
+   `<computers>/<id>/colossal/data/config.lua`. A Git Bash `/g/...` path handed to Windows
+   Python resolves against the drive root and silently creates `C:\g\world\...`, so
    without this a whole deployment lands in a directory nobody ever looks at.
 2. **The recorded identity matches.** `computer_id` in the live `config.lua` must equal the
    id being deployed to.
@@ -211,8 +218,8 @@ state; restore from the printed backup path before booting.
 
 Two traps worth knowing, because both have caused real damage or wasted a debug cycle:
 
-- `luac.exe` and Python are Windows binaries. They cannot open Git Bash `/c/...` paths.
-  `luac` reports "cannot open", which reads exactly like a syntax error at a glance.
+- `luac.exe` and Python are Windows binaries. They cannot open Git Bash `/c/...` or `/g/...`
+  paths. `luac` reports "cannot open", which reads exactly like a syntax error at a glance.
 - `colossal/data/*.lua` are serialized tables, not Lua chunks. They are correctly not
   parseable, which is why the parse check covers manifest files only.
 
@@ -230,9 +237,13 @@ To regenerate from the vanilla server jar:
 
 ```
 python tools/recipe_import.py \
-  --jar "C:/Servers/Wold's Vaults/libraries/net/minecraft/server/1.18.2/server-1.18.2.jar" \
+  --jar "G:/libraries/net/minecraft/server/1.18.2/server-1.18.2.jar" \
   --out controller/colossal/recipes
 ```
+
+Server paths below are all under the sshfs mount described in *Deploying to a live
+installation*: `G:\` is the server root, so `mods`, `libraries` and `kubejs` sit directly
+beneath it.
 
 Expect 726 recipes across 639 outputs, written as 7 files totalling roughly 129 KB. A recipe count of 0 means the jar was opened but no recipe data was found for the namespace.
 
@@ -288,7 +299,7 @@ own `ShapedKubeJSRecipe` need no special handling.
    carries no language data:
 
 ```bash
-python tools/recipe_import.py   --jar "C:/Servers/<world>/libraries/net/minecraft/server/1.18.2/server-1.18.2.jar"   --kubejs "C:/Servers/<world>/kubejs/exported/invos_recipes.json"   --mods "C:/Servers/<world>/mods"   --out controller/colossal/recipes --shards 24
+python tools/recipe_import.py   --jar "G:/libraries/net/minecraft/server/1.18.2/server-1.18.2.jar"   --kubejs "G:/kubejs/exported/invos_recipes.json"   --mods "G:/mods"   --out controller/colossal/recipes --shards 24
 ```
 
 **`--jar` is not optional if you want vanilla items named.** Without it every vanilla item
@@ -333,9 +344,9 @@ game will actually craft:
 
 ```bash
 python tools/recipe_import.py \
-  --jar "C:/Servers/<world>/libraries/net/minecraft/server/1.18.2/server-1.18.2.jar" \
-  --mods "C:/Servers/<world>/mods" \
-         "C:/Servers/<world>/libraries/net/minecraftforge/forge/1.18.2-40.3.11/forge-1.18.2-40.3.11-universal.jar" \
+  --jar "G:/libraries/net/minecraft/server/1.18.2/server-1.18.2.jar" \
+  --mods "G:/mods" \
+         "G:/libraries/net/minecraftforge/forge/1.18.2-40.3.11/forge-1.18.2-40.3.11-universal.jar" \
   --out controller/colossal/recipes --shards 16
 ```
 

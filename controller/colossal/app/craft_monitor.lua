@@ -8,7 +8,7 @@ local M = {}
 -- design targets 0.5, and degrades to a two-line summary if it is left at scale 1.
 
 local palette = colors or {
-    white=1, yellow=16, lime=32, gray=128, lightGray=256, cyan=512,
+    white=1, orange=2, yellow=16, lime=32, gray=128, lightGray=256, cyan=512,
     red=16384, black=32768,
 }
 
@@ -17,7 +17,7 @@ local function colorFor(state)
     if state=="BLOCKED" or state=="CONFIRMING" then return palette.yellow end
     if state=="FAILED" or state=="CANCELLED" then return palette.red end
     if state=="IDLE" then return palette.lightGray end
-    return palette.cyan
+    return palette.orange
 end
 
 local function write(surface,width,height,x,y,text,color)
@@ -62,7 +62,7 @@ local function renderFull(surface,model,width,height)
         write(surface,width,height,1,1,"CRAFTING",palette.white)
         write(surface,width,height,1,3,"IDLE",palette.lightGray)
         if model.craftable_types then
-            write(surface,width,height,1,5,tostring(model.craftable_types),palette.cyan)
+            write(surface,width,height,1,5,tostring(model.craftable_types),palette.red)
             write(surface,width,height,1,6,"recipes",palette.lightGray)
         end
         return
@@ -71,7 +71,7 @@ local function renderFull(surface,model,width,height)
     write(surface,width,height,1,1,"CRAFTING",palette.white)
     write(surface,width,height,1,2,shortName(active.display_name or active.item,width),palette.white)
     write(surface,width,height,1,3,tostring(active.produced or 0).." / "..tostring(active.quantity or 0),
-        palette.cyan)
+        palette.red)
 
     local row=4
     if active.steps and active.steps>0 then
@@ -79,7 +79,7 @@ local function renderFull(surface,model,width,height)
             palette.lightGray)
         row=row+1
         local drawn=bar(width,(active.step or 1)-1,active.steps)
-        if drawn then write(surface,width,height,1,row,drawn,palette.cyan); row=row+1 end
+        if drawn then write(surface,width,height,1,row,drawn,palette.red); row=row+1 end
     end
     if active.current_item then
         write(surface,width,height,1,row,shortName(active.current_item,width),palette.lightGray)

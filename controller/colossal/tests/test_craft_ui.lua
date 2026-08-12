@@ -186,6 +186,27 @@ return {
         T.equal(effect.quantity, 54, "10 in stock of 64 asked for leaves 54 to craft")
         T.equal(following.page, "crafting")
     end},
+    {name="the navigation bar offers the crafting page",run=function()
+        local narrow = ui()
+        narrow:render(crafting(), {})
+        T.contains(narrow.surface.line(2), "6 CRAFT",
+            "a page nobody can see listed is a page nobody finds")
+        local wide = UI.new(T.recordingSurface(80, 19))
+        wide:render(crafting(), {})
+        T.contains(wide.surface.line(2), "6 CRAFTING")
+        T.contains(wide.surface.line(2), "1 SEARCH")
+    end},
+    {name="digits leave the recipe search rather than typing into it",run=function()
+        local command = Keymap.command({"key", keys.one}, {mode="craft_search", craft_query="ch"})
+        T.equal(command.type, "OPEN_PAGE", "the recipe search must not trap the page shortcuts")
+        T.equal(command.page, "search")
+        T.equal(command.suppress_char, "1")
+        local consume = Keymap.command({"char", "1"},
+            {mode="craft_search", craft_query="ch", suppress_char="1"})
+        T.equal(consume.type, "CONSUME_CHAR", "the paired char must not land in the query")
+        T.equal(Keymap.command({"char", "1"}, {mode="craft_search", craft_query="ch"}).type,
+            "CRAFT_QUERY_APPEND", "a bare digit still types when no shortcut fired")
+    end},
     {name="the crafting page never draws outside its surface",run=function()
         for _, mode in ipairs({"craft_search", "craft_quantity", "craft_plan", "craft_jobs"}) do
             for _, size in ipairs({{51,19},{26,12},{18,8}}) do

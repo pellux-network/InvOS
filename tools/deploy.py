@@ -3,12 +3,16 @@
 This is the whole deployment gate in one command. It refuses rather than guesses at every
 step, because the target is a running Minecraft world with real player items in it.
 
-    python tools/deploy.py --computers "C:/Servers/<world>/world/computercraft/computer"
+    python tools/deploy.py --computers "G:/world/computercraft/computer"
+
+The server is remote; its filesystem is mounted over sshfs as drive "G:". Every path below
+is a network round trip, so the backup and verify passes are slower than they look like they
+should be, and a dropped mount presents as an absent tree rather than an error.
 
 What it enforces, in order:
 
-1. The target really is the live computer tree (a Git Bash "/c/..." path handed to Windows
-   Python silently creates "C:\\c\\..." instead of failing, so a whole deployment can land
+1. The target really is the live computer tree (a Git Bash "/g/..." path handed to Windows
+   Python silently creates "C:\\g\\..." instead of failing, so a whole deployment can land
    in a directory nobody ever looks at).
 2. Each computer's recorded identity matches the one being deployed to.
 3. Nothing is in flight: no transfer journal, and file mtimes stable across a sample.

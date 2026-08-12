@@ -56,7 +56,7 @@ local function stateColor(state)
     if state == "READY" or state == "COMPLETE" then return palette.lime end
     if state == "DEGRADED" or state == "BLOCKED" or state == "PARTIAL" then return palette.yellow end
     if state == "ERROR" or state == "FAILED" or state == "OFFLINE" then return palette.red end
-    return palette.cyan
+    return palette.orange
 end
 
 function UI.new(surface)
@@ -346,6 +346,34 @@ function UI:reduce(current, command)
     return state
 end
 
+-- Six pages no longer fit a narrow monitor at full width, so the bar gives up its
+-- spacing first and only then its longer labels. Every page keeps its digit visible:
+-- a shortcut the header does not advertise is a shortcut nobody presses.
+local NAV_PAGES = {
+    {digit="1", long="SEARCH", short="SEARCH"},
+    {digit="2", long="NODES", short="NODES"},
+    {digit="3", long="REQUESTS", short="REQS"},
+    {digit="4", long="ALERTS", short="ALERTS"},
+    {digit="5", long="SETUP", short="SETUP"},
+    {digit="6", long="CRAFTING", short="CRAFT"},
+}
+
+local function navigationBar(width)
+    local shortest
+    for _, label in ipairs({"long", "short"}) do
+        for _, gap in ipairs({"  ", " "}) do
+            local parts = {}
+            for index, page in ipairs(NAV_PAGES) do
+                parts[index] = page.digit .. " " .. page[label]
+            end
+            local bar = table.concat(parts, gap)
+            if #bar <= width then return bar end
+            shortest = bar
+        end
+    end
+    return shortest
+end
+
 function UI:_header(state, model)
     local surface = self.surface
     local width = surface.getSize()
@@ -357,7 +385,7 @@ function UI:_header(state, model)
     writeClipped(surface, math.max(1, width - #lifecycle - 1), 1, lifecycle, #lifecycle)
     fill(surface, 2, palette.black)
     surface.setTextColor(palette.lightGray)
-    writeClipped(surface, 2, 2, "1 SEARCH  2 NODES  3 REQUESTS  4 ALERTS  5 SETUP", width - 2)
+    writeClipped(surface, 2, 2, navigationBar(width - 2), width - 2)
 end
 
 local function footerHelp(state)
@@ -395,7 +423,7 @@ function UI:_footer(state, model)
     surface.setTextColor(palette.white)
     writeClipped(surface, 2, height - 1, footerHelp(state), width - 2)
     fill(surface, height, palette.black)
-    surface.setTextColor(state.notice and palette.cyan or palette.lightGray)
+    surface.setTextColor(state.notice and palette.red or palette.lightGray)
     writeClipped(surface, 2, height,
         state.notice or enrichmentText(model.enrichment) or model.lifecycle_reason or "", width - 2)
 end
@@ -404,7 +432,7 @@ function UI:_search(state, model, hitRegions)
     local surface = self.surface
     local width, height = surface.getSize()
     fill(surface, 3, palette.black)
-    surface.setTextColor(palette.cyan)
+    surface.setTextColor(palette.red)
     writeClipped(surface, 2, 3, "> " .. state.query .. (state.mode == "search" and "_" or ""), width - 2)
     local bodyTop = 5
     local wide = width >= 72
@@ -427,7 +455,7 @@ function UI:_search(state, model, hitRegions)
             if item then
                 local y = bodyTop + row
                 local selected = index == state.selection
-                fill(surface, y, selected and palette.cyan or palette.black)
+                fill(surface, y, selected and palette.red or palette.black)
                 surface.setTextColor(selected and palette.black or palette.white)
                 writeClipped(surface, 2, y, (selected and "> " or "  ") ..
                     tostring(item.display_name or item.name), split - 11)
@@ -443,7 +471,7 @@ function UI:_search(state, model, hitRegions)
         surface.setBackgroundColor(palette.black)
         local selected = results[state.selection]
         if wide and selected then
-            surface.setTextColor(palette.cyan)
+            surface.setTextColor(palette.red)
             writeClipped(surface, split + 2, bodyTop,
                 selected.display_name or selected.name, width - split - 2)
             surface.setTextColor(palette.lightGray)
@@ -459,7 +487,7 @@ function UI:_search(state, model, hitRegions)
             writeClipped(surface, split + 2, math.min(bodyBottom, bodyTop + 7),
                 "Enter to retrieve", width - split - 2)
         elseif selected and summaryTop > bodyTop then
-            surface.setTextColor(palette.cyan)
+            surface.setTextColor(palette.red)
             local summary="Selected: "..tostring(selected.display_name or selected.name)..
                 "  |  "..formatNumber(selected.quantity).." available"
             writeClipped(surface,2,summaryTop,summary,width-3)
@@ -479,7 +507,7 @@ end
 function UI:_storage(state, model)
     local surface = self.surface
     local width, height = surface.getSize()
-    surface.setTextColor(palette.cyan); writeClipped(surface, 2, 3, "STORAGE NODES", width - 2)
+    surface.setTextColor(palette.red); writeClipped(surface, 2, 3, "STORAGE NODES", width - 2)
     local nodes = model.nodes or {}
     if #nodes == 0 then
         surface.setTextColor(palette.lightGray)
@@ -512,7 +540,7 @@ end
 function UI:_requests(state, model)
     local surface = self.surface
     local width, height = surface.getSize()
-    surface.setTextColor(palette.cyan); writeClipped(surface, 2, 3, "REQUESTS", width - 2)
+    surface.setTextColor(palette.red); writeClipped(surface, 2, 3, "REQUESTS", width - 2)
     local requests = model.requests or {}
     if #requests == 0 then
         surface.setTextColor(palette.lightGray)
@@ -530,7 +558,7 @@ function UI:_requests(state, model)
         if request then
             local y = bodyTop + row
             local selected = index == selection
-            if selected then fill(surface, y, palette.cyan) end
+            if selected then fill(surface, y, palette.red) end
             surface.setTextColor(selected and palette.black or stateColor(request.state))
             writeClipped(surface, 2, y, request.state or "", 12)
             surface.setTextColor(selected and palette.black or palette.white)
@@ -546,7 +574,7 @@ end
 function UI:_alerts(state, model)
     local surface = self.surface
     local width, height = surface.getSize()
-    surface.setTextColor(palette.cyan); writeClipped(surface, 2, 3, "ALERTS", width - 2)
+    surface.setTextColor(palette.red); writeClipped(surface, 2, 3, "ALERTS", width - 2)
     local alerts = model.alerts or {}
     if #alerts == 0 then
         surface.setTextColor(palette.lime)
@@ -565,7 +593,7 @@ function UI:_alerts(state, model)
         if alert then
             local y = bodyTop + row
             local selected = index == selection
-            if selected then fill(surface, y, palette.cyan) end
+            if selected then fill(surface, y, palette.red) end
             surface.setTextColor(selected and palette.black or
                 (alert.severity == "critical" and palette.red or palette.yellow))
             writeClipped(surface, 2, y, alert.acknowledged and "-" or "!", 1)
@@ -578,7 +606,7 @@ end
 function UI:_setup(model)
     local surface = self.surface
     local width = surface.getSize()
-    surface.setTextColor(palette.cyan); writeClipped(surface, 2, 3, "SETUP", width - 2)
+    surface.setTextColor(palette.red); writeClipped(surface, 2, 3, "SETUP", width - 2)
     surface.setTextColor(palette.white)
     writeClipped(surface, 2, 5, "Review or change inventory roles", width - 3)
     surface.setTextColor(palette.lightGray)
@@ -596,7 +624,7 @@ function UI:_overlay(state)
     local top = math.max(4, math.floor((height - 7) / 2))
     for y = top, math.min(height - 1, top + 6) do fill(surface, y, palette.gray) end
     if state.mode == "quantity" then
-        surface.setTextColor(palette.cyan)
+        surface.setTextColor(palette.red)
         writeClipped(surface, left + 2, top, "Retrieve " ..
             tostring(state.identity.display_name or state.identity.name), boxWidth - 4)
         surface.setTextColor(palette.white)
@@ -608,12 +636,12 @@ function UI:_overlay(state)
         writeClipped(surface, left + 2, top + 4, "Enter 1   S stack   A all", boxWidth - 4)
         writeClipped(surface, left + 2, top + 5, "Digits exact   F10 back", boxWidth - 4)
     elseif state.mode == "variant" then
-        surface.setTextColor(palette.cyan)
+        surface.setTextColor(palette.red)
         writeClipped(surface, left + 2, top, "Choose exact variant", boxWidth - 4)
         for index, variant in ipairs(state.variants or {}) do
             if index > 4 then break end
             surface.setTextColor(index == state.variant_selection and palette.black or palette.white)
-            if index == state.variant_selection then fill(surface, top + index, palette.cyan) end
+            if index == state.variant_selection then fill(surface, top + index, palette.red) end
             writeClipped(surface, left + 2, top + index,
                 (index == state.variant_selection and "> " or "  ") .. variant.display_name,
                 boxWidth - 4)
@@ -652,9 +680,9 @@ function UI:_setupWizard(state, model)
     surface.setTextColor(palette.white)
     writeClipped(surface, 2, 1, "SETUP WIZARD", 20)
     local progress = tostring(state.setup_step or 1) .. " / " .. #names
-    surface.setTextColor(palette.cyan)
+    surface.setTextColor(palette.red)
     writeClipped(surface, math.max(2, width - #progress - 1), 1, progress, #progress)
-    surface.setTextColor(palette.cyan)
+    surface.setTextColor(palette.red)
     writeClipped(surface, 2, 3, names[state.setup_step or 1] or "Setup", width - 3)
     surface.setTextColor(palette.lightGray)
     writeClipped(surface, 2, 4, prompts[state.setup_step or 1] or
@@ -667,7 +695,7 @@ function UI:_setupWizard(state, model)
             local y = 5 + index
             if y >= height - 3 then break end
             local selected = index == state.selection
-            fill(surface, y, selected and palette.cyan or palette.black)
+            fill(surface, y, selected and palette.red or palette.black)
             surface.setTextColor(selected and palette.black or palette.white)
             writeClipped(surface, 2, y, (selected and "> " or "  ") ..
                 tostring(choice.label or choice.name), math.max(1, width - 18))
@@ -761,7 +789,7 @@ function UI:_crafting(state, model, hitRegions)
         surface.setBackgroundColor(palette.black)
         for _, step in ipairs(plan.steps or {}) do
             if row > bottom then break end
-            surface.setTextColor(palette.cyan)
+            surface.setTextColor(palette.red)
             writeClipped(surface, 2, row, "craft " .. formatNumber(step.produced) .. " x " ..
                 tostring(step.item), width - 2)
             row = row + 1

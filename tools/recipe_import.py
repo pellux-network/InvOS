@@ -2,7 +2,7 @@
 
 Reads the server jar READ-ONLY. Never writes anywhere near the live server.
 
-    python tools/recipe_import.py --jar "C:/Servers/.../server-1.18.2.jar" \
+    python tools/recipe_import.py --jar "G:/libraries/.../server-1.18.2.jar" \
         --out controller/colossal/recipes
 """
 
