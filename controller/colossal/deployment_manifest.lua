@@ -17,6 +17,7 @@ local M={files={
     "colossal/app/search.lua",
     "colossal/app/turtle_link.lua",
     "colossal/app/setup.lua",
+    "colossal/app/splash.lua",
     "colossal/app/ui.lua",
     "colossal/core/craft_planner.lua",
     "colossal/core/craft_prefs.lua",

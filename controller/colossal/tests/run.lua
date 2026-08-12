@@ -2,6 +2,7 @@ package.path = "colossal/?.lua;colossal/?/init.lua;" .. package.path
 
 local defaultModules = {
     "tests.test_startup",
+    "tests.test_splash",
     "tests.test_runtime",
     "tests.test_store",
     "tests.test_store_failures",
