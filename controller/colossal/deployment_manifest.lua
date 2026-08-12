@@ -8,6 +8,7 @@ local M={files={
     "colossal/app/craft_monitor.lua",
     "colossal/app/craft_service.lua",
     "colossal/app/coordinator.lua",
+    "colossal/app/draw.lua",
     "colossal/app/import_service.lua",
     "colossal/app/keymap.lua",
     "colossal/app/lifecycle.lua",
