@@ -1,20 +1,20 @@
-# Colossal Storage v1 Operations
+# InvOS Operations
 
 ## Physical topology
 
-Use one advanced computer as the controller. Connect it, the Drop-off inventory, the Pickup inventory, every Colossal Chest interface, and the status monitor to one wired modem network. Right-click each wired modem so its red connection indicator is active.
+Use one advanced computer as the controller. Connect it, the Drop-off inventory, the Pickup inventory, every storage container interface, and the status monitor to one wired modem network. Right-click each wired modem so its red connection indicator is active.
 
-Expose exactly one inventory interface per physical Colossal Chest. Multiple interfaces on the same structure can make one inventory appear twice and invalidate capacity and transfer planning. The setup validator flags identical interfaces, but the operator remains responsible for confirming the physical topology.
+Expose exactly one inventory interface per physical storage container. Multiple interfaces on the same container can make one inventory appear twice and invalidate capacity and transfer planning. The setup validator flags identical interfaces, but the operator remains responsible for confirming the physical topology.
 
-The Drop-off and Pickup must be separate inventories and must not be Colossal Chest storage nodes. Wireless modems do not expose adjacent inventories to the peripheral network.
+The Drop-off and Pickup must be separate inventories and must not be pooled storage nodes. Wireless modems do not expose adjacent inventories to the peripheral network.
 
 ## Fresh install
 
 1. Shut down the target ComputerCraft computer.
 2. Confirm its numeric computer ID and label.
-3. Copy only the files listed in `controller/colossal/deployment_manifest.lua`, preserving paths relative to `controller/`.
-4. Do not copy tests, documentation, Git files, development helpers, or any `colossal/data` directory.
-5. Boot the computer. Root `startup.lua` launches `/colossal/main.lua` automatically.
+3. Copy only the files listed in `controller/storage/deployment_manifest.lua`, preserving paths relative to `controller/`.
+4. Do not copy tests, documentation, Git files, development helpers, or any `storage/data` directory.
+5. Boot the computer. Root `startup.lua` launches `/storage/main.lua` automatically.
 
 The first boot opens the full-screen setup wizard. Setup remains read-only until the final save.
 
@@ -23,8 +23,8 @@ The first boot opens the full-screen setup wizard. Setup remains read-only until
 1. Review wired inventory discovery.
 2. Assign the dedicated Drop-off.
 3. Assign the dedicated Pickup.
-4. Add each physical Colossal Chest once. Give every node a recognizable label. Lower priority numbers receive imports first.
-5. Run validation. It checks availability, required wired-inventory methods, role collisions, and suspicious duplicate Colossal interfaces without moving items.
+4. Add each physical storage container once. Give every node a recognizable label. Lower priority numbers receive imports first.
+5. Run validation. It checks availability, required wired-inventory methods, role collisions, and suspicious duplicate storage interfaces without moving items.
 6. Review and save. The installation captures the controller computer ID and starts indexing immediately; no reboot is required.
 
 Use `5 SETUP` from the main interface to review or change configuration later. Arrow keys, Enter, Left/Right, and F10 control the wizard; Escape is intentionally not captured because Minecraft uses it to close the computer screen.
@@ -162,7 +162,7 @@ Insert a writable floppy in a connected disk drive and use the backup action. On
 1. Pause automation and wait until no transfer is in `TRANSFERRING` or `VERIFYING`.
 2. Make a configuration/alias floppy backup.
 3. Shut down the controller.
-4. Replace only manifest-listed runtime files. Preserve that computer's `colossal/data` directory in place.
+4. Replace only manifest-listed runtime files. Preserve that computer's `storage/data` directory in place.
 5. Boot, confirm the installation identity, and verify `READY` before resuming normal use.
 
 For rollback, restore the previous runtime files while leaving local data in place. Never move inventory snapshots or journals between computers. If data schema compatibility is uncertain, recover the configuration-only floppy through fresh setup instead.
@@ -197,21 +197,21 @@ git-ignored.
 The gate runs in this order and stops at the first refusal:
 
 1. **The target is really the live tree.** It anchors on an existing
-   `<computers>/<id>/colossal/data/config.lua`. A Git Bash `/g/...` path handed to Windows
+   `<computers>/<id>/storage/data/config.lua`. A Git Bash `/g/...` path handed to Windows
    Python resolves against the drive root and silently creates `C:\g\world\...`, so
    without this a whole deployment lands in a directory nobody ever looks at.
 2. **The recorded identity matches.** `computer_id` in the live `config.lua` must equal the
    id being deployed to.
-3. **Nothing is in flight.** Any `journal*` file in `colossal/data/` is a refusal outright;
+3. **Nothing is in flight.** Any `journal*` file in `storage/data/` is a refusal outright;
    mtimes must then hold still across a sample window.
 4. **Both trees are backed up** before a single byte is written.
 5. **Only manifest-listed paths are written**, LF-only, and never anything under
-   `colossal/data/`.
+   `storage/data/`.
 6. **Every written file is verified**: LF-normalised SHA-256, no CR bytes, and no strays
    beside it outside the manifest and preserved data.
 7. **Every deployed module parses** under `luac -p`. A green host suite does not prove a
    deployed file parses, and this has caught a real corrupted write.
-8. **`colossal/data/` survived** byte-for-byte against the backup taken in step 4.
+8. **`storage/data/` survived** byte-for-byte against the backup taken in step 4.
 
 Exit status is 0 only if every check passed. On any problem the live tree is in an unknown
 state; restore from the printed backup path before booting.
@@ -220,7 +220,7 @@ Two traps worth knowing, because both have caused real damage or wasted a debug 
 
 - `luac.exe` and Python are Windows binaries. They cannot open Git Bash `/c/...` or `/g/...`
   paths. `luac` reports "cannot open", which reads exactly like a syntax error at a glance.
-- `colossal/data/*.lua` are serialized tables, not Lua chunks. They are correctly not
+- `storage/data/*.lua` are serialized tables, not Lua chunks. They are correctly not
   parseable, which is why the parse check covers manifest files only.
 
 After booting, exercise one ordinary import and one retrieval before trusting a release.
@@ -229,16 +229,16 @@ an error.
 
 ## Regenerating the crafting recipe pack
 
-The recipe pack under `controller/colossal/recipes/` is generated, not hand-written. It is deployed like code and listed in `deployment_manifest.lua`. Never edit it directly: the next regeneration overwrites it.
+The recipe pack under `controller/storage/recipes/` is generated, not hand-written. It is deployed like code and listed in `deployment_manifest.lua`. Never edit it directly: the next regeneration overwrites it.
 
-Hand-written recipes belong in `colossal/data/custom_recipes.lua`, which lives with the mutable data the deployment gate preserves, and which takes precedence over every generated pack. Operator tag and recipe pins live alongside it in `colossal/data/craft_prefs.lua`.
+Hand-written recipes belong in `storage/data/custom_recipes.lua`, which lives with the mutable data the deployment gate preserves, and which takes precedence over every generated pack. Operator tag and recipe pins live alongside it in `storage/data/craft_prefs.lua`.
 
 To regenerate from the vanilla server jar:
 
 ```
 python tools/recipe_import.py \
   --jar "G:/libraries/net/minecraft/server/1.18.2/server-1.18.2.jar" \
-  --out controller/colossal/recipes
+  --out controller/storage/recipes
 ```
 
 Server paths below are all under the sshfs mount described in *Deploying to a live
@@ -262,7 +262,7 @@ Two flags exist for later use. `--namespace` points the converter at a mod's dat
 From `controller/`:
 
 ```
-lua -e 'package.path="colossal/?.lua;"..package.path; local R=require("core.recipe_repo").new({}); local o=R:outputs(); local m=0; for _,e in ipairs(o) do if #R:recipesFor(e.item)==0 then m=m+1 end end; print(#o.." outputs, "..m.." unreachable")'
+lua -e 'package.path="storage/?.lua;"..package.path; local R=require("core.recipe_repo").new({}); local o=R:outputs(); local m=0; for _,e in ipairs(o) do if #R:recipesFor(e.item)==0 then m=m+1 end end; print(#o.." outputs, "..m.." unreachable")'
 ```
 
 Expect `639 outputs, 0 unreachable`. A non-zero unreachable count means the converter's shard placement and `recipe_repo`'s shard lookup disagree, which the unit tests cannot catch because they use an injected loader rather than the real files.
@@ -299,7 +299,7 @@ own `ShapedKubeJSRecipe` need no special handling.
    carries no language data:
 
 ```bash
-python tools/recipe_import.py   --jar "G:/libraries/net/minecraft/server/1.18.2/server-1.18.2.jar"   --kubejs "G:/kubejs/exported/invos_recipes.json"   --mods "G:/mods"   --out controller/colossal/recipes --shards 24
+python tools/recipe_import.py   --jar "G:/libraries/net/minecraft/server/1.18.2/server-1.18.2.jar"   --kubejs "G:/kubejs/exported/invos_recipes.json"   --mods "G:/mods"   --out controller/storage/recipes --shards 24
 ```
 
 **`--jar` is not optional if you want vanilla items named.** Without it every vanilla item
@@ -347,7 +347,7 @@ python tools/recipe_import.py \
   --jar "G:/libraries/net/minecraft/server/1.18.2/server-1.18.2.jar" \
   --mods "G:/mods" \
          "G:/libraries/net/minecraftforge/forge/1.18.2-40.3.11/forge-1.18.2-40.3.11-universal.jar" \
-  --out controller/colossal/recipes --shards 16
+  --out controller/storage/recipes --shards 16
 ```
 
 **The Forge universal jar is not optional.** Forge ships the `forge:*` item tags —
@@ -381,7 +381,7 @@ Three constraints to plan for:
 - **Raise `computer_space_limit` before deploying a modded pack.** It sits in
   `world/serverconfig/computercraft-server.toml` and defaults to `1000000` (1 MB). The full
   pack is roughly 3.8 MB, so set it to at least `4000000`; `8000000` leaves headroom for
-  `colossal/data/` and future regeneration. The server must restart to pick it up.
+  `storage/data/` and future regeneration. The server must restart to pick it up.
   `items.lua`, `index.lua` and `tags.lua` total about 1.1 MB and are always resident;
   shards are roughly 165 KB each and load lazily, only when an output in them is queried.
 - **`--shards` must match `deployment_manifest.lua`.** The manifest names each shard file

@@ -2,7 +2,7 @@
   <img src="docs/assets/wordmark.svg" alt="InvOS — Inventory Operating System" width="420">
 
   <p>
-    A search-first storage terminal for CC:Tweaked, backed by pooled Colossal Chests
+    A search-first storage terminal for CC:Tweaked, backed by pooled standard containers
     and an optional crafty-turtle crafting pipeline.
   </p>
 
@@ -17,7 +17,7 @@
 ---
 
 Point a modpack's worth of storage at one wired network and get one searchable inventory
-back. InvOS indexes every Colossal Chest you give it, takes deposits through a dedicated
+back. InvOS indexes every storage container you give it, takes deposits through a dedicated
 Drop-off, fulfills exact item-and-quantity requests into a dedicated Pickup, and — if you
 give it a spare turtle — plans and executes multi-step crafting against your own live
 recipe set. No mainframe, no external database: it's one advanced computer, some wired
@@ -27,7 +27,7 @@ modems, and about 600 tests standing behind it.
 
 - **Search-first.** Type part of a name, get live results while background scans keep
   indexing. No menu tree to dig through.
-- **One pooled store.** Any number of Colossal Chests appear as a single inventory with
+- **One pooled store.** Any number of standard containers appear as a single inventory with
   priority ordering, not a wall of separate chests to check by hand.
 - **NBT-aware.** Distinct NBT variants of the same item are tracked and requested
   separately, so you get the enchanted pickaxe you asked for, not just *a* pickaxe.
@@ -72,7 +72,7 @@ selection colour, the nav gives up its spacing and then its longer labels as the
 narrows, and the whole bar is clickable.
 
 A cold boot plays a brief animated wordmark on the terminal before the application takes
-over — see [`controller/colossal/app/splash.lua`](controller/colossal/app/splash.lua).
+over — see [`controller/storage/app/splash.lua`](controller/storage/app/splash.lua).
 
 ## Status
 
@@ -101,13 +101,13 @@ are both bound in configuration. Leave them unbound and nothing else changes.
 ## Quick start
 
 1. Wire one advanced computer, a dedicated Drop-off inventory, a dedicated Pickup
-   inventory, every Colossal Chest interface, and (optionally) a crafty turtle with its
+   inventory, every storage container interface, and (optionally) a crafty turtle with its
    buffer chest, all onto one wired modem network.
 2. Copy only the paths listed in
-   [`controller/colossal/deployment_manifest.lua`](controller/colossal/deployment_manifest.lua),
+   [`controller/storage/deployment_manifest.lua`](controller/storage/deployment_manifest.lua),
    relative to `controller/`, onto the computer. Never copy tests, docs, or development
    helpers — they're excluded by design.
-3. Boot the computer. `startup.lua` launches `/colossal/main.lua` automatically and opens
+3. Boot the computer. `startup.lua` launches `/storage/main.lua` automatically and opens
    the full-screen setup wizard on first run. Setup stays read-only until you explicitly
    save.
 4. Deposit items in Drop-off. InvOS imports them into priority order automatically, and
@@ -131,13 +131,13 @@ Search retrieval.
 ## Architecture
 
 - `controller/` — the deployable CraftOS controller.
-  - `colossal/app/` — services, coordination, setup, UI, and monitor rendering. The
+  - `storage/app/` — services, coordination, setup, UI, and monitor rendering. The
     presentation layer is shared: `theme.lua` (palette and semantic roles), `draw.lua`
     (drawing primitives), `layout.lua` (screen regions), `buffer.lua` (double buffering).
-  - `colossal/core/` — inventory scanning, indexing, planning, transfers, and
+  - `storage/core/` — inventory scanning, indexing, planning, transfers, and
     reconciliation.
-  - `colossal/shared/` — runtime, codec, and durable-store helpers.
-  - `colossal/recipes/` — the generated crafting recipe pack; never hand-edited.
+  - `storage/shared/` — runtime, codec, and durable-store helpers.
+  - `storage/recipes/` — the generated crafting recipe pack; never hand-edited.
 - `turtle/` — the crafting turtle's own deployable tree. It never shares files with the
   controller in either direction.
 - `tools/` — host-side build tooling that is never deployed: `recipe_import.py` builds the
@@ -150,7 +150,7 @@ system is built against — the reasoning behind the design, not just the shape 
 
 ```bash
 # Lua suite (from controller/)
-lua colossal/tests/run.lua
+lua storage/tests/run.lua
 
 # Python suite (from tools/)
 python -m unittest test_recipe_pack test_recipe_import

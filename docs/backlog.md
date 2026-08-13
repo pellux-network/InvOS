@@ -85,7 +85,7 @@ clickable terminal. What follows is what it did not address.
   differently depending on what else the query matched. Nothing here has a real ceiling, so an
   absolute scale would need one invented; this was the least arbitrary option, not a good one.
 - **Storage node labels default to the peripheral name.** Setup writes the peripheral name as
-  the label, so the Nodes page reads `colossal_chest_0` rather than anything a person chose.
+  the label, so the Nodes page reads `chest_0` rather than anything a person chose.
   The wizard has no rename step.
 - **The boot splash is not double-buffered.** It clears and repaints per frame like everything
   else did before `app/buffer.lua`; it looks fine at current frame rates, and the fix is the

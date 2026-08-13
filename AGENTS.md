@@ -2,7 +2,7 @@
 
 ## Project
 
-This repository contains a search-first CC:Tweaked wired-inventory storage terminal backed by one or more Colossal Chests. Version 1 supports Drop-off imports, pooled NBT-aware indexing, exact retrieval requests, a controller UI, and a resizable public monitor.
+This repository contains a search-first CC:Tweaked wired-inventory storage terminal backed by one or more standard storage containers. Version 1 supports Drop-off imports, pooled NBT-aware indexing, exact retrieval requests, a controller UI, and a resizable public monitor.
 
 Crafting is specified in `docs/superpowers/specs/2026-08-04-crafting-system-design.md` and all four stages are merged: the generated recipe pack, `core/recipe_repo.lua`, `core/craft_prefs.lua`, `core/craft_planner.lua`, `app/craft_service.lua`, `app/craft_buffer.lua`, `app/turtle_link.lua`, `app/craft_monitor.lua`, the Crafting page on key 6, and the turtle firmware under `turtle/`.
 
@@ -17,23 +17,23 @@ Operators drive recovery from the terminal: retry and cancel on the Requests pag
 ## Repository layout
 
 - `controller/startup.lua` is the deployable CraftOS entry point. It plays the boot splash
-  (`colossal/app/splash.lua`) once per real cold boot, then supervises `colossal/main.lua`
+  (`storage/app/splash.lua`) once per real cold boot, then supervises `storage/main.lua`
   with a capped restart backoff; a splash failure is caught and logged, never blocking boot.
-- `controller/colossal/main.lua` assembles the application.
-- `controller/colossal/app/` contains services, coordination, setup, UI, monitor rendering,
+- `controller/storage/main.lua` assembles the application.
+- `controller/storage/app/` contains services, coordination, setup, UI, monitor rendering,
   and the boot splash.
 - The presentation layer is shared, not per-screen: `app/theme.lua` owns the palette and the
   semantic colour roles, `app/draw.lua` the drawing primitives, `app/layout.lua` the screen
   regions, and `app/buffer.lua` the double buffering. **Screens name a role, never a colour
   slot** (`Theme.role.focus`, never `colors.pink`), and no renderer keeps its own copy of a
   drawing helper -- `tests/test_ui_purity.lua` fails if one grows back.
-- `controller/colossal/core/` contains inventory scanning, indexing, planning, transfers, reconciliation, and registry logic.
-- `controller/colossal/shared/` contains runtime, codec, and durable-store helpers.
-- `controller/colossal/recipes/` holds the generated crafting recipe pack. It is deployed like code, never hand-edited; regenerate it with `tools/recipe_import.py` and see `docs/operations.md`. Hand-written recipes go in `colossal/data/custom_recipes.lua` instead, which takes precedence over it.
+- `controller/storage/core/` contains inventory scanning, indexing, planning, transfers, reconciliation, and registry logic.
+- `controller/storage/shared/` contains runtime, codec, and durable-store helpers.
+- `controller/storage/recipes/` holds the generated crafting recipe pack. It is deployed like code, never hand-edited; regenerate it with `tools/recipe_import.py` and see `docs/operations.md`. Hand-written recipes go in `storage/data/custom_recipes.lua` instead, which takes precedence over it.
 - `turtle/` is the crafting turtle's own deployable tree, with its own `deployment_manifest.lua`. It is a second live computer: never deploy controller files to it, and never deploy its files to the controller. Both manifests define a module named `deployment_manifest`, so tests must load one of them by explicit path rather than by `require`, and must not prepend the turtle tree to `package.path`.
 - `tools/` holds host-side build tooling that is never deployed. Its Python tests run with `python -m unittest test_recipe_pack test_recipe_import` from `tools/`. `tools/deploy.py` is the live deployment gate; `tools/recipe_import.py` generates the recipe pack.
-- `controller/colossal/tests/` contains the host-runnable Lua suite and must never be deployed.
-- `controller/colossal/deployment_manifest.lua` is the exact runtime deployment allow-list.
+- `controller/storage/tests/` contains the host-runnable Lua suite and must never be deployed.
+- `controller/storage/deployment_manifest.lua` is the exact runtime deployment allow-list.
 - `docs/operations.md` describes topology, setup, recovery, upgrades, and deployment safety.
 - `docs/backlog.md` lists known gaps, untested paths and polish, ordered by risk.
 - `docs/assets/wordmark.svg` is the project wordmark used in `README.md`.
@@ -66,17 +66,17 @@ Operators drive recovery from the terminal: retry and cancel on the Requests pag
 - Treat every ComputerCraft directory as production with real players and items.
 - The server no longer runs on this machine. The world is mounted over sshfs as drive `G:`, so the computer tree is `G:\world\computercraft\computer` and the server root (`mods`, `libraries`, `kubejs`) is `G:\` itself. Every path is a network round trip: deployments and backups are slow, and a dropped mount looks like a missing directory rather than an error worth retrying through.
 - The current live controller is computer `#4`, labeled `StorageController`, under `G:\world\computercraft\computer\4`. The crafting turtle is `#5`. A folder number is a filesystem id and has nothing to do with a peripheral name.
-- Before every live write, confirm shutdown explicitly in the current conversation and re-read `colossal/data/config.lua` to verify both numeric ID and label. A confirmation never carries forward to a later deployment. Do not infer quiescence from file mtimes; that reasoning was used once and was wrong even though the outcome was safe.
+- Before every live write, confirm shutdown explicitly in the current conversation and re-read `storage/data/config.lua` to verify both numeric ID and label. A confirmation never carries forward to a later deployment. Do not infer quiescence from file mtimes; that reasoning was used once and was wrong even though the outcome was safe.
 - Deploy with `tools/deploy.py`, which enforces the whole gate below in one command and refuses rather than guesses. `docs/operations.md` documents it. Do not hand-roll a deployment script in a scratch directory.
 - `luac.exe` and Python are Windows binaries and cannot open Git Bash `/c/...` paths. `luac` reports "cannot open", which reads like a syntax error; a `/g/world/...` path handed to Windows Python silently creates `C:\g\world\...` rather than failing. Pass `G:/world/computercraft/computer` in Windows form.
 - Never execute ComputerCraft startup programs, controller runtime, peripheral calls, or turtle actions from the host.
 - Deploy only manifest-approved runtime paths relative to `controller/`; never copy tests, docs, Git metadata, plans, Markdown, or host helpers. Gate every write on `deployment_manifest.lua` so an unlisted path is refused rather than copied.
-- Preserve `colossal/data/`, especially `config.lua`, `aliases.lua`, `metadata.lua`, and any active journal, unless the user explicitly authorizes a fresh install. Back the directory up to a host scratch path before deploying.
+- Preserve `storage/data/`, especially `config.lua`, `aliases.lua`, `metadata.lua`, and any active journal, unless the user explicitly authorizes a fresh install. Back the directory up to a host scratch path before deploying.
 - The live tree uses LF; the repository working copy is CRLF under `core.autocrlf`. Write LF and compare LF-normalized SHA-256 hashes, otherwise every file appears to differ.
 - **The sshfs mount does not truncate on `open("wb")`.** Writing a file that got shorter leaves the previous version's tail in place past the new end, so the module silently stops parsing. Observed 2026-08-12: a 138-line `draw.lua` landed as 150 lines, reproduced identically across two deployments. `tools/deploy.py` now unlinks before writing; any other tool that writes to the live tree must do the same. This is exactly why the gate verifies hashes and runs `luac -p` on what actually landed rather than trusting the write.
-- After deployment verify all of: LF-normalized hashes for every manifest file, `luac -p` on every deployed file, no strays outside the manifest and `colossal/data/`, and `colossal/data/` unchanged against the backup.
-- Confirm the controller is quiescent before writing by sampling the `colossal/data/` directory mtime; an active controller rewrites its journal continuously.
-- Measure live behaviour only through read-only observation. Polling `colossal/data/journal.lua` for phase transitions yields per-transfer timings without touching the controller.
+- After deployment verify all of: LF-normalized hashes for every manifest file, `luac -p` on every deployed file, no strays outside the manifest and `storage/data/`, and `storage/data/` unchanged against the backup.
+- Confirm the controller is quiescent before writing by sampling the `storage/data/` directory mtime; an active controller rewrites its journal continuously.
+- Measure live behaviour only through read-only observation. Polling `storage/data/journal.lua` for phase transitions yields per-transfer timings without touching the controller.
 - Keep temporary host helpers outside this repository and remove them after use.
 
 ## Runtime invariants
@@ -99,7 +99,7 @@ Operators drive recovery from the terminal: retry and cancel on the Requests pag
 - The scanned inventory index is derived state and must never be persisted as authoritative stock truth.
 - Item identity is namespaced item ID plus the CC:Tweaked NBT hash; never merge distinct NBT variants.
 - `inventory.list()` does not provide item stack limits. Drop-off scans must obtain and validate `getItemDetail(slot).maxCount` for the slot the importer will consume, which is the lowest occupied slot; detailing any other slot buys nothing. Large Storage scans must not add per-item detail calls.
-- `inventory.list()` returns only occupied slots, so scan cost is proportional to occupied slots, not inventory size. A mostly empty Colossal Chest scans quickly regardless of its slot count.
+- `inventory.list()` returns only occupied slots, so scan cost is proportional to occupied slots, not inventory size. A mostly empty container scans quickly regardless of its slot count.
 - Every peripheral call yields for roughly one server tick, while pure Lua between yields is comparatively free. Optimise the number of peripheral calls and the number of work-loop ticks, not Lua loop bodies. Budget scan work by role: per-slot detail calls stay bounded, pure slot bookkeeping can absorb a bulk budget.
 - Keep input handling responsive: scans, transfers, rendering, and metadata enrichment must remain bounded cooperative work.
 
@@ -129,9 +129,9 @@ several shapes.
 
 - Make behavior changes in an isolated Git worktree and use test-first development.
 - Keep modules focused and dependency-injected so inventory, UI, and failure paths can be tested without Minecraft.
-- From `controller/`, run focused tests with `lua colossal/tests/run.lua tests.<module>`. Register any new test module in the `defaultModules` list in `colossal/tests/run.lua`.
+- From `controller/`, run focused tests with `lua storage/tests/run.lua tests.<module>`. Register any new test module in the `defaultModules` list in `storage/tests/run.lua`.
 - Host Lua is 5.4; CC:Tweaked runs Lua 5.2. A green host suite does not prove CC compatibility, so avoid host-only syntax and treat version-sensitive semantics with suspicion.
-- Before committing or merging runtime changes, run the complete suite with `lua colossal/tests/run.lua` and run `git diff --check`. Check the interpreter's exit code; piping the run through `grep` masks a failing suite.
+- Before committing or merging runtime changes, run the complete suite with `lua storage/tests/run.lua` and run `git diff --check`. Check the interpreter's exit code; piping the run through `grep` masks a failing suite.
 - Size any performance work against the live installation before optimising. A benchmark built on assumed scale, or on fakes where peripheral calls return instantly, will point at the wrong bottleneck.
 - A gate cycle costs roughly the same whether it carries one item or hundreds, so throughput work belongs in reducing the number of cycles, not the cost of each. Compare time per unit of work moved, never seconds per cycle: a change that amortises fixed overhead correctly makes each cycle slower.
 - When a design argues that some bad state cannot arise, still assert it. The claim that batched plans could never target the same slot was wrong, and the guard written against it turned a silent double-fill into a clean named failure before anything was issued.
