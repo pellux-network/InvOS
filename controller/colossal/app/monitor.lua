@@ -14,6 +14,13 @@ local function enrichmentText(enrichment)
     return "Learning item names: "..formatNumber(enrichment.learned).."/"..formatNumber(enrichment.total)
 end
 
+-- Trim from the left of a namespaced id so the meaningful part survives a narrow column:
+-- "colossalchests:colossal_chest_0" reads as "colossal_chest_0", never "colossalches".
+local function shortName(value)
+    local text=tostring(value or "")
+    return text:match("^[%w_]+:(.+)$") or text
+end
+
 local function nodeByRole(model,role)
     for _,node in ipairs(model.nodes or {}) do if node.role==role then return node end end
 end
@@ -69,19 +76,21 @@ local function renderLarge(surface,model,width,height)
     local top
     if height>=16 and blockWidth(items)+4<=width-2 then
         Draw.blockText(surface,3,3,items,Theme.role.focus)
-        Draw.text(surface,3,8,"ITEMS STORED",22,Theme.role.muted,Theme.role.ground)
+        -- Row 8 stays clear. The glyphs run 3 to 7 and their descenders touch a caption
+        -- placed directly beneath them.
+        Draw.text(surface,3,9,"ITEMS STORED",22,Theme.role.muted,Theme.role.ground)
         local typesX=3+blockWidth(items)+4
         if typesX+blockWidth(types)<=width-1 and typesX+14<=width-1 then
             Draw.blockText(surface,typesX,3,types,Theme.role.text)
-            Draw.text(surface,typesX,8,"DISTINCT TYPES",width-typesX,
+            Draw.text(surface,typesX,9,"DISTINCT TYPES",width-typesX,
                 Theme.role.muted,Theme.role.ground)
         else
             -- No room for a second block number. The count still has to appear, so it goes
             -- beside the items label as ordinary text rather than being clipped mid-glyph.
-            Draw.rightText(surface,width-1,8,types.." DISTINCT TYPES",
+            Draw.rightText(surface,width-1,9,types.." DISTINCT TYPES",
                 Theme.role.muted,Theme.role.ground)
         end
-        top=10
+        top=11
     else
         Draw.text(surface,2,3,items.." ITEMS",width-2,Theme.role.focus,Theme.role.ground)
         Draw.text(surface,2,4,types.." DISTINCT TYPES",width-2,
@@ -104,13 +113,15 @@ local function renderLarge(surface,model,width,height)
         bottom=height-2
     end
     local gaugeRow
-    if bottom-top>=4 then gaugeRow=bottom; bottom=bottom-1 end
+    if bottom-top>=2 then gaugeRow=bottom; bottom=bottom-1 end
     local alertRow=model.highest_alert and bottom or nil
     if alertRow then bottom=bottom-1 end
     local statusRow=bottom
     local nodesBottom=statusRow-1
 
-    local right=math.max(24,math.floor(width*0.56))
+    -- The activity column needs only enough for a request name; the node column has to fit
+    -- a name, a meter and a percentage, so the split favours it.
+    local right=math.max(24,math.floor(width*0.62))
     Draw.band(surface,top,Theme.role.panel)
     Draw.text(surface,2,top,"STORAGE NODES",right-3,Theme.role.muted,Theme.role.panel)
     Draw.text(surface,right,top,"CURRENT ACTIVITY",width-right,Theme.role.muted,Theme.role.panel)
@@ -120,16 +131,23 @@ local function renderLarge(surface,model,width,height)
         if row>nodesBottom then break end
         if node.role=="storage" then
             local value=fraction(node)
+            local percent=tostring(math.floor(value*100+0.5)).."%"
+            local leftEnd=right-2
             Draw.text(surface,2,row,"o",1,Theme.statusColor(node.state),Theme.role.ground)
-            local meterWidth=math.max(0,math.min(12,right-24))
-            local meterX=right-meterWidth-7
-            Draw.text(surface,4,row,tostring(node.label or node.id),
+            local meterWidth=math.max(0,math.min(8,leftEnd-20))
+            -- The meter already says how full it is, so on a narrow column the percentage
+            -- gives up its space to the name rather than the other way round.
+            local showPercent=leftEnd-meterWidth-#percent-6>=12
+            local percentWidth=showPercent and (#percent+1) or 0
+            local meterX=leftEnd-percentWidth-meterWidth+1
+            Draw.text(surface,4,row,shortName(node.label or node.id),
                 math.max(1,meterX-5),Theme.role.text,Theme.role.ground)
             if meterWidth>0 then
                 Draw.meter(surface,meterX,row,meterWidth,value,fillColor(value),Theme.role.track)
             end
-            Draw.rightText(surface,right-3,row,tostring(math.floor(value*100+0.5)).."%",
-                Theme.role.muted,Theme.role.ground)
+            if showPercent then
+                Draw.rightText(surface,leftEnd,row,percent,Theme.role.muted,Theme.role.ground)
+            end
             row=row+1
         end
     end

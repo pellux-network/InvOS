@@ -162,4 +162,25 @@ return {
         T.truthy(first < 40 and second > 40,
             "the arrows must sit apart, over the two chests, not together")
     end },
+    { name = "the big number does not sit on top of its label", run = function()
+        local surface = render(79, 24)
+        -- Block glyphs occupy five rows from row 3, so row 8 has to stay clear or the
+        -- descenders touch the caption underneath.
+        local touching = 0
+        for x = 1, 79 do
+            if surface.backgroundAt(x, 8) == Theme.role.focus
+                or surface.backgroundAt(x, 8) == Theme.role.text then touching = touching + 1 end
+        end
+        T.equal(touching, 0, "the glyph row and the label row are adjacent")
+        T.contains(surface.line(9), "ITEMS STORED")
+    end },
+    { name = "a namespaced node name keeps its meaningful half", run = function()
+        local named = model()
+        named.nodes[2].label = "colossalchests:colossal_chest_0"
+        local surface = render(57, 16, named)
+        local text = surface.allText()
+        T.contains(text, "colossal_chest_0",
+            "the namespace should be dropped before the name is, not after")
+        T.equal(surface.writesOutsideBounds(), 0)
+    end },
 }
