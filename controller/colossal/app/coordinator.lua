@@ -55,10 +55,39 @@ function Coordinator.new(deps)
     return self
 end
 
+-- One mapping from a saved configuration to the live node list. This existed twice, here and
+-- in main.lua, and the two disagreed: this side omitted the craft buffer entirely, so
+-- finishing the wizard wrote craft_buffer into the configuration and then immediately dropped
+-- it from the nodes, and the buffer bound but never appeared. Both callers now read this.
+function Coordinator.nodesFrom(config)
+    if type(config) ~= "table" then return {} end
+    local nodes = {}
+    if config.dropoff then
+        nodes[#nodes+1] = {id="dropoff", label="Drop-off", role="dropoff",
+            peripheral_name=config.dropoff.peripheral_name}
+    end
+    for _, definition in ipairs(config.storage or {}) do
+        nodes[#nodes+1] = {id=definition.id, label=definition.label, role="storage",
+            peripheral_name=definition.peripheral_name, priority=definition.priority,
+            enabled=definition.enabled}
+    end
+    if config.pickup then
+        nodes[#nodes+1] = {id="pickup", label="Pickup", role="pickup",
+            peripheral_name=config.pickup.peripheral_name}
+    end
+    -- Only present when a crafting turtle is installed. Everything downstream treats a
+    -- missing buffer as "crafting unavailable" rather than an error.
+    if config.craft_buffer then
+        nodes[#nodes+1] = {id="craft_buffer", label="Craft Buffer", role="craft_buffer",
+            peripheral_name=config.craft_buffer.peripheral_name}
+    end
+    return nodes
+end
+
 function Coordinator:_replaceNodes(nodes)
     self.nodes, self.nodeById, self.scanQueue = {}, {}, {}
     self.snapshots,self.scanRevision,self.activeScan,self.index,self.enrichment={}, {}, nil, nil, nil
-    self.scanCompletedAt = {}
+    self.scanCompletedAt, self.scanFailedAt, self.scanFailures = {}, {}, {}
     for _, definition in ipairs(nodes) do
         local node = nodeView(definition)
         self.nodes[#self.nodes + 1] = node
@@ -703,13 +732,7 @@ function Coordinator:completeSetup(config)
     if not safe then return nil,reason end
     self.configured = type(config)=="table" and config.configured ~= false
     if type(config)=="table" and (config.dropoff or config.pickup) then
-        local nodes={}
-        if config.dropoff then nodes[#nodes+1]={id="dropoff",role="dropoff",peripheral_name=config.dropoff.peripheral_name} end
-        for _, node in ipairs(config.storage or {}) do
-            local value=copy(node); value.role="storage"; nodes[#nodes+1]=value
-        end
-        if config.pickup then nodes[#nodes+1]={id="pickup",role="pickup",peripheral_name=config.pickup.peripheral_name} end
-        self:_replaceNodes(nodes)
+        self:_replaceNodes(Coordinator.nodesFrom(config))
     else self:requestRescan((function() local r={} for _,n in ipairs(self.nodes) do r[#r+1]=n.id end return r end)()) end
     self:_refreshLifecycle(); self.dirty=true
     return true

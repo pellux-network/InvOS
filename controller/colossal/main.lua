@@ -97,24 +97,11 @@ local function load(store,fsApi,root,name,validator,fallback)
     return fallback,reason
 end
 
+-- Delegates to Coordinator.nodesFrom so boot and "finish the wizard" cannot disagree about
+-- what the nodes are. They did: the coordinator's copy dropped the craft buffer.
 local function nodesFrom(config)
     if not config.configured then return {} end
-    local nodes={{id="dropoff",label="Drop-off",role="dropoff",
-        peripheral_name=config.dropoff.peripheral_name}}
-    for _,definition in ipairs(config.storage or {}) do
-        nodes[#nodes+1]={id=definition.id,label=definition.label,role="storage",
-            peripheral_name=definition.peripheral_name,priority=definition.priority,
-            enabled=definition.enabled}
-    end
-    nodes[#nodes+1]={id="pickup",label="Pickup",role="pickup",
-        peripheral_name=config.pickup.peripheral_name}
-    -- Only present when a crafting turtle is installed. Everything downstream treats a
-    -- missing buffer as "crafting unavailable" rather than an error.
-    if config.craft_buffer then
-        nodes[#nodes+1]={id="craft_buffer",label="Craft Buffer",role="craft_buffer",
-            peripheral_name=config.craft_buffer.peripheral_name}
-    end
-    return nodes
+    return Coordinator.nodesFrom(config)
 end
 
 local function firstMonitor(peripheralApi)
