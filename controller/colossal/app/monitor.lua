@@ -44,31 +44,71 @@ local function gauge(surface,x,y,width,label,node)
     Draw.text(surface,meterX+meterWidth+1,y,percent,#percent,Theme.role.text,Theme.role.ground)
 end
 
+-- Block glyphs are five columns wide with a one-column gap, so a number's painted width is
+-- known before it is drawn. Measuring first is what stops the second total running off the
+-- right edge on a monitor narrower than the one this was designed against.
+local function blockWidth(text) return #text * 6 - 1 end
+
 -- The point of a wall monitor is a number readable from across the base, so the totals are
 -- drawn as five-row block glyphs rather than as text. Everything else is supporting detail.
+--
+-- Every row here is derived from the real height. An earlier version hardcoded them for a
+-- 79x24 monitor, and since this tier starts at 14 rows, every shorter monitor computed a
+-- node band that ended above where it began and silently listed no nodes at all.
 local function renderLarge(surface,model,width,height)
     Draw.band(surface,1,Theme.role.panel)
     Draw.text(surface,2,1,"INVOS",9,Theme.role.brand,Theme.role.panel)
-    Draw.text(surface,9,1,"INVENTORY OPERATING SYSTEM",30,Theme.role.muted,Theme.role.panel)
+    if width>=40 then
+        Draw.text(surface,9,1,"INVENTORY OPERATING SYSTEM",30,Theme.role.muted,Theme.role.panel)
+    end
     local lifecycle=model.lifecycle or "BOOTING"
     Draw.rightText(surface,width-1,1,lifecycle,Theme.statusColor(lifecycle),Theme.role.panel)
 
-    local afterItems=Draw.blockText(surface,3,3,formatNumber(model.total_items),Theme.role.focus)
-    Draw.text(surface,3,8,"ITEMS STORED",30,Theme.role.muted,Theme.role.ground)
-    local typesAt=math.max(afterItems+4,math.floor(width*0.62))
-    if typesAt+6<width then
-        Draw.blockText(surface,typesAt,3,formatNumber(model.total_types),Theme.role.text)
-        Draw.text(surface,typesAt,8,"DISTINCT TYPES",width-typesAt,Theme.role.muted,Theme.role.ground)
+    local items=formatNumber(model.total_items)
+    local types=formatNumber(model.total_types)
+    local top
+    if height>=16 and blockWidth(items)+4<=width-2 then
+        Draw.blockText(surface,3,3,items,Theme.role.focus)
+        Draw.text(surface,3,8,"ITEMS STORED",22,Theme.role.muted,Theme.role.ground)
+        local typesX=3+blockWidth(items)+4
+        if typesX+blockWidth(types)<=width-1 and typesX+14<=width-1 then
+            Draw.blockText(surface,typesX,3,types,Theme.role.text)
+            Draw.text(surface,typesX,8,"DISTINCT TYPES",width-typesX,
+                Theme.role.muted,Theme.role.ground)
+        else
+            -- No room for a second block number. The count still has to appear, so it goes
+            -- beside the items label as ordinary text rather than being clipped mid-glyph.
+            Draw.rightText(surface,width-1,8,types.." DISTINCT TYPES",
+                Theme.role.muted,Theme.role.ground)
+        end
+        top=10
+    else
+        Draw.text(surface,2,3,items.." ITEMS",width-2,Theme.role.focus,Theme.role.ground)
+        Draw.text(surface,2,4,types.." DISTINCT TYPES",width-2,
+            Theme.role.muted,Theme.role.ground)
+        top=6
     end
 
-    local right=math.max(30,math.floor(width*0.56))
-    Draw.band(surface,10,Theme.role.panel)
-    Draw.text(surface,2,10,"STORAGE NODES",right-3,Theme.role.muted,Theme.role.panel)
-    Draw.text(surface,right,10,"CURRENT ACTIVITY",width-right,Theme.role.muted,Theme.role.panel)
+    -- Reserved bottom-up, each section dropped if the screen cannot afford it, so the node
+    -- band always gets whatever is left rather than a band computed for a taller screen.
+    local statusRow=height
+    local alertRow=model.highest_alert and (height-1) or nil
+    local nodesBottom=(alertRow or statusRow)-1
+    local flowRow,gaugeRow
+    if nodesBottom-top>=5 then
+        gaugeRow=nodesBottom
+        flowRow=nodesBottom-1
+        nodesBottom=flowRow-2
+    end
 
-    local row,bottom=11,math.min(14,height-9)
+    local right=math.max(24,math.floor(width*0.56))
+    Draw.band(surface,top,Theme.role.panel)
+    Draw.text(surface,2,top,"STORAGE NODES",right-3,Theme.role.muted,Theme.role.panel)
+    Draw.text(surface,right,top,"CURRENT ACTIVITY",width-right,Theme.role.muted,Theme.role.panel)
+
+    local row=top+1
     for _,node in ipairs(model.nodes or {}) do
-        if row>bottom then break end
+        if row>nodesBottom then break end
         if node.role=="storage" then
             local value=fraction(node)
             Draw.text(surface,2,row,"o",1,Theme.statusColor(node.state),Theme.role.ground)
@@ -87,39 +127,40 @@ local function renderLarge(surface,model,width,height)
 
     local active=model.active_request
     if active then
-        Draw.text(surface,right,11,tostring(active.display_name or active.id),width-right,
+        Draw.text(surface,right,top+1,tostring(active.display_name or active.id),width-right,
             Theme.role.text,Theme.role.ground)
         local requested=active.requested or 0
-        Draw.text(surface,right,12,formatNumber(active.delivered or 0).." / "..
+        Draw.text(surface,right,top+2,formatNumber(active.delivered or 0).." / "..
             formatNumber(requested),width-right,Theme.role.muted,Theme.role.ground)
         local meterWidth=math.max(0,width-right-14)
-        if meterWidth>0 then
-            Draw.meter(surface,right,13,meterWidth,
+        if meterWidth>0 and top+3<=nodesBottom then
+            Draw.meter(surface,right,top+3,meterWidth,
                 requested>0 and ((active.delivered or 0)/requested) or 0,
                 Theme.role.working,Theme.role.track)
+            Draw.rightText(surface,width-1,top+3,tostring(active.state or ""),
+                Theme.statusColor(active.state),Theme.role.ground)
         end
-        Draw.rightText(surface,width-1,13,tostring(active.state or ""),
-            Theme.statusColor(active.state),Theme.role.ground)
     else
-        Draw.text(surface,right,11,"No active request",width-right,
+        Draw.text(surface,right,top+1,"No active request",width-right,
             Theme.role.muted,Theme.role.ground)
     end
 
-    if height>=18 then
-        Draw.band(surface,16,Theme.role.panel)
-        local flow="DROP-OFF   >   STORAGE   >   PICKUP"
-        Draw.centerText(surface,math.floor(width/2)+1,16,flow,Theme.role.text,Theme.role.panel)
+    if flowRow then
+        Draw.band(surface,flowRow,Theme.role.panel)
+        local flow=width>=52 and "DROP-OFF   >   STORAGE   >   PICKUP" or "DROP-OFF > PICKUP"
+        Draw.centerText(surface,math.floor(width/2)+1,flowRow,flow,
+            Theme.role.text,Theme.role.panel)
         local half=math.floor(width/2)
-        gauge(surface,2,18,half-3,"DROP-OFF",nodeByRole(model,"dropoff"))
-        gauge(surface,half+2,18,half-3,"PICKUP",nodeByRole(model,"pickup"))
+        gauge(surface,2,gaugeRow,half-3,"DROP-OFF",nodeByRole(model,"dropoff"))
+        gauge(surface,half+2,gaugeRow,half-3,"PICKUP",nodeByRole(model,"pickup"))
     end
 
-    if model.highest_alert and height>=21 then
-        Draw.band(surface,height-2,Theme.role.alert)
-        Draw.text(surface,2,height-2,tostring(model.highest_alert.message),width-2,
+    if alertRow then
+        Draw.band(surface,alertRow,Theme.role.alert)
+        Draw.text(surface,2,alertRow,tostring(model.highest_alert.message),width-2,
             Theme.role.text,Theme.role.alert)
     end
-    Draw.text(surface,2,height,
+    Draw.text(surface,2,statusRow,
         enrichmentText(model.enrichment) or model.lifecycle_reason or "",width-2,
         Theme.role.muted,Theme.role.ground)
 end

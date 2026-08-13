@@ -113,4 +113,30 @@ return {
         T.equal(frames.ended, frames.begun,
             "a frame begun and never ended leaves the window hidden forever")
     end },
+    { name = "storage nodes appear on a monitor that is not 24 rows tall", run = function()
+        -- The large tier starts at 14 rows. Hardcoding the node rows for a 24-row monitor
+        -- made every shorter one draw an empty STORAGE NODES section.
+        for _, size in ipairs({{57,16},{57,20},{50,14},{79,24}}) do
+            local surface = render(size[1], size[2])
+            T.contains(surface.allText(), "Main Vault",
+                "no nodes listed at " .. size[1] .. "x" .. size[2])
+        end
+    end },
+    { name = "the totals never spill off the right edge", run = function()
+        for _, size in ipairs({{57,16},{45,14},{62,18},{79,24}}) do
+            local surface = render(size[1], size[2], model({total_items=59383,
+                total_types=553}))
+            local text = surface.allText()
+            T.equal(surface.writesOutsideBounds(), 0)
+            -- Whichever way the type count is drawn, its label must be whole. A clipped
+            -- "DISTINC" is how this showed up in world.
+            local truncated = text:find("DISTINC", 1, true) and not text:find("DISTINCT", 1, true)
+            T.truthy(not truncated, "the type label was clipped at " .. size[1] .. " columns")
+        end
+    end },
+    { name = "a narrow monitor still reports the type count somehow", run = function()
+        local surface = render(57, 16, model({total_items=59383, total_types=553}))
+        T.contains(surface.allText(), "553",
+            "the count must fall back to text when block digits will not fit")
+    end },
 }
