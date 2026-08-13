@@ -139,4 +139,27 @@ return {
         T.contains(surface.allText(), "553",
             "the count must fall back to text when block digits will not fit")
     end },
+    { name = "the chests are signposted with arrows pointing at them", run = function()
+        -- The monitor hangs above the real chests, so these label the world, not the model.
+        -- Losing them costs a player the ability to tell which chest is which.
+        for _, size in ipairs({{57,16},{79,24},{50,14}}) do
+            local surface = render(size[1], size[2])
+            local label = surface.line(size[2] - 1)
+            local arrows = surface.line(size[2])
+            T.contains(label, "DROP-OFF", "no drop-off signpost at " .. size[1] .. "x" .. size[2])
+            T.contains(label, "PICKUP", "no pickup signpost at " .. size[1] .. "x" .. size[2])
+            T.truthy(arrows:find("v", 1, true) ~= nil,
+                "no arrow pointing at the chests at " .. size[1] .. "x" .. size[2])
+            T.equal(surface.writesOutsideBounds(), 0)
+        end
+    end },
+    { name = "the signposts sit over the chests they point at", run = function()
+        local surface = render(79, 24)
+        local arrows = surface.line(24)
+        local first = arrows:find("v", 1, true)
+        local second = arrows:find("v", first + 1, true)
+        T.truthy(second ~= nil, "expected two arrows, one per chest")
+        T.truthy(first < 40 and second > 40,
+            "the arrows must sit apart, over the two chests, not together")
+    end },
 }

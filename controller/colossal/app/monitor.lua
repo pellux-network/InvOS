@@ -91,15 +91,24 @@ local function renderLarge(surface,model,width,height)
 
     -- Reserved bottom-up, each section dropped if the screen cannot afford it, so the node
     -- band always gets whatever is left rather than a band computed for a taller screen.
-    local statusRow=height
-    local alertRow=model.highest_alert and (height-1) or nil
-    local nodesBottom=(alertRow or statusRow)-1
-    local flowRow,gaugeRow
-    if nodesBottom-top>=5 then
-        gaugeRow=nodesBottom
-        flowRow=nodesBottom-1
-        nodesBottom=flowRow-2
+    --
+    -- The bottom two rows are signposts: the monitor hangs above the real chests and the
+    -- arrows point at them. They label the world rather than the model, which is why they
+    -- outrank everything else here and why the abstract DROP-OFF > STORAGE > PICKUP band
+    -- that replaced them was a poor trade -- it said the same thing without saying which
+    -- chest is which.
+    local signRow,arrowRow
+    local bottom=height
+    if height>=12 then
+        arrowRow,signRow=height,height-1
+        bottom=height-2
     end
+    local gaugeRow
+    if bottom-top>=4 then gaugeRow=bottom; bottom=bottom-1 end
+    local alertRow=model.highest_alert and bottom or nil
+    if alertRow then bottom=bottom-1 end
+    local statusRow=bottom
+    local nodesBottom=statusRow-1
 
     local right=math.max(24,math.floor(width*0.56))
     Draw.band(surface,top,Theme.role.panel)
@@ -145,11 +154,7 @@ local function renderLarge(surface,model,width,height)
             Theme.role.muted,Theme.role.ground)
     end
 
-    if flowRow then
-        Draw.band(surface,flowRow,Theme.role.panel)
-        local flow=width>=52 and "DROP-OFF   >   STORAGE   >   PICKUP" or "DROP-OFF > PICKUP"
-        Draw.centerText(surface,math.floor(width/2)+1,flowRow,flow,
-            Theme.role.text,Theme.role.panel)
+    if gaugeRow then
         local half=math.floor(width/2)
         gauge(surface,2,gaugeRow,half-3,"DROP-OFF",nodeByRole(model,"dropoff"))
         gauge(surface,half+2,gaugeRow,half-3,"PICKUP",nodeByRole(model,"pickup"))
@@ -163,6 +168,17 @@ local function renderLarge(surface,model,width,height)
     Draw.text(surface,2,statusRow,
         enrichmentText(model.enrichment) or model.lifecycle_reason or "",width-2,
         Theme.role.muted,Theme.role.ground)
+
+    if signRow then
+        Draw.band(surface,signRow,Theme.role.panel)
+        Draw.band(surface,arrowRow,Theme.role.ground)
+        local dropCenter=math.floor(width*0.30)
+        local pickupCenter=math.floor(width*0.70)
+        Draw.centerText(surface,dropCenter,signRow,"DROP-OFF",Theme.role.brand,Theme.role.panel)
+        Draw.centerText(surface,pickupCenter,signRow,"PICKUP",Theme.role.brand,Theme.role.panel)
+        Draw.centerText(surface,dropCenter,arrowRow,"v",Theme.role.text,Theme.role.ground)
+        Draw.centerText(surface,pickupCenter,arrowRow,"v",Theme.role.text,Theme.role.ground)
+    end
 end
 
 local function renderMedium(surface,model,width,height)
