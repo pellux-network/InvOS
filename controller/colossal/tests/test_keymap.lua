@@ -1,7 +1,7 @@
 keys = {
     backspace=14, up=200, down=208, enter=28, s=31, a=30, f10=68,
     escape=1, one=2, two=3, three=4, four=5, five=6,
-    r=19, c=46, p=25, x=45,
+    r=19, c=46, p=25, x=45, delete=211,
 }
 
 local Keymap = require("app.keymap")
@@ -89,6 +89,11 @@ return {
         T.equal(Keymap.command({"key",keys.p},{mode="page",page="requests"}).type,"TOGGLE_PAUSE")
         T.equal(Keymap.command({"key",keys.p},{mode="quantity"}).type,"TOGGLE_PAUSE")
         T.equal(Keymap.command({"key",keys.p},{mode="search"}),nil)
+    end },
+    { name = "Delete clears the search query in both search boxes", run = function()
+        T.equal(Keymap.command({"key",keys.delete},{mode="search"}).type,"QUERY_CLEAR")
+        T.equal(Keymap.command({"key",keys.delete},{mode="craft_search"}).type,"CRAFT_QUERY_CLEAR")
+        T.equal(Keymap.command({"key",keys.delete},{mode="page",page="requests"}),nil)
     end },
     { name = "number tab shortcuts suppress only their paired character", run = function()
         local open=Keymap.command({"key",keys.one},{mode="search",query=""})

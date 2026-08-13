@@ -21,6 +21,7 @@ local function deps()
         local nextState = {query=state.query, mode=state.mode, page=state.page,
             results=state.results, hit_regions={}}
         if command.type == "QUERY_APPEND" then nextState.query=nextState.query..command.text end
+        if command.type == "QUERY_CLEAR" then nextState.query="" end
         return nextState
     end
     function ui:render() end
@@ -54,6 +55,23 @@ return {
         coordinator:tick(1000)
         T.equal(d.scans.steps,1)
         T.equal(coordinator:viewModel().ui.query,"s")
+    end},
+    {name="clearing the search query re-runs the index build the same way typing does",run=function()
+        local d=deps()
+        d.keymap={command=function(event)
+            if event[1]=="char" then return {type="QUERY_APPEND",text=event[2]} end
+            if event[1]=="key" and event[2]=="DELETE" then return {type="QUERY_CLEAR"} end
+        end}
+        local realBuild=d.build_index
+        local buildCalls=0
+        d.build_index=function(...) buildCalls=buildCalls+1; return realBuild(...) end
+        local coordinator=Coordinator.new(d)
+        coordinator:handle({"char","s"})
+        T.equal(coordinator:viewModel().ui.query,"s")
+        buildCalls=0
+        coordinator:handle({"key","DELETE"})
+        T.equal(coordinator:viewModel().ui.query,"")
+        T.truthy(buildCalls>0,"clearing the query must trigger a rebuild the same way typing does")
     end},
     {name="recordItemRequested bumps usage stats for an enriched identity and marks the coordinator dirty",run=function()
         local d=deps()

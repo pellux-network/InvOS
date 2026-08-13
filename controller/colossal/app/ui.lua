@@ -99,6 +99,9 @@ function UI:reduce(current, command)
     elseif kind == "QUERY_BACKSPACE" then
         state.query = state.query:sub(1, math.max(0, #state.query - 1))
         state.selection, state.scroll, state.notice = 1, 1, nil
+    elseif kind == "QUERY_CLEAR" then
+        state.query = ""
+        state.selection, state.scroll, state.notice = 1, 1, nil
     elseif kind == "MOVE" then
         if state.mode == "craft_search" then
             state.craft_selection = math.max(1, math.min(math.max(1, state.craft_result_count or 0),
@@ -138,6 +141,9 @@ function UI:reduce(current, command)
         state.craft_selection, state.craft_scroll, state.suppress_char = 1, 1, nil
     elseif kind == "CRAFT_QUERY_BACKSPACE" then
         state.craft_query = state.craft_query:sub(1, math.max(0, #state.craft_query - 1))
+        state.craft_selection, state.craft_scroll = 1, 1
+    elseif kind == "CRAFT_QUERY_CLEAR" then
+        state.craft_query = ""
         state.craft_selection, state.craft_scroll = 1, 1
     elseif kind == "SYNC_CRAFT_RESULTS" then
         state.craft_results = copy(command.results or {})
@@ -482,8 +488,20 @@ function UI:_header(state, model, hitRegions)
     self:_nav(state, regions, hitRegions)
 end
 
-local function footerHelp(state)
-    if state.page == "search" then return "Type search  Up/Down select  Enter retrieve" end
+-- Search and Crafting are the only pages with a search box to clear, and both of their hint
+-- strings are already close to the width budget of a 51-column terminal. Adding "Delete
+-- clear" verbatim would silently truncate mid-word there, so both build a widest-to-narrowest
+-- candidate list and let fittedLabel pick whichever fits -- the same technique the RETRIEVE
+-- and CHOOSE buttons already use -- rather than ever clipping the hotkey itself.
+local function footerHelp(state, width)
+    if state.page == "search" then
+        return fittedLabel(width or math.huge, {
+            "Type search  Up/Down select  Enter retrieve  Delete clear",
+            "Up/Down select  Enter retrieve  Delete clear",
+            "Enter retrieve  Delete clear",
+            "Delete clear",
+        })
+    end
     if state.page == "requests" then
         return "Up/Down select  R retry  C cancel  P pause  F10 back"
     end
@@ -499,7 +517,13 @@ local function footerHelp(state)
         if state.mode == "craft_jobs" then
             return "Up/Down select  R retry  C cancel  Enter confirm  Tab search"
         end
-        return "Type to find a recipe  Enter choose  Tab jobs  F10 back"
+        return fittedLabel(width or math.huge, {
+            "Type to find a recipe  Enter choose  Tab jobs  Delete clear  F10 back",
+            "Enter choose  Tab jobs  Delete clear  F10 back",
+            "Enter choose  Delete clear  F10 back",
+            "Delete clear  F10 back",
+            "Delete clear",
+        })
     end
     return "1 Search  P pause  F10 back"
 end
@@ -514,7 +538,7 @@ function UI:_footer(state, model)
     local regions = Layout.regions(surface.getSize())
     if regions.height < 2 then return end
     Draw.band(surface, regions.footer, Theme.role.panel)
-    Draw.text(surface, 2, regions.footer, footerHelp(state), regions.width - 2,
+    Draw.text(surface, 2, regions.footer, footerHelp(state, regions.width - 2), regions.width - 2,
         Theme.role.text, Theme.role.panel)
     Draw.band(surface, regions.status, Theme.role.ground)
     Draw.text(surface, 2, regions.status,

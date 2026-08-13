@@ -698,8 +698,10 @@ function Coordinator:handle(event)
     if not ok then self:_recordError("keymap", command); return end
     if command then
         self:command(command)
-        if command.type == "QUERY_APPEND" or command.type == "QUERY_BACKSPACE" then self:_rebuildIndex() end
+        if command.type == "QUERY_APPEND" or command.type == "QUERY_BACKSPACE" or
+            command.type == "QUERY_CLEAR" then self:_rebuildIndex() end
         if command.type == "CRAFT_QUERY_APPEND" or command.type == "CRAFT_QUERY_BACKSPACE" or
+            command.type == "CRAFT_QUERY_CLEAR" or
             (command.type == "OPEN_PAGE" and command.page == "crafting") then
             self:_syncCraft()
         end

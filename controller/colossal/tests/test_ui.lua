@@ -22,6 +22,26 @@ return {
         T.equal(state.mode,"search")
         T.equal(state.query,"sto")
     end },
+    { name = "QUERY_CLEAR empties the search query and resets selection", run = function()
+        local ui=UI.new(T.recordingSurface(51,19))
+        local state=UI.initialState()
+        state=ui:reduce(state,{type="QUERY_APPEND",text="sto"})
+        state.selection=3
+        state=ui:reduce(state,{type="QUERY_CLEAR"})
+        T.equal(state.query,"")
+        T.equal(state.selection,1)
+    end },
+    { name = "CRAFT_QUERY_CLEAR empties the recipe query without touching retrieval search", run = function()
+        local ui=UI.new(T.recordingSurface(51,19))
+        local state=UI.initialState()
+        state=ui:reduce(state,{type="QUERY_APPEND",text="sto"})
+        state=ui:reduce(state,{type="CRAFT_QUERY_APPEND",text="ch"})
+        state.craft_selection=3
+        state=ui:reduce(state,{type="CRAFT_QUERY_CLEAR"})
+        T.equal(state.craft_query,"")
+        T.equal(state.craft_selection,1)
+        T.equal(state.query,"sto","clearing the recipe search must not touch the retrieval search")
+    end },
     { name = "CANCEL from a secondary page returns to the Search page", run = function()
         local ui=UI.new(T.recordingSurface(51,19))
         local state=UI.initialState()

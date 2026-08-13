@@ -115,6 +115,27 @@ return {
         end
         T.equal(found, true)
     end},
+    {name="clearing the recipe search re-syncs the catalogue automatically",run=function()
+        local coordinator = build({}, {keymap={command=function(event)
+            if event[1]=="key" and event[2]=="DELETE" then return {type="CRAFT_QUERY_CLEAR"} end
+        end}})
+        coordinator:command({type="OPEN_PAGE", page="crafting"})
+        coordinator:command({type="CRAFT_QUERY_APPEND", text="chest"})
+        coordinator:_syncCraft()
+        coordinator:handle({"key","DELETE"})
+        local state = coordinator:viewModel().ui
+        T.equal(state.craft_query, "")
+        -- "chest" alone already fills the 60-row display cap on the live pack, so a count
+        -- comparison cannot tell a resync from a no-op. Content can: the unfiltered catalogue
+        -- must include something "chest" would never have matched.
+        local hasNonChestMatch = false
+        for _, entry in ipairs(state.craft_results) do
+            local label = tostring(entry.display_name or entry.item):lower()
+            if not label:find("chest", 1, true) then hasNonChestMatch = true end
+        end
+        T.truthy(hasNonChestMatch,
+            "clearing must resync to the full catalogue without an explicit _syncCraft call")
+    end},
     {name="an exact name outranks everything that merely contains it",run=function()
         -- The catalogue is 22,391 outputs on the live modded pack and the page shows 60.
         -- Taking the first 60 matches in catalogue order pushed minecraft:chest off the

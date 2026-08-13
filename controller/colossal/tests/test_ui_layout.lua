@@ -221,6 +221,24 @@ return {
         T.contains(surface.line(18),"scroll")
         T.equal(surface.writesOutsideBounds(),0)
     end },
+    { name = "footer advertises Delete-to-clear on both search bars without clipping the word", run = function()
+        for _, case in ipairs({
+            {page="search", mode="search"},
+            {page="crafting", mode="craft_search"},
+        }) do
+            for _, size in ipairs({{51,19},{30,12},{18,8}}) do
+                local surface=T.recordingSurface(size[1], size[2])
+                local ui=UI.new(surface)
+                local state=UI.initialState()
+                state.page, state.mode = case.page, case.mode
+                ui:render(state, view())
+                T.contains(surface.allText(), "Delete clear",
+                    size[1].."x"..size[2].." on "..case.page..
+                        " must show the whole hint, not a word clipped mid-way")
+                T.equal(surface.writesOutsideBounds(), 0)
+            end
+        end
+    end },
     { name = "arming recovery release states what proof is given up in the notice line", run = function()
         local surface=T.recordingSurface(51,19)
         local ui=UI.new(surface)

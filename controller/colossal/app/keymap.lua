@@ -106,6 +106,7 @@ function M.command(event, state)
     -- and the action keys live in the plan and job modes rather than here.
     if state.mode == "craft_search" then
         if key == keys.backspace then return {type="CRAFT_QUERY_BACKSPACE"} end
+        if key == keys.delete then return {type="CRAFT_QUERY_CLEAR"} end
         if key == keys.up then return {type="MOVE",delta=-1} end
         if key == keys.down then return {type="MOVE",delta=1} end
         if key == keys.enter then return {type="OPEN_CRAFT_QUANTITY"} end
@@ -140,6 +141,7 @@ function M.command(event, state)
     end
     if state.mode == "search" then
         if key == keys.backspace then return {type="QUERY_BACKSPACE"} end
+        if key == keys.delete then return {type="QUERY_CLEAR"} end
         if key == keys.up then return {type="MOVE",delta=-1} end
         if key == keys.down then return {type="MOVE",delta=1} end
         if key == keys.enter then return {type="OPEN_QUANTITY"} end
