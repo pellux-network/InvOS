@@ -42,7 +42,7 @@ return {
         local setup=environment();setup:assign("dropoff","drop")
         local before=setup:draft()
         local review,reason=setup:recoverBackup("empty-disk")
-        T.equal(review,nil);T.contains(reason,"no valid colossal-backup")
+        T.equal(review,nil);T.contains(reason,"no valid invos-backup")
         T.equal(setup:draft().dropoff.peripheral_name,before.dropoff.peripheral_name)
     end},
 }

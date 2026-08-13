@@ -27,11 +27,11 @@ end
 
 function M.export(store, mount, config, aliases)
     local payload = { schema = 1, config = config, aliases = aliases }
-    return store:at(mount):write("colossal-backup", payload, M.validate)
+    return store:at(mount):write("invos-backup", payload, M.validate)
 end
 
 function M.import(store, mount)
-    return store:at(mount):recover("colossal-backup", M.validate)
+    return store:at(mount):recover("invos-backup", M.validate)
 end
 
 return M

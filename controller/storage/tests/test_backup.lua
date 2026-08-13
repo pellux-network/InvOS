@@ -25,7 +25,7 @@ return {
         local config = { schema = 1, dropoff = "chest_0", journal = { unsafe = true } }
         local aliases = { schema = 1, items = { rock = "minecraft:stone" } }
         T.truthy(Backup.export(store, "disk", config, aliases))
-        local payload = store:at("disk"):recover("colossal-backup", Backup.validate)
+        local payload = store:at("disk"):recover("invos-backup", Backup.validate)
         T.equal(payload.schema, 1)
         T.equal(payload.config, config)
         T.equal(payload.aliases, aliases)
@@ -38,7 +38,7 @@ return {
     { name = "backup import validates the envelope before returning it", run = function()
         local fsApi, codec = T.memoryFs(), tokenCodec()
         local store = Store.new(fsApi, codec, "storage/data")
-        T.truthy(store:at("disk"):write("colossal-backup", {
+        T.truthy(store:at("disk"):write("invos-backup", {
             schema = 1,
             config = { schema = 1 },
             aliases = { schema = 1, items = {} },
@@ -61,6 +61,6 @@ return {
         local store = Store.new(T.memoryFs(), tokenCodec(), "storage/data")
         local payload, reason = Backup.import(store, "disk")
         T.equal(payload, nil)
-        T.contains(reason, "no valid colossal-backup")
+        T.contains(reason, "no valid invos-backup")
     end },
 }
