@@ -9,7 +9,7 @@ local function vanishedNode()
     local scanner = {}
     function scanner.begin()
         attempts = attempts + 1
-        error("no such peripheral: colossalchests:colossal_chest_0")
+        error("no such peripheral: minecraft:chest_0")
     end
     function scanner.step() return true, nil, "unreachable" end
     local ui = {}
@@ -23,7 +23,7 @@ local function vanishedNode()
         clock = function() return now end,
         setClock = function(value) now = value end,
         scanner = scanner,
-        nodes = {{id="storage", role="storage", peripheral_name="colossalchests:colossal_chest_0"}},
+        nodes = {{id="storage", role="storage", peripheral_name="minecraft:chest_0"}},
         ui = ui,
         initial_ui = {mode="page", page="search", results={}, hit_regions={}},
         keymap = {command = function() end},

@@ -20,7 +20,7 @@ local function peripherals()
         ["ironchests:netherite_chest_1"] = {inventory=true},
         ["ironchests:diamond_chest_1"]   = {inventory=true},
         ["ironchests:diamond_chest_2"]   = {inventory=true},
-        ["colossalchests:colossal_chest_0"] = {inventory=true},
+        ["minecraft:chest_0"] = {inventory=true},
         ["turtle_2"] = {turtle=true},
         ["monitor_0"] = {monitor=true},
         ["top"] = {monitor=true},
@@ -56,7 +56,7 @@ end
 local function configured(service)
     service:assign("dropoff", "ironchests:netherite_chest_1")
     service:assign("pickup", "ironchests:diamond_chest_1")
-    service:addStorage("colossalchests:colossal_chest_0", "Main", 1)
+    service:addStorage("minecraft:chest_0", "Main", 1)
     return service
 end
 

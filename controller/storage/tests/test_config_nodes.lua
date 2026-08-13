@@ -9,7 +9,7 @@ local function fullConfig()
         craft_buffer = {peripheral_name="ironchests:diamond_chest_3"},
         turtle = {peripheral_name="turtle_2"},
         storage = {{id="storage_6", label="Main Vault", priority=6, enabled=true,
-            peripheral_name="colossalchests:colossal_chest_0"}},
+            peripheral_name="minecraft:chest_0"}},
     }
 end
 

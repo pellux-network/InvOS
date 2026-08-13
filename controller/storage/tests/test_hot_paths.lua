@@ -28,7 +28,7 @@ local function base(options)
     function ui:render() end
     return {
         scanner=scanner, ui=ui,
-        nodes=options.nodes or {{id="storage_1", role="storage", peripheral_name="colossal_0"}},
+        nodes=options.nodes or {{id="storage_1", role="storage", peripheral_name="chest_0"}},
         clock=function() return 1 end,
         keymap={command=function() return nil end},
         initial_ui={query="", mode="search", page="search", results={}},
@@ -70,7 +70,7 @@ return {
     {name="storage scans use the bulk budget and drop-off scans stay peripheral bounded", run=function()
         local deps = base({nodes={
             {id="dropoff", role="dropoff", peripheral_name="chest_0"},
-            {id="storage_1", role="storage", peripheral_name="colossal_0"},
+            {id="storage_1", role="storage", peripheral_name="chest_0"},
         }})
         deps.scan_budget, deps.dropoff_scan_budget = 512, 32
         local coordinator = Coordinator.new(deps)
@@ -87,7 +87,7 @@ return {
     {name="default storage scan budget outpaces the drop-off detail budget", run=function()
         local deps = base({nodes={
             {id="dropoff", role="dropoff", peripheral_name="chest_0"},
-            {id="storage_1", role="storage", peripheral_name="colossal_0"},
+            {id="storage_1", role="storage", peripheral_name="chest_0"},
         }})
         local coordinator = Coordinator.new(deps)
         coordinator:tick(1)
@@ -148,11 +148,11 @@ return {
         local deps = base()
         local coordinator = Coordinator.new(deps)
         coordinator:tick(1)
-        T.equal(coordinator:epochFor("colossal_0"), 101)
+        T.equal(coordinator:epochFor("chest_0"), 101)
         T.equal(coordinator:epochFor("not_bound"), 0)
         local calls = 0
         coordinator.viewModel = function() calls = calls + 1; return {} end
-        T.equal(coordinator:epochFor("colossal_0"), 101)
+        T.equal(coordinator:epochFor("chest_0"), 101)
         T.equal(calls, 0, "epoch lookup must not build a view model")
     end},
 
@@ -175,7 +175,7 @@ return {
         })
         local calls = 0
         coordinator.viewModel = function() calls = calls + 1; return {} end
-        local ok, observed = services.adapter:inspect("colossal_0", 1)
+        local ok, observed = services.adapter:inspect("chest_0", 1)
         T.equal(ok, true)
         T.equal(observed.count, 4)
         T.equal(calls, 0, "every transfer inspect must avoid a full view model copy")

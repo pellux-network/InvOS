@@ -32,7 +32,7 @@ return {
         listed[417] = { name = "minecraft:cobblestone", count = 64, nbt = nil }
         local inventory = makeInventory(listed, 3075)
         local scanner = Scanner.new(peripheralFor(inventory), function() return 1234 end)
-        local scan = scanner:begin({ id = "main", peripheral_name = "colossal_0" })
+        local scan = scanner:begin({ id = "main", peripheral_name = "chest_0" })
         local done, snapshot = scanner:step(scan, 32)
         T.equal(done, false)
         T.equal(snapshot, nil)
@@ -63,7 +63,7 @@ return {
             list = function() return {} end,
         }
         local scanner = Scanner.new(peripheralFor(inventory), function() return 1 end)
-        local scan = scanner:begin({ id = "main", peripheral_name = "colossal_0" })
+        local scan = scanner:begin({ id = "main", peripheral_name = "chest_0" })
         local done, snapshot, reason = scanner:step(scan, 8)
         T.equal(done, true)
         T.equal(snapshot, nil)
@@ -118,7 +118,7 @@ return {
             function() error("storage detail must not be called") end)
         local scanner=Scanner.new(peripheralFor(inventory),function() return 5 end)
         local done,snapshot=scanner:step(scanner:begin({id="main",role="storage",
-            peripheral_name="colossal"}),8)
+            peripheral_name="chest_0"}),8)
         T.equal(done,true)
         T.equal(snapshot.slots[1].count,64)
         T.equal(inventory.calls.detail,0)
