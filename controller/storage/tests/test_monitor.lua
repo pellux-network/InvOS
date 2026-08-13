@@ -176,10 +176,10 @@ return {
     end },
     { name = "a namespaced node name keeps its meaningful half", run = function()
         local named = model()
-        named.nodes[2].label = "colossalchests:colossal_chest_0"
+        named.nodes[2].label = "ironchests:diamond_chest_1"
         local surface = render(57, 16, named)
         local text = surface.allText()
-        T.contains(text, "colossal_chest_0",
+        T.contains(text, "diamond_chest_1",
             "the namespace should be dropped before the name is, not after")
         T.equal(surface.writesOutsideBounds(), 0)
     end },

@@ -13,7 +13,7 @@ local function deps(inventories,overrides)
     function api.getMethods(name)return overrides and overrides[name] or methods end
     function api.wrap(name)return inventories[name]end
     return{peripheral=api,store=Store.new(T.memoryFs(),codec(),"storage/data"),backup=Backup,
-        os={getComputerID=function()return 8 end,getComputerLabel=function()return "ColossalStorage"end},
+        os={getComputerID=function()return 8 end,getComputerLabel=function()return "StorageController"end},
         clock=function()return 1 end}
 end
 local function issue(report,code)for _,value in ipairs(report.issues)do if value.code==code then return value end end end
@@ -22,7 +22,7 @@ local function issue(report,code)for _,value in ipairs(report.issues)do if value
 local function configured()
     return {
         schema=2, configured=true,
-        installation={computer_id=8, computer_label="ColossalStorage"},
+        installation={computer_id=8, computer_label="StorageController"},
         dropoff={peripheral_name="drop"},
         pickup={peripheral_name="pickup"},
         storage={{id="storage_1", peripheral_name="big", label="Main", priority=1, enabled=true}},

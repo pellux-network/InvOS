@@ -32,7 +32,7 @@ local function base()
 end
 
 return {
-    {name="typing remains responsive during a multi-step colossal scan",run=function()
+    {name="typing remains responsive during a multi-step storage scan",run=function()
         local d=base(); local coordinator=Coordinator.new(d)
         coordinator:tick(1); coordinator:handle({"char","g"}); coordinator:tick(2)
         coordinator:handle({"char","o"}); coordinator:tick(3)

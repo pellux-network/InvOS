@@ -343,7 +343,7 @@ function Setup:validate()
                         {nodes={first.id,node.id}}))
                 else
                     add(issue("DUPLICATE_SUSPECTED", node.label .. " and " .. first.label ..
-                        " may expose the same Colossal Chest", true,
+                        " may expose the same storage container", true,
                         {nodes={first.id,node.id}}))
                 end
             else fingerprints[fingerprint] = node end

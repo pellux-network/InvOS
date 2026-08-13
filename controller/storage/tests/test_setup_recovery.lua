@@ -13,7 +13,7 @@ local function environment()
         hasType=function(name,kind)return inventories[name]~=nil and kind=="inventory"end,
         getMethods=function()return methods end,wrap=function(name)return inventories[name]end}
     local setup=Setup.new({peripheral=peripheral,store=store,backup=Backup,
-        os={getComputerID=function()return 8 end,getComputerLabel=function()return"ColossalStorage"end},
+        os={getComputerID=function()return 8 end,getComputerLabel=function()return"StorageController"end},
         clock=function()return 1 end})
     return setup,store
 end

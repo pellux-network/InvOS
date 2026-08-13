@@ -15,7 +15,7 @@ return {
             decode=function(k)return values[k]end}
         local setup=Setup.new({peripheral=peripheral,
             store=Store.new(T.memoryFs(),codec,"storage/data"),backup=Backup,
-            os={getComputerID=function()return 8 end,getComputerLabel=function()return"ColossalStorage"end},
+            os={getComputerID=function()return 8 end,getComputerLabel=function()return"StorageController"end},
             clock=function()return 1 end})
         setup:assign("dropoff","drop");setup:assign("pickup","pickup")
         local first=setup:addStorage("a","Vault A",1);local second=setup:addStorage("b","Vault B",2)

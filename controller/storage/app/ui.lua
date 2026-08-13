@@ -665,7 +665,7 @@ function UI:_storage(state, model, hitRegions)
     if #nodes == 0 then
         Draw.text(surface, 2, bandRow + 1, "No storage nodes configured", regions.width - 3,
             Theme.role.muted, Theme.role.ground)
-        Draw.text(surface, 2, bandRow + 2, "Open Setup to add a Colossal Chest",
+        Draw.text(surface, 2, bandRow + 2, "Open Setup to add a storage node",
             regions.width - 3, Theme.role.muted, Theme.role.ground)
         return
     end

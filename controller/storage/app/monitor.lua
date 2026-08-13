@@ -15,7 +15,7 @@ local function enrichmentText(enrichment)
 end
 
 -- Trim from the left of a namespaced id so the meaningful part survives a narrow column:
--- "colossalchests:colossal_chest_0" reads as "colossal_chest_0", never "colossalches".
+-- "ironchests:diamond_chest_1" reads as "diamond_chest_1", never "ironchests:d".
 local function shortName(value)
     local text=tostring(value or "")
     return text:match("^[%w_]+:(.+)$") or text

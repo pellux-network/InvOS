@@ -20,16 +20,16 @@ return {
             getComputerLabel = function() return "Other" end,
         }
         local ok, reason = Runtime.verifyInstallation(fake,
-            { computer_id = 4, computer_label = "ColossalStorage" })
+            { computer_id = 4, computer_label = "StorageController" })
         T.equal(ok, nil)
-        T.contains(reason, "expected #4 ColossalStorage")
+        T.contains(reason, "expected #4 StorageController")
     end },
     { name = "installation accepts the recorded computer", run = function()
         local fake = {
             getComputerID = function() return 4 end,
-            getComputerLabel = function() return "ColossalStorage" end,
+            getComputerLabel = function() return "StorageController" end,
         }
         T.equal(Runtime.verifyInstallation(fake,
-            { computer_id = 4, computer_label = "ColossalStorage" }), true)
+            { computer_id = 4, computer_label = "StorageController" }), true)
     end },
 }
