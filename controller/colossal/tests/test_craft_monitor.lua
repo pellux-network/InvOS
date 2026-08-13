@@ -65,9 +65,18 @@ return {
         T.contains(text, "INSUFFICIENT")
     end},
     {name="a progress bar reflects completed steps",run=function()
+        local Theme = require("app.theme")
+        -- Was a bracketed ASCII bar; it is now the same meter every other screen draws, so
+        -- there is no "[" to find -- only filled cells.
         local surface = scaled()
         CraftMonitor.render(surface, activeModel({active={step=3, steps=3}}))
-        T.contains(surface.allText(), "[")
+        local filled = 0
+        for y = 1, 10 do
+            for x = 1, 15 do
+                if surface.backgroundAt(x, y) == Theme.role.craft then filled = filled + 1 end
+            end
+        end
+        T.truthy(filled > 0, "two of three steps done must show as a partly filled meter")
     end},
     {name="nothing is ever drawn outside the surface",run=function()
         for _, surface in ipairs({scaled(), unscaled(), T.recordingSurface(4, 3)}) do
@@ -103,5 +112,32 @@ return {
         CraftMonitor.render(surface, nil)
         T.equal(surface.writesOutsideBounds(), 0)
         T.contains(surface.allText(), "IDLE")
+    end},
+    {name="the craft monitor uses the shared palette and meter",run=function()
+        local Theme = require("app.theme")
+        local surface = T.recordingSurface(15, 10)
+        CraftMonitor.render(surface, {active={item="minecraft:chest",
+            display_name="Chest", state="STAGING", step=2, steps=8,
+            produced=1, quantity=4}, queued=1})
+        local metered = 0
+        for y = 1, 10 do
+            for x = 1, 15 do
+                local background = surface.backgroundAt(x, y)
+                if background == Theme.role.track or background == Theme.role.craft then
+                    metered = metered + 1
+                end
+            end
+        end
+        T.truthy(metered > 0, "progress must be a meter, not a bracketed ASCII bar")
+        T.contains(surface.allText(), "Chest")
+    end},
+    {name="the craft monitor ends every frame it begins",run=function()
+        local frames = {begun=0, ended=0}
+        local surface = T.recordingSurface(15, 10)
+        surface.beginFrame = function() frames.begun = frames.begun + 1 end
+        surface.endFrame = function() frames.ended = frames.ended + 1 end
+        CraftMonitor.render(surface, {})
+        CraftMonitor.render(surface, {active={item="x", state="STAGING"}})
+        T.equal(frames.ended, frames.begun)
     end},
 }

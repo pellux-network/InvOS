@@ -14,16 +14,20 @@ return {
         T.equal(state.scroll,1)
         T.equal(state.selection,7)
     end },
-    { name = "ui.lua has no private copy of the shared drawing helpers", run = function()
-        local file = io.open("colossal/app/ui.lua")
-        T.equal(file ~= nil, true, "run the suite from controller/, not colossal/")
-        local source = file:read("a"); file:close()
-        for _, banned in ipairs({"writeClipped", "stateColor", "local palette"}) do
-            T.equal(source:find(banned, 1, true), nil,
-                banned .. " is still in ui.lua; app/draw.lua and app/theme.lua own it now")
+    { name = "no renderer keeps a private copy of the shared drawing helpers", run = function()
+        -- Four renderers each grew their own clipped-write and row-fill, and three their own
+        -- status-colour mapping. Deduplicating them was the point of the visual system; this
+        -- fails if one of them starts again.
+        for _, module in ipairs({"ui", "monitor", "craft_monitor", "splash"}) do
+            local file = io.open("colossal/app/" .. module .. ".lua")
+            T.equal(file ~= nil, true, "run the suite from controller/, not colossal/")
+            local source = file:read("a"); file:close()
+            for _, banned in ipairs({"local palette", "writeClipped", "stateColor",
+                "local function writeCentered", "fill(surface,"}) do
+                T.equal(source:find(banned, 1, true), nil,
+                    banned .. " is still in " .. module ..
+                    ".lua; app/draw.lua and app/theme.lua own it now")
+            end
         end
-        -- `fill` is a common word; pin the call shape the old private helper used.
-        T.equal(source:find("fill(surface,", 1, true), nil,
-            "the private row-fill is still in ui.lua; Draw.band owns it now")
     end },
 }
