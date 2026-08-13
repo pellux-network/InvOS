@@ -3,7 +3,7 @@
 Reads the server jar READ-ONLY. Never writes anywhere near the live server.
 
     python tools/recipe_import.py --jar "G:/libraries/.../server-1.18.2.jar" \
-        --out controller/colossal/recipes
+        --out controller/storage/recipes
 """
 
 import argparse

@@ -17,10 +17,10 @@ What it enforces, in order:
 2. Each computer's recorded identity matches the one being deployed to.
 3. Nothing is in flight: no transfer journal, and file mtimes stable across a sample.
 4. Both trees are backed up before anything is written.
-5. Only manifest-listed paths are written, LF-only, and never anything under colossal/data.
+5. Only manifest-listed paths are written, LF-only, and never anything under storage/data.
 6. Every written file hashes correctly, holds no CR bytes, and has no strays beside it.
 7. Every deployed Lua module parses.
-8. colossal/data survived byte-for-byte.
+8. storage/data survived byte-for-byte.
 
 Exit status is 0 only if every check passed.
 
@@ -38,7 +38,7 @@ import subprocess
 import sys
 import time
 
-PRESERVED = ("colossal/data",)
+PRESERVED = ("storage/data",)
 LUAC_FALLBACKS = (
     r"C:\Users\Pellux\AppData\Local\Programs\Lua\bin\luac.exe",
     "luac",
@@ -78,7 +78,7 @@ def say(message):
 
 def require_live_tree(computers, controller_id):
     """Anchor on something that must already exist, so a wrong root refuses."""
-    marker = computers / str(controller_id) / "colossal" / "data" / "config.lua"
+    marker = computers / str(controller_id) / "storage" / "data" / "config.lua"
     if not marker.is_file():
         raise Refused(
             "%s does not look like the live computer tree\n"
@@ -86,7 +86,7 @@ def require_live_tree(computers, controller_id):
 
 
 def check_identity(computers, controller_id):
-    config = computers / str(controller_id) / "colossal" / "data" / "config.lua"
+    config = computers / str(controller_id) / "storage" / "data" / "config.lua"
     text = config.read_text(errors="replace")
     found = re.search(r"computer_id=(\d+)", text)
     if not found:
@@ -107,7 +107,7 @@ def check_quiescent(computers, ids, settle_seconds):
     """
     roots = [computers / str(value) for value in ids]
     for root in roots:
-        data = root / "colossal" / "data"
+        data = root / "storage" / "data"
         if data.is_dir():
             for path in data.iterdir():
                 if path.name.startswith("journal"):
@@ -241,7 +241,7 @@ def find_luac(explicit):
 def parse_check(target_root, hashes, luac, label):
     """luac -p every deployed module.
 
-    Only manifest files: colossal/data holds serialized tables, not chunks, so they are
+    Only manifest files: storage/data holds serialized tables, not chunks, so they are
     correctly not parseable. Paths are passed Windows-style because luac.exe cannot open a
     Git Bash "/c/..." path -- it reports "cannot open", which reads exactly like a syntax
     error if you are not looking closely.
@@ -262,10 +262,10 @@ def parse_check(target_root, hashes, luac, label):
 
 
 def preserved_intact(target_root, backup_root_for_computer, label):
-    """colossal/data must survive byte-for-byte."""
+    """storage/data must survive byte-for-byte."""
     say("== preserved data %s ==" % label)
-    live = target_root / "colossal" / "data"
-    saved = backup_root_for_computer / "colossal" / "data"
+    live = target_root / "storage" / "data"
+    saved = backup_root_for_computer / "storage" / "data"
     if not live.is_dir() and not saved.is_dir():
         say("   none to preserve")
         return 0
@@ -329,7 +329,7 @@ def main(argv=None):
     say("")
 
     targets = [("controller", computers / str(args.controller_id),
-                repo / "controller", repo / "controller/colossal/deployment_manifest.lua",
+                repo / "controller", repo / "controller/storage/deployment_manifest.lua",
                 PRESERVED)]
     if not args.no_turtle:
         targets.append(("turtle", computers / str(args.turtle_id),
