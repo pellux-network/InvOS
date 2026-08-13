@@ -14,7 +14,7 @@ return {
         local values,n={},0;local codec={encode=function(v)n=n+1;local k="d"..n;values[k]=v;return k end,
             decode=function(k)return values[k]end}
         local setup=Setup.new({peripheral=peripheral,
-            store=Store.new(T.memoryFs(),codec,"colossal/data"),backup=Backup,
+            store=Store.new(T.memoryFs(),codec,"storage/data"),backup=Backup,
             os={getComputerID=function()return 8 end,getComputerLabel=function()return"ColossalStorage"end},
             clock=function()return 1 end})
         setup:assign("dropoff","drop");setup:assign("pickup","pickup")

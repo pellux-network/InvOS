@@ -1,4 +1,4 @@
-package.path = "/colossal/?.lua;/colossal/?/init.lua;" .. package.path
+package.path = "/storage/?.lua;/storage/?/init.lua;" .. package.path
 
 local Alerts = require("app.alerts")
 local CraftBuffer = require("app.craft_buffer")
@@ -217,7 +217,7 @@ function Main.build(environment)
     local osApi=env.os or os
     local termApi=env.term or term
     local now=env.clock or clock(osApi)
-    local root=env.data_root or "/colossal/data"
+    local root=env.data_root or "/storage/data"
     local store=Store.new(fsApi,Codec.new(env.textutils or textutils),root)
     local config,configReason=load(store,fsApi,root,"config",Setup.validateConfig,configDefault())
     local aliases,aliasReason=load(store,fsApi,root,"aliases",Setup.validateAliases,aliasesDefault())

@@ -1,5 +1,5 @@
 .worktrees/
-controller/colossal/data/
+controller/storage/data/
 *.tmp
 __pycache__/
 .deploy-backups/

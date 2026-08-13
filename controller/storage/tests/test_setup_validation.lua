@@ -12,7 +12,7 @@ local function deps(inventories,overrides)
     function api.hasType(name,kind)return kind=="inventory" and inventories[name]~=nil end
     function api.getMethods(name)return overrides and overrides[name] or methods end
     function api.wrap(name)return inventories[name]end
-    return{peripheral=api,store=Store.new(T.memoryFs(),codec(),"colossal/data"),backup=Backup,
+    return{peripheral=api,store=Store.new(T.memoryFs(),codec(),"storage/data"),backup=Backup,
         os={getComputerID=function()return 8 end,getComputerLabel=function()return "ColossalStorage"end},
         clock=function()return 1 end}
 end

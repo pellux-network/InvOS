@@ -21,7 +21,7 @@ end
 return {
     { name = "backup exports configuration and aliases only", run = function()
         local fsApi, codec = T.memoryFs(), tokenCodec()
-        local store = Store.new(fsApi, codec, "colossal/data")
+        local store = Store.new(fsApi, codec, "storage/data")
         local config = { schema = 1, dropoff = "chest_0", journal = { unsafe = true } }
         local aliases = { schema = 1, items = { rock = "minecraft:stone" } }
         T.truthy(Backup.export(store, "disk", config, aliases))
@@ -37,7 +37,7 @@ return {
     end },
     { name = "backup import validates the envelope before returning it", run = function()
         local fsApi, codec = T.memoryFs(), tokenCodec()
-        local store = Store.new(fsApi, codec, "colossal/data")
+        local store = Store.new(fsApi, codec, "storage/data")
         T.truthy(store:at("disk"):write("colossal-backup", {
             schema = 1,
             config = { schema = 1 },
@@ -58,7 +58,7 @@ return {
         T.contains(reason, "forbidden field journal")
     end },
     { name = "missing backup is a recoverable import error", run = function()
-        local store = Store.new(T.memoryFs(), tokenCodec(), "colossal/data")
+        local store = Store.new(T.memoryFs(), tokenCodec(), "storage/data")
         local payload, reason = Backup.import(store, "disk")
         T.equal(payload, nil)
         T.contains(reason, "no valid colossal-backup")

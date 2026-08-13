@@ -50,16 +50,16 @@ return {
         T.truthy(#splashSleeps > 1, "expected exactly one splash, played before the first run")
         T.equal(#calls, 3)
     end },
-    { name = "startup launches the colossal application", run = function()
+    { name = "startup launches the storage application", run = function()
         local calls, printed, slept = runStartup({ run = function() return true end })
-        T.arrayEqual(calls, { "/colossal/main.lua" })
+        T.arrayEqual(calls, { "/storage/main.lua" })
         T.equal(#printed, 0)
         T.equal(#slept, 0)
     end },
     { name = "startup restarts after a failure with backoff, then succeeds", run = function()
         local results = { false, false, true }
         local calls, printed, slept = runStartup({ run = function(n) return results[n] end })
-        T.arrayEqual(calls, { "/colossal/main.lua", "/colossal/main.lua", "/colossal/main.lua" })
+        T.arrayEqual(calls, { "/storage/main.lua", "/storage/main.lua", "/storage/main.lua" })
         T.arrayEqual(slept, { 1, 2 })
         T.equal(#printed, 2)
         T.contains(printed[1], "error")

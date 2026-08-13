@@ -29,7 +29,7 @@ local function peripheral(inventories,methodOverrides)
 end
 
 local function dependencies(inventories,methodOverrides)
-    local fsApi=T.memoryFs();local store=Store.new(fsApi,tokenCodec(),"colossal/data")
+    local fsApi=T.memoryFs();local store=Store.new(fsApi,tokenCodec(),"storage/data")
     return {peripheral=peripheral(inventories,methodOverrides),store=store,backup=Backup,
         os={getComputerID=function()return 8 end,getComputerLabel=function()return "ColossalStorage" end},
         clock=function()return 100 end},store,fsApi

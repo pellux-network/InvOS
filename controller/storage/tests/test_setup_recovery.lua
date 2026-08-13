@@ -7,7 +7,7 @@ local function codec()local v,n={},0;return{encode=function(x)n=n+1;local k="b".
 local methods={"size","list","getItemDetail","getItemLimit","pushItems","pullItems"}
 local function inventory(size)return{size=function()return size end,list=function()return{}end}end
 local function environment()
-    local fsApi=T.memoryFs();local store=Store.new(fsApi,codec(),"colossal/data")
+    local fsApi=T.memoryFs();local store=Store.new(fsApi,codec(),"storage/data")
     local inventories={drop=inventory(27),pickup=inventory(27),big=inventory(3075)}
     local peripheral={getNames=function()return{"drop","pickup","big"}end,
         hasType=function(name,kind)return inventories[name]~=nil and kind=="inventory"end,

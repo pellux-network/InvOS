@@ -6,41 +6,41 @@ return {
         local seen={}
         for _,path in ipairs(Manifest.files) do
             T.equal(path:match("%.lua$")~=nil,true)
-            T.equal(path=="startup.lua" or path:match("^colossal/")~=nil,true)
+            T.equal(path=="startup.lua" or path:match("^storage/")~=nil,true)
             T.equal(path:find("/tests/",1,true),nil)
             T.equal(path:find("data",1,true),nil)
             T.equal(seen[path],nil);seen[path]=true
         end
         T.equal(seen["startup.lua"],true)
-        T.equal(seen["colossal/main.lua"],true)
-        T.equal(seen["colossal/deployment_manifest.lua"],true)
-        T.equal(seen["colossal/app/recovery.lua"],true)
-        T.equal(seen["colossal/core/reconciliation.lua"],true)
+        T.equal(seen["storage/main.lua"],true)
+        T.equal(seen["storage/deployment_manifest.lua"],true)
+        T.equal(seen["storage/app/recovery.lua"],true)
+        T.equal(seen["storage/core/reconciliation.lua"],true)
     end},
     {name="deployment policy rejects development artifacts",run=function()
-        for _,path in ipairs({"README.md",".git/config","colossal/tests/run.lua",
-            "colossal/data/config.lua","docs/operations.md","copy-helper.ps1"}) do
+        for _,path in ipairs({"README.md",".git/config","storage/tests/run.lua",
+            "storage/data/config.lua","docs/operations.md","copy-helper.ps1"}) do
             T.equal(Manifest.allowed(path),false,path)
         end
     end},
     {name="deployment manifest carries the recipe pack and crafting modules",run=function()
         local seen={}
         for _,path in ipairs(Manifest.files) do seen[path]=true end
-        T.equal(seen["colossal/core/recipe_repo.lua"],true)
-        T.equal(seen["colossal/app/craft_buffer.lua"],true)
-        T.equal(seen["colossal/app/craft_monitor.lua"],true)
-        T.equal(seen["colossal/app/craft_service.lua"],true)
-        T.equal(seen["colossal/app/turtle_link.lua"],true)
-        T.equal(seen["colossal/core/craft_planner.lua"],true)
-        T.equal(seen["colossal/core/craft_prefs.lua"],true)
-        T.equal(seen["colossal/recipes/items.lua"],true)
-        T.equal(seen["colossal/recipes/index.lua"],true)
-        T.equal(seen["colossal/recipes/tags.lua"],true)
-        T.equal(seen["colossal/recipes/pack_01.lua"],true)
+        T.equal(seen["storage/core/recipe_repo.lua"],true)
+        T.equal(seen["storage/app/craft_buffer.lua"],true)
+        T.equal(seen["storage/app/craft_monitor.lua"],true)
+        T.equal(seen["storage/app/craft_service.lua"],true)
+        T.equal(seen["storage/app/turtle_link.lua"],true)
+        T.equal(seen["storage/core/craft_planner.lua"],true)
+        T.equal(seen["storage/core/craft_prefs.lua"],true)
+        T.equal(seen["storage/recipes/items.lua"],true)
+        T.equal(seen["storage/recipes/index.lua"],true)
+        T.equal(seen["storage/recipes/tags.lua"],true)
+        T.equal(seen["storage/recipes/pack_01.lua"],true)
     end},
     {name="hand-edited crafting state and host tooling are never deployed",run=function()
-        for _,path in ipairs({"colossal/data/custom_recipes.lua",
-            "colossal/data/craft_prefs.lua","tools/recipe_import.py",
+        for _,path in ipairs({"storage/data/custom_recipes.lua",
+            "storage/data/craft_prefs.lua","tools/recipe_import.py",
             "tools/recipe_pack.py","startup.lua/../turtle/startup.lua",
             "crafter/executor.lua","turtle/startup.lua"}) do
             T.equal(Manifest.allowed(path),false,path)
@@ -62,7 +62,7 @@ return {
         for _,path in ipairs(Manifest.files) do listed[path]=true end
         local index=require("recipes.index")
         for shard=1,index.shard_count do
-            local path=("colossal/recipes/pack_%02d.lua"):format(shard)
+            local path=("storage/recipes/pack_%02d.lua"):format(shard)
             T.equal(listed[path],true,"shard missing from manifest: "..path)
         end
     end},

@@ -27,7 +27,7 @@ local function operation(kind)
     return {id=(kind or "request").."-1",kind=kind or "request",state="TRANSFERRING",moved=0}
 end
 local function makeTransfer(reported)
-    local fs=T.memoryFs();local store=Store.new(fs,codec(),"colossal/data")
+    local fs=T.memoryFs();local store=Store.new(fs,codec(),"storage/data")
     local adapter={push_calls=0,observed={
         ["store_a:7"]={identity_key=echo,count=3,generation=10},
         ["drop:1"]={identity_key=echo,count=5,generation=10},

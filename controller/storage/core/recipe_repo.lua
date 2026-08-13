@@ -1,7 +1,7 @@
 local RecipeRepo = {}
 RecipeRepo.__index = RecipeRepo
 
--- The generated pack is deployed code under colossal/recipes/, not mutable data,
+-- The generated pack is deployed code under storage/recipes/, not mutable data,
 -- so it is required rather than read through shared/store.lua. A missing or broken
 -- pack must never stop the controller booting: crafting simply reports nothing
 -- craftable, exactly as a missing metadata cache degrades to re-learning.
@@ -129,7 +129,7 @@ function RecipeRepo:resolve(reference)
     return {}
 end
 
--- Custom recipes are hand-edited under colossal/data/, so they name items by ID and
+-- Custom recipes are hand-edited under storage/data/, so they name items by ID and
 -- tags with a leading '#'. Validation covers exactly the fields the loader will
 -- dereference; anything looser would fail later, further from the mistake.
 function RecipeRepo.validateCustom(value)

@@ -45,7 +45,7 @@ end
 local function setup()
     return Setup.new({
         peripheral=peripherals(),
-        store=Store.new(T.memoryFs(), codec(), "colossal/data"),
+        store=Store.new(T.memoryFs(), codec(), "storage/data"),
         backup=Backup,
         os={getComputerID=function() return 4 end,
             getComputerLabel=function() return "StorageController" end},

@@ -259,7 +259,7 @@ return {
         local seen = {}
         for _, path in ipairs(TurtleManifest.files) do
             T.equal(path:match("%.lua$") ~= nil, true, path)
-            T.equal(path:find("colossal", 1, true), nil, "controller files never reach the turtle")
+            T.equal(path:find("storage", 1, true), nil, "controller files never reach the turtle")
             T.equal(path:find("tests", 1, true), nil, path)
             seen[path] = true
         end
@@ -267,8 +267,8 @@ return {
         T.equal(seen["crafter/executor.lua"], true)
     end},
     {name="the turtle manifest refuses controller and development paths",run=function()
-        for _, path in ipairs({"colossal/main.lua", "colossal/core/craft_planner.lua",
-            "README.md", "tools/recipe_import.py", "crafter/../colossal/main.lua"}) do
+        for _, path in ipairs({"storage/main.lua", "storage/core/craft_planner.lua",
+            "README.md", "tools/recipe_import.py", "crafter/../storage/main.lua"}) do
             T.equal(TurtleManifest.allowed(path), false, path)
         end
     end},

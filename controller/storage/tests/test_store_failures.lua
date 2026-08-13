@@ -17,7 +17,7 @@ return {
     { name = "directory failure is returned instead of escaping", run = function()
         local fsApi = T.memoryFs()
         fsApi.makeDir = function() error("disk removed") end
-        local store = Store.new(fsApi, codec, "colossal/data")
+        local store = Store.new(fsApi, codec, "storage/data")
         local callOk, written, reason = pcall(store.write, store,
             "config", { schema = 1, value = "safe" }, validate)
         T.equal(callOk, true)
@@ -28,7 +28,7 @@ return {
     { name = "open failure is returned during recovery", run = function()
         local fsApi = T.memoryFs()
         fsApi.open = function() error("drive detached") end
-        local store = Store.new(fsApi, codec, "colossal/data")
+        local store = Store.new(fsApi, codec, "storage/data")
         local callOk, value, reason = pcall(store.recover, store, "config", validate)
         T.equal(callOk, true)
         T.equal(value, nil)

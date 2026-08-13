@@ -19,8 +19,8 @@ return {
         -- status-colour mapping. Deduplicating them was the point of the visual system; this
         -- fails if one of them starts again.
         for _, module in ipairs({"ui", "monitor", "craft_monitor", "splash"}) do
-            local file = io.open("colossal/app/" .. module .. ".lua")
-            T.equal(file ~= nil, true, "run the suite from controller/, not colossal/")
+            local file = io.open("storage/app/" .. module .. ".lua")
+            T.equal(file ~= nil, true, "run the suite from controller/, not storage/")
             local source = file:read("a"); file:close()
             for _, banned in ipairs({"local palette", "writeClipped", "stateColor",
                 "local function writeCentered", "fill(surface,"}) do

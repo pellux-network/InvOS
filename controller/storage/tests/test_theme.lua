@@ -58,11 +58,11 @@ return {
     end },
     { name = "restore is reachable from every exit path", run = function()
         local startup = io.open("startup.lua")
-        T.equal(startup ~= nil, true, "run the suite from controller/, not colossal/")
+        T.equal(startup ~= nil, true, "run the suite from controller/, not storage/")
         local text = startup:read("a"); startup:close()
         T.contains(text, "restore",
             "an InvOS that exits without restoring leaves the shell in InvOS colours")
-        local main = io.open("colossal/main.lua")
+        local main = io.open("storage/main.lua")
         local mainText = main:read("a"); main:close()
         T.contains(mainText, "Theme.restore")
     end },
