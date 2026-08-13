@@ -1,6 +1,10 @@
 # UI visual system
 
-Status: **approved, not yet built.**
+Status: **built, merged and deployed** (2026-08-12). All four phases shipped, in four plans
+under `plans/2026-08-12-ui-*.md`. Two decisions changed during the build and the text below
+reflects them: `monitor_touch` was dropped, so the wall monitor is output-only and clicking is
+the terminal's alone; and the detail pane appears from 40 columns rather than the 72 the
+original draft quoted.
 
 InvOS renders correctly and reads as a prototype. This redesigns the presentation layer around
 a deliberate palette, a shared drawing vocabulary, and one layout grammar that every page and

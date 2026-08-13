@@ -68,6 +68,10 @@ Measured on the host, never on a ComputerCraft computer, where everything is far
 
 ## UI polish
 
+The visual system in `specs/2026-08-12-ui-visual-system-design.md` is built: shared palette,
+drawing primitives and layout, all six pages and both monitors, double buffering, and a
+clickable terminal. What follows is what it did not address.
+
 - **Nothing distinguishes "no such item" from "exists but is not grid-craftable".** An
   operator searching for something a machine makes gets an empty list and no explanation.
   This caused real confusion.
@@ -77,6 +81,15 @@ Measured on the host, never on a ComputerCraft computer, where everything is far
   tag resolves to and which recipe an output uses; nothing exposes it, so the planner's
   choice cannot be overridden.
 - **Job progress is coarse** — state and step index, no per-step detail.
+- **The Search stock meter is relative to the largest item on screen**, so the same item reads
+  differently depending on what else the query matched. Nothing here has a real ceiling, so an
+  absolute scale would need one invented; this was the least arbitrary option, not a good one.
+- **Storage node labels default to the peripheral name.** Setup writes the peripheral name as
+  the label, so the Nodes page reads `colossal_chest_0` rather than anything a person chose.
+  The wizard has no rename step.
+- **The boot splash is not double-buffered.** It clears and repaints per frame like everything
+  else did before `app/buffer.lua`; it looks fine at current frame rates, and the fix is the
+  same wrap applied in `startup.lua` if it ever does not.
 
 ## Original scope, still deferred
 
@@ -86,6 +99,8 @@ Measured on the host, never on a ComputerCraft computer, where everything is far
 ## Tooling
 
 - `tools/deploy.py` has no `--dry-run`.
+- **The repository has no git remote.** `main` exists only on this machine, so every commit is
+  one disk failure from gone.
 - The re-export loop (restart → export → regenerate → verify → deploy) is documented but
   manual, and it is now the routine way to pick up modpack changes.
 - **Test doubles keep being more permissive than reality.** This has caused defects

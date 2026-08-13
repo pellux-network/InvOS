@@ -51,6 +51,14 @@ arguments) will silently skip it.
   `tools/recipe_import.py` and overwritten on the next regeneration; hand-written recipes
   belong in `colossal/data/custom_recipes.lua` instead, which takes precedence over the
   generated pack.
+- **If you're touching a screen, read the "Rendering" section of
+  [`AGENTS.md`](AGENTS.md) first.** Four rules there were each learned from a defect that
+  reached the live system: end every frame you begin, never mutate state while rendering,
+  never hardcode a row for one screen size, and name a colour role rather than a slot.
+- **A test that passes for the wrong reason is worse than no test.** Two did today: one
+  searched the bottom row for a `v` and found the one in "inventories", and another asserted a
+  section existed by a word that two different sections share. When a test passes first time
+  against code you believe is broken, find out why before trusting it.
 - A test double that's more permissive than the real thing hides real bugs — this has
   bitten the project more than once (see the "Tooling" section of
   [`docs/backlog.md`](docs/backlog.md)). Pin exact contracts in tests rather than accepting

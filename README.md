@@ -46,18 +46,30 @@ InvOS runs on the computer's own terminal for search and control, with an option
 status monitor and a 1×1 crafting monitor for anyone walking by:
 
 ```
-┌────────────────────────────────────────────────────┐
-│ InvOS                                        READY  │
-│ Search: oak plank_                                   │
-│                                                        │
-│   > Oak Planks                            4,213       │
-│     Oak Log                                 812       │
-│     Oak Fence                                96        │
-│     Oak Fence Gate                           12        │
-│                                                        │
-│ 1 Search  2 Nodes  3 Requests  4 Alerts  5 Setup      │
-└────────────────────────────────────────────────────┘
+ INVOS                                        READY
+ 1 SEARCH 2 NODES 3 REQS 4 ALERTS 5 SETUP 6 CRAFT
+
+ > oak plank_
+
+ ITEM                    STOCK  SELECTED
+ > Oak Planks            4,213  Oak Planks
+   Oak Log                 812  minecraft:oak_planks
+   Oak Fence                96
+   Oak Fence Gate           12  STOCK
+                                ################----
+                                4,213 stored
+                                65 stacks + 53
+
+                                  ENTER  RETRIEVE
+ DROP-OFF ##--------  18%  PICKUP ----------  0%
+ Type to search   Up/Down select   Enter retrieve
+ 148,302 items    2,204 types
 ```
+
+Solid blocks are background-filled cells: the ComputerCraft font has no box-drawing
+characters, so structure is colour or it is nothing. The page you are on is filled in the
+selection colour, the nav gives up its spacing and then its longer labels as the screen
+narrows, and the whole bar is clickable.
 
 A cold boot plays a brief animated wordmark on the terminal before the application takes
 over — see [`controller/colossal/app/splash.lua`](controller/colossal/app/splash.lua).
@@ -71,8 +83,10 @@ tracked openly rather than hidden.
 
 ## Features
 
-- Responsive, search-first advanced-computer UI
-- Resizable public status monitor, auto-detecting its own size tier
+- Responsive, search-first advanced-computer UI, keyboard- and mouse-driven
+- A deliberate sixteen-colour palette, shared by every screen, restored on exit
+- Resizable public status monitor, auto-detecting its own size tier, with the stored-item
+  total in block digits readable across a base
 - Multiple labeled, priority-ordered storage nodes pooled as one store
 - Exact wired-inventory transfers with durable journaling and reconciliation
 - Dedicated drop-off and pickup inventories, decoupled from storage
@@ -117,7 +131,9 @@ Search retrieval.
 ## Architecture
 
 - `controller/` — the deployable CraftOS controller.
-  - `colossal/app/` — services, coordination, setup, UI, and monitor rendering.
+  - `colossal/app/` — services, coordination, setup, UI, and monitor rendering. The
+    presentation layer is shared: `theme.lua` (palette and semantic roles), `draw.lua`
+    (drawing primitives), `layout.lua` (screen regions), `buffer.lua` (double buffering).
   - `colossal/core/` — inventory scanning, indexing, planning, transfers, and
     reconciliation.
   - `colossal/shared/` — runtime, codec, and durable-store helpers.

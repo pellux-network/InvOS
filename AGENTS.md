@@ -22,6 +22,11 @@ Operators drive recovery from the terminal: retry and cancel on the Requests pag
 - `controller/colossal/main.lua` assembles the application.
 - `controller/colossal/app/` contains services, coordination, setup, UI, monitor rendering,
   and the boot splash.
+- The presentation layer is shared, not per-screen: `app/theme.lua` owns the palette and the
+  semantic colour roles, `app/draw.lua` the drawing primitives, `app/layout.lua` the screen
+  regions, and `app/buffer.lua` the double buffering. **Screens name a role, never a colour
+  slot** (`Theme.role.focus`, never `colors.pink`), and no renderer keeps its own copy of a
+  drawing helper -- `tests/test_ui_purity.lua` fails if one grows back.
 - `controller/colossal/core/` contains inventory scanning, indexing, planning, transfers, reconciliation, and registry logic.
 - `controller/colossal/shared/` contains runtime, codec, and durable-store helpers.
 - `controller/colossal/recipes/` holds the generated crafting recipe pack. It is deployed like code, never hand-edited; regenerate it with `tools/recipe_import.py` and see `docs/operations.md`. Hand-written recipes go in `colossal/data/custom_recipes.lua` instead, which takes precedence over it.
@@ -34,7 +39,27 @@ Operators drive recovery from the terminal: retry and cancel on the Requests pag
 - `docs/assets/wordmark.svg` is the project wordmark used in `README.md`.
 - `CONTRIBUTING.md` is the developer-facing onboarding doc: workflow, test commands, code
   conventions, and a condensed pointer into this file's live-deployment safety rules.
-- `docs/superpowers/specs/` holds design specs and `docs/superpowers/plans/` holds smaller work items. Pending: `specs/2026-08-04-crafting-system-design.md` (supersedes `specs/2026-08-03-crafting-turtle-design.md`), `specs/2026-08-12-ui-visual-system-design.md`, `plans/2026-08-03-batch-limit-tuning.md`.
+- `docs/superpowers/specs/` holds design specs and `docs/superpowers/plans/` holds smaller work items. Pending: `specs/2026-08-04-crafting-system-design.md` (supersedes `specs/2026-08-03-crafting-turtle-design.md`), `plans/2026-08-03-batch-limit-tuning.md`. Built and merged: `specs/2026-08-12-ui-visual-system-design.md`, with its four plans under `plans/2026-08-12-ui-*.md`.
+
+## Rendering
+
+- **Every render must end the frame it begins.** `UI:render` and both monitors hide a buffered
+  window, draw, and show it again. A path that returns early or throws without ending the frame
+  leaves the window hidden: the application keeps running perfectly and the screen freezes on
+  the last frame shown, which is indistinguishable from a hang. Each render therefore has a
+  single entry and exit with the body under `pcall`.
+- **Rendering must never mutate UI state.** Scroll offsets are computed from the selection at
+  render time and discarded; `tests/test_ui_purity.lua` enforces it.
+- **Never hardcode a row or column for one screen size.** Two monitor sections silently
+  vanished on shorter monitors because their rows were written for a 79x24 wall display.
+  Derive every position from the real width and height, and drop whole sections when they do
+  not fit rather than letting them overlap. `tests/test_ui_sections.lua` asserts each screen
+  still shows its sections at every size its tier claims to support.
+- **Measure block glyphs before drawing them.** `Draw.blockText` paints six columns per
+  character; a number drawn without checking runs off the edge and clips mid-glyph.
+- **The wall monitor is output-only.** It renders a different layout from the terminal, so the
+  terminal's hit regions would match the wrong coordinates there. Hit regions are the
+  terminal's alone.
 
 ## Live-server safety
 
