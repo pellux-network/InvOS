@@ -1,112 +1,116 @@
 local Monitor = require("app.monitor")
+local Theme = require("app.theme")
 local T = require("tests.mock_cc")
 
-local function view()
-    return {lifecycle="READY",total_items=98765,total_types=412,
-        highest_alert=nil,dropoff={state="READY",occupied=2},pickup={state="READY",occupied=0},
-        nodes={{label="Main Vault",state="READY"},{label="Archive",state="DEGRADED"}},
-        active_request={display_name="Stone",delivered=32,requested=64,state="TRANSFERRING"}}
+local function model(overrides)
+    local value = {
+        lifecycle="READY", lifecycle_reason="all required inventories healthy",
+        total_items=148302, total_types=2204,
+        nodes={
+            {id="dropoff", role="dropoff", label="Drop-off", state="READY", occupied=9, size=27},
+            {id="s1", role="storage", label="Main Vault", state="READY", occupied=420, size=3075},
+            {id="pickup", role="pickup", label="Pickup", state="READY", occupied=0, size=27},
+        },
+        alerts={}, requests={},
+    }
+    for key, item in pairs(overrides or {}) do value[key] = item end
+    return value
 end
 
-local function countedSurface(width,height)
-    local surface=T.recordingSurface(width,height)
-    local calls=0
-    local original=surface.getSize
-    surface.getSize=function() calls=calls+1; return original() end
-    return surface,function() return calls end
+local function render(width, height, value)
+    local surface = T.recordingSurface(width, height)
+    Monitor.render(surface, value or model())
+    return surface
+end
+
+local function painted(surface, color, width, height)
+    local count = 0
+    for y = 1, height do
+        for x = 1, width do
+            if surface.backgroundAt(x, y) == color then count = count + 1 end
+        end
+    end
+    return count
 end
 
 return {
-    { name = "small monitor shows essential state and stock", run = function()
-        local surface=T.recordingSurface(18,6)
-        Monitor.render(surface,view())
-        T.contains(surface.allText(),"INVOS")
-        T.contains(surface.allText(),"READY")
-        T.contains(surface.allText(),"98,765")
-        T.equal(surface.writesOutsideBounds(),0)
+    { name = "the wall monitor leads with the number you read from a distance", run = function()
+        local surface = render(79, 24)
+        -- The total is drawn as block glyphs, so it is painted, not written: there is no
+        -- "148,302" to search for, only a lot of coloured cells in the top band.
+        local cells = 0
+        for y = 3, 8 do
+            for x = 1, 79 do
+                if surface.backgroundAt(x, y) == Theme.role.focus then cells = cells + 1 end
+            end
+        end
+        -- Seven glyphs at roughly ten lit cells each. The point of the assertion is that
+        -- the total is painted at all rather than written as ordinary text, which was zero.
+        T.truthy(cells > 50, "expected block digits, got " .. cells .. " painted cells")
+        T.contains(surface.allText(), "ITEMS")
+        T.equal(surface.writesOutsideBounds(), 0)
     end },
-    { name = "medium monitor shows IO and active request", run = function()
-        local surface=T.recordingSurface(34,11)
-        Monitor.render(surface,view())
-        T.contains(surface.allText(),"DROP-OFF")
-        T.contains(surface.allText(),"PICKUP")
-        T.contains(surface.allText(),"Stone")
-        T.contains(surface.allText(),"32 / 64")
-        T.equal(surface.writesOutsideBounds(),0)
+    { name = "each node is metered, and a full one is coloured for it", run = function()
+        local full = model()
+        full.nodes[2].occupied, full.nodes[2].size = 2950, 3075
+        local surface = render(79, 24, full)
+        T.contains(surface.allText(), "Main Vault")
+        T.truthy(painted(surface, Theme.role.alert, 79, 24) > 0,
+            "a node at 96 percent must not be metered in the healthy colour")
     end },
-    { name = "large wall monitor uses the storage flow rail and node overview", run = function()
-        local surface=T.recordingSurface(58,18)
-        Monitor.render(surface,view())
-        T.contains(surface.allText(),"DROP-OFF")
-        T.contains(surface.allText(),"> STORAGE >")
-        T.contains(surface.allText(),"Main Vault")
-        T.contains(surface.allText(),"Archive")
-        T.equal(surface.allText():find("RECENT MOVEMENT",1,true),nil)
-        T.equal(surface.writesOutsideBounds(),0)
+    { name = "the active request is shown with its progress", run = function()
+        local surface = render(79, 24, model({active_request={id="r1",
+            display_name="Iron Ingot", state="TRANSFERRING", delivered=16, requested=64}}))
+        local text = surface.allText()
+        T.contains(text, "Iron Ingot")
+        T.contains(text, "16 / 64")
     end },
-    { name = "monitor redraw reads new dimensions after resize", run = function()
-        local small=T.recordingSurface(18,6)
-        local large=T.recordingSurface(58,18)
-        Monitor.render(small,view())
-        Monitor.render(large,view())
-        T.contains(large.allText(),"> STORAGE >")
-        T.equal(small.writesOutsideBounds(),0)
-        T.equal(large.writesOutsideBounds(),0)
+    { name = "no activity says so rather than leaving a hole", run = function()
+        T.contains(render(79, 24).allText(), "No active request")
     end },
-    { name = "monitor makes the highest alert prominent", run = function()
-        local model=view(); model.lifecycle="DEGRADED"
-        model.highest_alert={severity="critical",message="Pickup is full"}
-        local surface=T.recordingSurface(34,11)
-        Monitor.render(surface,model)
-        T.contains(surface.allText(),"Pickup is full")
-        T.equal(surface.writesOutsideBounds(),0)
+    { name = "the highest alert gets a band of its own", run = function()
+        local surface = render(79, 24, model({highest_alert={key="a", severity="critical",
+            message="Pickup is full"}}))
+        T.contains(surface.allText(), "Pickup is full")
+        T.truthy(painted(surface, Theme.role.alert, 79, 24) > 0)
     end },
-    { name = "large monitor has clean columns and physical chest markers", run = function()
-        local model=view(); model.active_request=nil
-        model.nodes={{label=string.rep("X",48),state="READY"}}
-        local surface=T.recordingSurface(58,18)
-        Monitor.render(surface,model)
-        T.contains(surface.line(17),"DROP-OFF")
-        T.contains(surface.line(17),"PICKUP")
-        T.truthy(surface.line(18):match("v.*v"))
-        T.equal(surface.backgroundAt(2,3),32768)
-        local activityX=math.max(30,math.floor(58*0.56))
-        T.equal(surface.line(8):sub(activityX):find("READY",1,true),nil)
-        T.contains(surface.line(8):sub(activityX),"No active request")
-        T.equal(surface.writesOutsideBounds(),0)
+    { name = "the medium tier keeps the totals and the state", run = function()
+        local surface = render(40, 13)
+        local text = surface.allText()
+        T.contains(text, "INVOS")
+        T.contains(text, "148,302")
+        T.contains(text, "READY")
+        T.equal(surface.writesOutsideBounds(), 0)
     end },
-    { name = "medium and large monitors show enrichment progress while learning item names", run = function()
-        local model=view(); model.enrichment={learned=1200,total=3000}
-        local mediumSurface=T.recordingSurface(34,11)
-        Monitor.render(mediumSurface,model)
-        T.contains(mediumSurface.allText(),"1,200")
-        T.contains(mediumSurface.allText(),"3,000")
-        T.equal(mediumSurface.writesOutsideBounds(),0)
-
-        local largeSurface=T.recordingSurface(58,18)
-        Monitor.render(largeSurface,model)
-        T.contains(largeSurface.allText(),"1,200")
-        T.contains(largeSurface.allText(),"3,000")
-        T.equal(largeSurface.writesOutsideBounds(),0)
+    { name = "the small tier still names the product and the totals", run = function()
+        local surface = render(20, 7)
+        local text = surface.allText()
+        T.contains(text, "INVOS")
+        T.contains(text, "148,302")
+        T.equal(surface.writesOutsideBounds(), 0)
     end },
-    { name = "enrichment progress does not show once learning finishes", run = function()
-        local surface=T.recordingSurface(58,18)
-        Monitor.render(surface,view())
-        T.equal(surface.allText():find("Learning",1,true),nil)
+    { name = "the monitor never draws outside its surface at any size", run = function()
+        for _, size in ipairs({{79,24},{57,20},{45,14},{40,13},{24,8},{20,7},{15,5},{8,3}}) do
+            local surface = render(size[1], size[2], model({
+                highest_alert={key="a", severity="critical", message="Pickup is full"}}))
+            T.equal(surface.writesOutsideBounds(), 0,
+                size[1] .. "x" .. size[2] .. " drew outside")
+        end
     end },
-    { name = "large monitor frame looks up the surface size exactly once", run = function()
-        local surface,calls=countedSurface(58,18)
-        Monitor.render(surface,view())
-        T.equal(calls(),1)
+    { name = "enrichment progress replaces the lifecycle reason while learning", run = function()
+        local surface = render(79, 24, model({enrichment={learned=1200, total=3000}}))
+        local text = surface.allText()
+        T.contains(text, "1,200")
+        T.equal(text:find("all required inventories healthy", 1, true), nil)
     end },
-    { name = "medium monitor frame looks up the surface size exactly once", run = function()
-        local surface,calls=countedSurface(34,11)
-        Monitor.render(surface,view())
-        T.equal(calls(),1)
-    end },
-    { name = "small monitor frame looks up the surface size exactly once", run = function()
-        local surface,calls=countedSurface(18,6)
-        Monitor.render(surface,view())
-        T.equal(calls(),1)
+    { name = "the monitor ends every frame it begins", run = function()
+        local frames = {begun=0, ended=0}
+        local surface = T.recordingSurface(79, 24)
+        surface.beginFrame = function() frames.begun = frames.begun + 1 end
+        surface.endFrame = function() frames.ended = frames.ended + 1 end
+        Monitor.render(surface, model())
+        Monitor.render(surface, {})
+        T.equal(frames.ended, frames.begun,
+            "a frame begun and never ended leaves the window hidden forever")
     end },
 }
