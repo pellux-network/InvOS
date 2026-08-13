@@ -351,7 +351,7 @@ local NAV_PAGES = {
 
 -- The page you are on is filled, because a bar whose six entries all look identical tells
 -- you nothing about where you are.
-function UI:_nav(state, regions)
+function UI:_nav(state, regions, hitRegions)
     local surface = self.surface
     for _, label in ipairs({"long", "short"}) do
         for _, gap in ipairs({2, 1}) do
@@ -367,6 +367,13 @@ function UI:_nav(state, regions)
                     Draw.text(surface, x, regions.nav, text, #text,
                         active and Theme.role.ground or Theme.role.muted,
                         active and Theme.role.focus or Theme.role.ground)
+                    if hitRegions then
+                        -- No suppress_char: that field exists to swallow the char event a
+                        -- digit key produces, and a mouse click produces none.
+                        hitRegions[#hitRegions + 1] = {x1=x, y1=regions.nav,
+                            x2=x + #text - 1, y2=regions.nav,
+                            command={type="OPEN_PAGE", page=entry.page}}
+                    end
                     x = x + #text + gap
                 end
                 return
@@ -463,7 +470,7 @@ function UI:_strip(regions, model)
     gauge(half + 1, half - 2, "PICKUP", nodeByRole(model, "pickup"))
 end
 
-function UI:_header(state, model)
+function UI:_header(state, model, hitRegions)
     local surface = self.surface
     local regions = Layout.regions(surface.getSize())
     Draw.band(surface, regions.header, Theme.role.panel)
@@ -472,7 +479,7 @@ function UI:_header(state, model)
     Draw.rightText(surface, regions.width - 1, regions.header, lifecycle,
         Theme.statusColor(lifecycle), Theme.role.panel)
     Draw.band(surface, regions.nav, Theme.role.ground)
-    self:_nav(state, regions)
+    self:_nav(state, regions, hitRegions)
 end
 
 local function footerHelp(state)
@@ -593,8 +600,11 @@ function UI:_search(state, model, hitRegions)
         end
         local button = fittedLabel(paneWidth,
             {"  ENTER  RETRIEVE ", " ENTER RETRIEVE ", " RETRIEVE ", "RETRIEVE"})
-        Draw.text(surface, paneFrom, math.min(regions.content.bottom, bodyTop + 10), button,
+        local buttonRow = math.min(regions.content.bottom, bodyTop + 10)
+        Draw.text(surface, paneFrom, buttonRow, button,
             math.min(#button, paneWidth), Theme.role.text, Theme.role.brand)
+        hitRegions[#hitRegions + 1] = {x1=paneFrom, y1=buttonRow,
+            x2=paneFrom + #button - 1, y2=buttonRow, command={type="OPEN_QUANTITY"}}
     end
     self:_strip(regions, model)
 end
@@ -606,7 +616,7 @@ local function listBand(height)
     return bodyTop, math.max(0, bodyBottom - bodyTop + 1)
 end
 
-function UI:_storage(state, model)
+function UI:_storage(state, model, hitRegions)
     local surface = self.surface
     local regions = Layout.regions(surface.getSize())
     local bandRow = regions.content.top
@@ -642,11 +652,15 @@ function UI:_storage(state, model)
             end
             Draw.rightText(surface, regions.width - 1, y, percent,
                 Theme.role.muted, Theme.role.ground)
+            -- The Nodes page scrolls by offset rather than selection, so a click scrolls to
+            -- put the clicked row at the top rather than selecting it.
+            hitRegions[#hitRegions + 1] = {x1=1, y1=y, x2=regions.width, y2=y,
+                command={type="MOVE", delta=index - ((state or {}).storage_scroll or 1)}}
         end)
     self:_strip(regions, model)
 end
 
-function UI:_requests(state, model)
+function UI:_requests(state, model, hitRegions)
     local surface = self.surface
     local regions = Layout.regions(surface.getSize())
     local bandRow = regions.content.top
@@ -671,11 +685,13 @@ function UI:_requests(state, model)
                 formatNumber(request.requested or 0)
             self:_row(y, selected, 1, regions.width, "o", Theme.statusColor(request.state),
                 tostring(request.display_name or request.id), progress)
+            hitRegions[#hitRegions + 1] = {x1=1, y1=y, x2=regions.width, y2=y,
+                command={type="MOVE", delta=index - (state.request_selection or 1)}}
         end)
     self:_strip(regions, model)
 end
 
-function UI:_alerts(state, model)
+function UI:_alerts(state, model, hitRegions)
     local surface = self.surface
     local regions = Layout.regions(surface.getSize())
     local bandRow = regions.content.top
@@ -699,6 +715,8 @@ function UI:_alerts(state, model)
             local severity = alert.severity == "critical" and Theme.role.alert or Theme.role.warn
             self:_row(y, selected, 1, regions.width,
                 alert.acknowledged and "-" or "!", severity, tostring(alert.message), nil)
+            hitRegions[#hitRegions + 1] = {x1=1, y1=y, x2=regions.width, y2=y,
+                command={type="MOVE", delta=index - (state.alert_selection or 1)}}
         end)
     self:_strip(regions, model)
 end
@@ -1040,8 +1058,12 @@ function UI:_crafting(state, model, hitRegions)
             (chosen.quantity or 0) > 0 and Theme.role.ok or Theme.role.muted, Theme.role.ground)
         local button = fittedLabel(paneWidth,
             {"  ENTER  CHOOSE  ", " ENTER CHOOSE ", " CHOOSE ", "CHOOSE"})
-        Draw.text(surface, paneFrom, math.min(bottom, bandRow + 8), button,
+        local buttonRow = math.min(bottom, bandRow + 8)
+        Draw.text(surface, paneFrom, buttonRow, button,
             math.min(#button, paneWidth), Theme.role.text, Theme.role.brand)
+        hitRegions[#hitRegions + 1] = {x1=paneFrom, y1=buttonRow,
+            x2=paneFrom + #button - 1, y2=buttonRow,
+            command={type="OPEN_CRAFT_QUANTITY"}}
     elseif state.mode == "craft_quantity" then
         -- No pane to put it in, so the narrow layout keeps the band it always had.
         Draw.band(surface, bottom, Theme.role.panel)
@@ -1073,12 +1095,13 @@ function UI:_frame(state, model)
     surface.setTextColor(Theme.role.text)
     surface.clear()
     if state.mode == "setup" then return self:_setupWizard(state, model) end
-    self:_header(state, model)
+    -- Declared before the header, which now contributes the nav tab regions.
     local hitRegions = {}
+    self:_header(state, model, hitRegions)
     if state.page == "search" then self:_search(state, model, hitRegions)
-    elseif state.page == "storage" then self:_storage(state, model)
-    elseif state.page == "requests" then self:_requests(state, model)
-    elseif state.page == "alerts" then self:_alerts(state, model)
+    elseif state.page == "storage" then self:_storage(state, model, hitRegions)
+    elseif state.page == "requests" then self:_requests(state, model, hitRegions)
+    elseif state.page == "alerts" then self:_alerts(state, model, hitRegions)
     elseif state.page == "crafting" then self:_crafting(state, model, hitRegions)
     else self:_setup(model) end
     self:_footer(state, model)

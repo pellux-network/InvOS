@@ -7,6 +7,14 @@ local Keymap = require("app.keymap")
 local UI = require("app.ui")
 local T = require("tests.mock_cc")
 
+-- The nav tabs contribute hit regions too, and they come first, so a test that wants the
+-- result row has to say so rather than taking whatever happens to be at index one.
+local function regionFor(coordinator, kind)
+    for _, region in ipairs(coordinator:viewModel().ui.hit_regions or {}) do
+        if region.command and region.command.type == kind then return region end
+    end
+end
+
 local function recordingRequests(list)
     local calls = {retry={}, cancel={}}
     return {
@@ -140,9 +148,8 @@ return {
             variants={{identity_key="stone", display_name="Stone", quantity=10, max_count=64}}}} end
         local coordinator = Coordinator.new(d)
         coordinator:tick(1000)
-        local region = coordinator:viewModel().ui.hit_regions[1]
-        T.truthy(region)
-        T.equal(region.command.type, "ACTIVATE")
+        local region = regionFor(coordinator, "ACTIVATE")
+        T.truthy(region, "no result row region was rendered")
         coordinator:handle({"mouse_click", 1, region.x1, region.y1})
         T.equal(coordinator:viewModel().ui.mode, "quantity")
     end},
@@ -153,7 +160,7 @@ return {
             variants={{identity_key="stone", display_name="Stone", quantity=10, max_count=64}}}} end
         local coordinator = Coordinator.new(d)
         coordinator:tick(1000)
-        local region = coordinator:viewModel().ui.hit_regions[1]
+        local region = regionFor(coordinator, "ACTIVATE")
         coordinator:handle({"mouse_click", 1, region.x1, region.y1})
         T.equal(coordinator:viewModel().ui.mode, "quantity")
         -- CC:Tweaked fires a "key" event, then a "char" event, for the same physical keypress.
