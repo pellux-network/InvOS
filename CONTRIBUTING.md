@@ -54,7 +54,7 @@ arguments) will silently skip it.
 - **If you're touching a screen, read the "Rendering" section of
   [`AGENTS.md`](AGENTS.md) first.** Four rules there were each learned from a defect that
   reached the live system: end every frame you begin, never mutate state while rendering,
-  never hardcode a row for one screen size, and name a colour role rather than a slot.
+  never hardcode a row for one screen size, and name a color role rather than a slot.
 - **A test that passes for the wrong reason is worse than no test.** Two did today: one
   searched the bottom row for a `v` and found the one in "inventories", and another asserted a
   section existed by a word that two different sections share. When a test passes first time

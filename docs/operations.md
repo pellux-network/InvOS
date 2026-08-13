@@ -47,7 +47,7 @@ Avoid manually changing storage while a transfer is verifying. The controller tr
 
 Crafting is optional. It is only constructed when both a `craft_buffer` inventory and a
 `turtle` are bound in config; without them the craft service does not exist and every other
-behaviour is unchanged.
+behavior is unchanged.
 
 ### Topology
 
@@ -71,7 +71,7 @@ hold none of, which is the point: you cannot search for what you do not have. Pi
 enter a quantity, review the plan, and commit.
 
 A quantity means **make that many**, not top up to that many. Asking for 250 sticks crafts
-250 regardless of what is already in storage. The "up to" behaviour lives on the Search
+250 regardless of what is already in storage. The "up to" behavior lives on the Search
 page, as an ordinary retrieval.
 
 Results go to Pickup by default; the destination toggles to storage per job. One job runs
@@ -89,7 +89,7 @@ A blocked job stops and names its cause on the Crafting page; retry and cancel a
 there. Jobs are not durable — a controller restart clears them — but nothing is stranded:
 anything left in the buffer with no active job is returned to storage automatically.
 
-The causes worth recognising:
+The causes worth recognizing:
 
 - `INSUFFICIENT_MATERIALS` — the plan cannot be satisfied from stock. The shortfall lists
   what is missing.
@@ -207,7 +207,7 @@ The gate runs in this order and stops at the first refusal:
 4. **Both trees are backed up** before a single byte is written.
 5. **Only manifest-listed paths are written**, LF-only, and never anything under
    `storage/data/`.
-6. **Every written file is verified**: LF-normalised SHA-256, no CR bytes, and no strays
+6. **Every written file is verified**: LF-normalized SHA-256, no CR bytes, and no strays
    beside it outside the manifest and preserved data.
 7. **Every deployed module parses** under `luac -p`. A green host suite does not prove a
    deployed file parses, and this has caught a real corrupted write.
@@ -322,7 +322,7 @@ Measured against the live installation:
 
 The export leaves out special recipes (map cloning, firework assembly — no fixed output) and
 any whose ingredient nothing satisfies, and reports both counts. The converter additionally
-refuses NBT-constrained ingredients and results: honouring them is impossible when ingredient
+refuses NBT-constrained ingredients and results: honoring them is impossible when ingredient
 matching is NBT-free, and ignoring them would craft from the wrong stack. A recipe left out is
 uncraftable through this system; it is never crafted wrongly.
 
@@ -371,7 +371,7 @@ for — 1,653 of these carry conditions and an unknown fraction of those are ina
 
 The converter refuses what it cannot represent faithfully rather than approximating it, and
 prints the causes. NBT-constrained ingredients and NBT-bearing results are the bulk of it:
-ingredient matching in the controller is deliberately NBT-free, so honouring them is
+ingredient matching in the controller is deliberately NBT-free, so honoring them is
 impossible and ignoring them would craft from the wrong stack. Custom ingredient types
 carrying neither an item nor a tag are the rest. A recipe left out is uncraftable through
 this system; it is never crafted wrongly.

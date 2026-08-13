@@ -23,7 +23,7 @@ Counted and reported at import, currently 234 on this pack:
   can neither verify nor deliver a specific variant. Supportable only if the output NBT is
   deterministic and the identity model grows to carry it.
 - **21 NBT-constrained ingredients** (`forge:nbt`, `forge:partial_nbt`). Ingredient matching
-  is deliberately NBT-free; honouring these means teaching the planner and the turtle about
+  is deliberately NBT-free; honoring these means teaching the planner and the turtle about
   variants.
 - **5 custom ingredient types** carrying neither item nor tag.
 - Separately, `cucumber:shaped_tag` (tag result) and `cucumber:shaped_transfer_damage`
@@ -49,7 +49,7 @@ too low. Worth measuring against real multi-step crafts before trusting them.
 These work in the host suite and have never run in game:
 
 - **A large batched craft against the modded pack.** 500 sticks worked against the vanilla
-  pack; nothing that size has run since the pack grew to 22,705 outputs.
+  pack; nothing that size has run since the pack grew to 22,391 outputs.
 - **A deep tree** — three or more chained intermediates.
 - **A queued second job** while one is running.
 - **The `TRANSFER_STALLED` alert.** Added after a real stall, never seen fire.
@@ -61,7 +61,7 @@ Measured on the host, never on a ComputerCraft computer, where everything is far
 
 - `items.lua` is 1.85 MB and parsed eagerly at boot. Boot time on #4 has not been measured
   since the pack grew; if `INDEXING` now takes noticeably longer, this is why.
-- Crafting search costs ~10 ms per keystroke on host over 22,391 entries. The catalogue and
+- Crafting search costs ~10 ms per keystroke on host over 22,391 entries. The catalog and
   its lowercased search index are both resident.
 - The pack is 5.89 MB against a 10,000,000 byte `computer_space_limit`. Another large mod
   addition could approach it.
@@ -76,7 +76,7 @@ clickable terminal. What follows is what it did not address.
   operator searching for something a machine makes gets an empty list and no explanation.
   This caused real confusion.
 - **Search ranking is tuned against three queries** (`chest`, `oak`, `piston`). The tier
-  order is a judgement call and may rank oddly on other searches.
+  order is a judgment call and may rank oddly on other searches.
 - **Tag and recipe pins have no UI.** `core/craft_prefs.lua` supports pinning which item a
   tag resolves to and which recipe an output uses; nothing exposes it, so the planner's
   choice cannot be overridden.

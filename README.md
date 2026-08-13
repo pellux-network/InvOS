@@ -8,7 +8,7 @@
 
   <p>
     <img alt="status" src="https://img.shields.io/badge/status-deployed%20%26%20live-B91C2E">
-    <img alt="lua tests" src="https://img.shields.io/badge/lua%20tests-600%20passing-B91C2E">
+    <img alt="lua tests" src="https://img.shields.io/badge/lua%20tests-718%20passing-B91C2E">
     <img alt="python tests" src="https://img.shields.io/badge/python%20tests-74%20passing-B91C2E">
     <img alt="runtime" src="https://img.shields.io/badge/runtime-CC%3ATweaked%20%2F%20CraftOS-2b2b2b">
   </p>
@@ -21,7 +21,7 @@ back. InvOS indexes every storage container you give it, takes deposits through 
 Drop-off, fulfills exact item-and-quantity requests into a dedicated Pickup, and — if you
 give it a spare turtle — plans and executes multi-step crafting against your own live
 recipe set. No mainframe, no external database: it's one advanced computer, some wired
-modems, and about 600 tests standing behind it.
+modems, and nearly 800 tests standing behind it.
 
 ## Why InvOS
 
@@ -45,46 +45,67 @@ modems, and about 600 tests standing behind it.
 InvOS runs on the computer's own terminal for search and control, with an optional large
 status monitor and a 1×1 crafting monitor for anyone walking by:
 
-```
- INVOS                                        READY
- 1 SEARCH 2 NODES 3 REQS 4 ALERTS 5 SETUP 6 CRAFT
-
- > oak plank_
-
- ITEM                    STOCK  SELECTED
- > Oak Planks            4,213  Oak Planks
-   Oak Log                 812  minecraft:oak_planks
-   Oak Fence                96
-   Oak Fence Gate           12  STOCK
-                                ################----
-                                4,213 stored
-                                65 stacks + 53
-
-                                  ENTER  RETRIEVE
- DROP-OFF ##--------  18%  PICKUP ----------  0%
- Type to search   Up/Down select   Enter retrieve
- 148,302 items    2,204 types
-```
+<p align="center">
+  <img src="docs/assets/screenshots/02-search.png" width="600" alt="InvOS Search page">
+</p>
 
 Solid blocks are background-filled cells: the ComputerCraft font has no box-drawing
-characters, so structure is colour or it is nothing. The page you are on is filled in the
-selection colour, the nav gives up its spacing and then its longer labels as the screen
+characters, so structure is color or it is nothing. The page you are on is filled in the
+selection color, the nav gives up its spacing and then its longer labels as the screen
 narrows, and the whole bar is clickable.
 
 A cold boot plays a brief animated wordmark on the terminal before the application takes
 over — see [`controller/storage/app/splash.lua`](controller/storage/app/splash.lua).
 
-## Status
+## Screenshots
 
-**Deployed and running.** Imports, retrievals, and crafting have all been exercised on a
-live server, against a live-exported recipe pack of 24,583 recipes across 22,391 craftable
-outputs. See [`docs/backlog.md`](docs/backlog.md) for the known gaps and untested paths,
-tracked openly rather than hidden.
+<table>
+<tr>
+<td align="center" width="50%">
+<img src="docs/assets/screenshots/01-splash.png" width="420" alt="Boot splash screen"><br>
+<b>Boot splash</b> — the animated wordmark shown on cold boot
+</td>
+<td align="center" width="50%">
+<img src="docs/assets/screenshots/02-search.png" width="420" alt="Search page"><br>
+<b>Search</b> — live-filtered item list with stock, retrieval, and progress bars
+</td>
+</tr>
+<tr>
+<td align="center" width="50%">
+<img src="docs/assets/screenshots/03-nodes.png" width="420" alt="Nodes page"><br>
+<b>Nodes</b> — every bound inventory node with live utilization
+</td>
+<td align="center" width="50%">
+<img src="docs/assets/screenshots/04-requests.png" width="420" alt="Requests page"><br>
+<b>Requests</b> — outstanding pickups with per-request progress
+</td>
+</tr>
+<tr>
+<td align="center" width="50%">
+<img src="docs/assets/screenshots/05-alerts.png" width="420" alt="Alerts page"><br>
+<b>Alerts</b> — operator-actionable warnings, or confirmation of a healthy system
+</td>
+<td align="center" width="50%">
+<img src="docs/assets/screenshots/06-setup.png" width="420" alt="Setup page"><br>
+<b>Setup</b> — reviewing and changing inventory roles
+</td>
+</tr>
+<tr>
+<td align="center" width="50%">
+<img src="docs/assets/screenshots/07-craft.png" width="420" alt="Craft page"><br>
+<b>Craft</b> — browsing craftable recipes and current stock
+</td>
+<td align="center" width="50%">
+<img src="docs/assets/screenshots/08-monitor.png" width="420" alt="Wall-mounted status monitor"><br>
+<b>Status monitor</b> — the public wall display beside the terminal
+</td>
+</tr>
+</table>
 
 ## Features
 
 - Responsive, search-first advanced-computer UI, keyboard- and mouse-driven
-- A deliberate sixteen-colour palette, shared by every screen, restored on exit
+- A deliberate sixteen-color palette, shared by every screen, restored on exit
 - Resizable public status monitor, auto-detecting its own size tier, with the stored-item
   total in block digits readable across a base
 - Multiple labeled, priority-ordered storage nodes pooled as one store
@@ -125,7 +146,7 @@ straight to Search, Nodes, Requests, Alerts, and Setup; `F10` always returns to 
 
 With a turtle and buffer bound, key `6` opens Crafting: pick a craftable output — including
 ones you currently hold none of — enter a quantity, review the plan, and commit. A quantity
-means *make that many*, not *top up to that many*; the "up to" behaviour is an ordinary
+means *make that many*, not *top up to that many*; the "up to" behavior is an ordinary
 Search retrieval.
 
 ## Architecture
@@ -158,7 +179,8 @@ python -m unittest test_recipe_pack test_recipe_import
 
 See [`CONTRIBUTING.md`](CONTRIBUTING.md) for the full development workflow, testing
 expectations, and the live-deployment safety rules that apply to any change touching a real
-installation.
+installation. Known gaps and untested paths are tracked openly in
+[`docs/backlog.md`](docs/backlog.md).
 
 ## License
 
