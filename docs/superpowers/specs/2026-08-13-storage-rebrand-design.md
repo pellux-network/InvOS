@@ -68,6 +68,19 @@ Every reference to the old path updates in the same change:
 - All `require(...)` calls and `package.path` manipulations across
   `controller/storage/**/*.lua` and `controller/storage/tests/**/*.lua`
   that reference the `colossal.` module prefix.
+- Every test file that instantiates `Store.new(..., "colossal/data")` as a
+  fixture root path, and `controller/storage/tests/test_deployment.lua`'s
+  literal `"colossal/..."` path assertions and `^colossal/` pattern match,
+  which must move in lockstep with the manifest or the "every manifest path
+  exists on disk" test fails.
+
+### 1a. Backup key rename (decided during planning)
+
+`app/backup.lua` writes and reads the config-and-alias floppy backup under
+the literal key `"colossal-backup"` — this is an on-disk filename for a
+physical backup floppy, not just internal naming. Confirmed with the user:
+rename outright to `"invos-backup"`, no backward-compatibility fallback for
+floppies already written under the old key.
 
 ### 2. Technical confirmation (no behavior change expected)
 
