@@ -31,6 +31,15 @@ end
 -- Where a list of `count` items must start so that `selection` is on screen, given `visible`
 -- rows. Computed at render time and discarded: writing a scroll offset back into state during
 -- a render would make rendering impure, which tests/test_ui_purity.lua forbids.
+-- Picks the widest label that fits rather than clipping one. A button reading "RETRIEV" is
+-- worse than a narrower button that reads "RETRIEVE".
+local function fittedLabel(width, options)
+    for _, text in ipairs(options) do
+        if #text <= width then return text end
+    end
+    return options[#options]:sub(1, math.max(0, width))
+end
+
 -- The window ends on the selection rather than starting on it, so arrowing down the list
 -- scrolls under a cursor that stays put. Starting the window on the selection instead makes
 -- the cursor jump to the top of a fresh page every time it reaches the bottom of one.
@@ -582,7 +591,8 @@ function UI:_search(state, model, hitRegions)
             Draw.text(surface, paneFrom, bodyTop + 8, variants .. " exact variants", paneWidth,
                 Theme.role.muted, Theme.role.ground)
         end
-        local button = "  ENTER  RETRIEVE "
+        local button = fittedLabel(paneWidth,
+            {"  ENTER  RETRIEVE ", " ENTER RETRIEVE ", " RETRIEVE ", "RETRIEVE"})
         Draw.text(surface, paneFrom, math.min(regions.content.bottom, bodyTop + 10), button,
             math.min(#button, paneWidth), Theme.role.text, Theme.role.brand)
     end
@@ -1028,7 +1038,8 @@ function UI:_crafting(state, model, hitRegions)
             Theme.role.muted, Theme.role.ground)
         Draw.text(surface, paneFrom, bandRow + 5, formatNumber(chosen.quantity or 0), paneWidth,
             (chosen.quantity or 0) > 0 and Theme.role.ok or Theme.role.muted, Theme.role.ground)
-        local button = "  ENTER  CHOOSE  "
+        local button = fittedLabel(paneWidth,
+            {"  ENTER  CHOOSE  ", " ENTER CHOOSE ", " CHOOSE ", "CHOOSE"})
         Draw.text(surface, paneFrom, math.min(bottom, bandRow + 8), button,
             math.min(#button, paneWidth), Theme.role.text, Theme.role.brand)
     elseif state.mode == "craft_quantity" then
