@@ -151,7 +151,9 @@ return {
         local region = regionFor(coordinator, "ACTIVATE")
         T.truthy(region, "no result row region was rendered")
         coordinator:handle({"mouse_click", 1, region.x1, region.y1})
-        T.equal(coordinator:viewModel().ui.mode, "quantity")
+        T.equal(coordinator:viewModel().ui.mode, "search", "the first click only highlights")
+        coordinator:handle({"mouse_click", 1, region.x1, region.y1})
+        T.equal(coordinator:viewModel().ui.mode, "quantity", "a second click opens quantity")
     end},
     {name="pressing the stack quantity hotkey does not leak the character into the search query", run=function()
         local d = baseDeps()
@@ -161,6 +163,7 @@ return {
         local coordinator = Coordinator.new(d)
         coordinator:tick(1000)
         local region = regionFor(coordinator, "ACTIVATE")
+        coordinator:handle({"mouse_click", 1, region.x1, region.y1})
         coordinator:handle({"mouse_click", 1, region.x1, region.y1})
         T.equal(coordinator:viewModel().ui.mode, "quantity")
         -- CC:Tweaked fires a "key" event, then a "char" event, for the same physical keypress.

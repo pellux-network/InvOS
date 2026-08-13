@@ -102,6 +102,31 @@ return {
         T.equal(state.mode,"quantity")
         T.equal(state.identity.identity_key,"strong")
     end },
+    { name = "clicking a search result twice opens quantity; once only selects it", run = function()
+        local ui=UI.new(T.recordingSurface(51,19))
+        local state=UI.initialState()
+        state.results={result("stone","Stone",128),result("dirt","Dirt",64)}
+        state.result_count=2
+        state=ui:reduce(state,{type="ACTIVATE",index=2})
+        T.equal(state.selection,2)
+        T.equal(state.mode,"search","the first click must only highlight, not open quantity")
+        state=ui:reduce(state,{type="ACTIVATE",index=2})
+        T.equal(state.mode,"quantity","a second click on the same result opens quantity")
+        T.equal(state.identity.identity_key,"dirt")
+    end },
+    { name = "typing after a search click re-arms it so the next click only selects again",
+        run = function()
+        local ui=UI.new(T.recordingSurface(51,19))
+        local state=UI.initialState()
+        state.results={result("stone","Stone",128)}
+        state.result_count=1
+        state=ui:reduce(state,{type="ACTIVATE",index=1})
+        state=ui:reduce(state,{type="QUERY_APPEND",text="s"})
+        state.results={result("stone","Stone",128)}
+        state.result_count=1
+        state=ui:reduce(state,{type="ACTIVATE",index=1})
+        T.equal(state.mode,"search","typing must re-arm the click so the next one only selects")
+    end },
     { name = "UI selection clamps when live results shrink", run = function()
         local ui=UI.new(T.recordingSurface(51,19))
         local state=UI.initialState()

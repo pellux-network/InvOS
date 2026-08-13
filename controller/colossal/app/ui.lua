@@ -60,10 +60,11 @@ function UI.initialState()
     return {
         page="search", mode="search", query="", selection=1, scroll=1,
         quantity_text="", variant_selection=1, results={}, result_count=0,
-        notice=nil, hit_regions={},
+        notice=nil, hit_regions={}, armed_selection=nil,
         request_selection=1, request_count=0, alert_selection=1, alert_count=0,
         storage_scroll=1, recovery_confirm_armed=false,
         craft_query="", craft_results={}, craft_result_count=0, craft_selection=1,
+        craft_armed_selection=nil,
         craft_scroll=1, craft_quantity_text="", craft_item=nil, craft_plan=nil,
         craft_destination="pickup", craft_plan_selection=1,
         craft_jobs={}, craft_job_count=0, craft_job_selection=1,
@@ -94,14 +95,17 @@ function UI:reduce(current, command)
     elseif kind == "QUERY_APPEND" then
         state.query = state.query .. tostring(command.text or "")
         state.selection, state.scroll, state.notice, state.suppress_char = 1, 1, nil, nil
+        state.armed_selection = nil
     elseif kind == "CONSUME_CHAR" then
         state.suppress_char = nil
     elseif kind == "QUERY_BACKSPACE" then
         state.query = state.query:sub(1, math.max(0, #state.query - 1))
         state.selection, state.scroll, state.notice = 1, 1, nil
+        state.armed_selection = nil
     elseif kind == "QUERY_CLEAR" then
         state.query = ""
         state.selection, state.scroll, state.notice = 1, 1, nil
+        state.armed_selection = nil
     elseif kind == "MOVE" then
         if state.mode == "craft_search" then
             state.craft_selection = math.max(1, math.min(math.max(1, state.craft_result_count or 0),
@@ -139,12 +143,15 @@ function UI:reduce(current, command)
     elseif kind == "CRAFT_QUERY_APPEND" then
         state.craft_query = state.craft_query .. tostring(command.text or "")
         state.craft_selection, state.craft_scroll, state.suppress_char = 1, 1, nil
+        state.craft_armed_selection = nil
     elseif kind == "CRAFT_QUERY_BACKSPACE" then
         state.craft_query = state.craft_query:sub(1, math.max(0, #state.craft_query - 1))
         state.craft_selection, state.craft_scroll = 1, 1
+        state.craft_armed_selection = nil
     elseif kind == "CRAFT_QUERY_CLEAR" then
         state.craft_query = ""
         state.craft_selection, state.craft_scroll = 1, 1
+        state.craft_armed_selection = nil
     elseif kind == "SYNC_CRAFT_RESULTS" then
         state.craft_results = copy(command.results or {})
         state.craft_result_count = #state.craft_results
@@ -262,10 +269,7 @@ function UI:reduce(current, command)
             end
         end
     elseif kind == "ACTIVATE" then
-        if state.mode == "craft_search" then
-            state.craft_selection = math.max(1, math.min(math.max(1, state.craft_result_count or 0),
-                (state.craft_selection or 1) + command.delta))
-        elseif state.mode == "craft_jobs" then
+        if state.mode == "craft_jobs" then
             state.craft_job_selection = math.max(1, math.min(math.max(1, state.craft_job_count or 0),
                 (state.craft_job_selection or 1) + command.delta))
         elseif state.mode == "craft_plan" then
@@ -276,8 +280,18 @@ function UI:reduce(current, command)
             local selected = state.variants[state.variant_selection]
             if selected then enterQuantity(state, selected, selectedResult(state) or selected) end
         elseif state.mode == "search" and command.index then
-            state.selection = command.index
-            return self:reduce(state, {type="OPEN_QUANTITY"})
+            -- A click only highlights a row it isn't already armed on; clicking the same
+            -- row again is what opens quantity, so the first click of a fresh selection
+            -- never jumps ahead of the user.
+            if command.index == state.armed_selection then
+                return self:reduce(state, {type="OPEN_QUANTITY"})
+            end
+            state.selection, state.armed_selection = command.index, command.index
+        elseif state.mode == "craft_search" and command.index then
+            if command.index == state.craft_armed_selection then
+                return self:reduce(state, {type="OPEN_CRAFT_QUANTITY"})
+            end
+            state.craft_selection, state.craft_armed_selection = command.index, command.index
         end
     elseif kind == "SET_QUANTITY" and state.mode == "quantity" then
         if #state.quantity_text < 9 then state.quantity_text = state.quantity_text .. command.digit end
@@ -1050,7 +1064,7 @@ function UI:_crafting(state, model, hitRegions)
                 "have " .. formatNumber(entry.quantity or 0),
                 (entry.quantity or 0) > 0 and Theme.role.ok or Theme.role.muted)
             hitRegions[#hitRegions + 1] = {x1=1, y1=y, x2=listTo, y2=y,
-                command={type="MOVE", delta=index - (state.craft_selection or 1)}}
+                command={type="ACTIVATE", index=index}}
         end)
 
     local chosen = results[state.craft_selection or 1]

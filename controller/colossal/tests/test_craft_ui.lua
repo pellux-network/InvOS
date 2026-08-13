@@ -68,6 +68,43 @@ return {
         T.equal(state.mode, "craft_quantity")
         T.equal(state.craft_item.item, "minecraft:chest")
     end},
+    {name="clicking a craft result dispatches ACTIVATE, matching how Search rows behave",
+        run=function()
+        local surface = ui()
+        local state = crafting()
+        local layout = surface:render(state, {lifecycle="READY"})
+        local row
+        for y = 1, 19 do if surface.surface.line(y):find("Stick", 1, true) then row = y end end
+        T.truthy(row ~= nil, "Stick is not on screen")
+        state.hit_regions = layout.hit_regions
+        local command = Keymap.command({"mouse_click", 1, 5, row}, state)
+        T.truthy(command ~= nil, "clicking a craft result did nothing")
+        T.equal(command.type, "ACTIVATE", "craft rows must dispatch ACTIVATE like Search rows do")
+        T.equal(command.index, 2)
+    end},
+    {name="clicking a craft result twice opens the quantity prompt; once only selects it",
+        run=function()
+        local surface = ui()
+        local state = crafting()
+        state = surface:reduce(state, {type="ACTIVATE", index=2})
+        T.equal(state.craft_selection, 2)
+        T.equal(state.mode, "craft_search",
+            "the first click must only highlight, not open the quantity prompt")
+        state = surface:reduce(state, {type="ACTIVATE", index=2})
+        T.equal(state.mode, "craft_quantity", "a second click on the same recipe opens quantity")
+        T.equal(state.craft_item.item, "minecraft:stick")
+    end},
+    {name="typing in the recipe search re-arms the click so a repeat click only selects",
+        run=function()
+        local surface = ui()
+        local state = crafting()
+        state = surface:reduce(state, {type="ACTIVATE", index=1})
+        state = surface:reduce(state, {type="CRAFT_QUERY_APPEND", text="c"})
+        state.craft_results, state.craft_result_count = crafting().craft_results, 2
+        state = surface:reduce(state, {type="ACTIVATE", index=1})
+        T.equal(state.mode, "craft_search",
+            "typing must re-arm the click so the next one only selects")
+    end},
     {name="a quantity is typed and planned",run=function()
         local surface = ui()
         local state = surface:reduce(crafting({mode="craft_quantity",
