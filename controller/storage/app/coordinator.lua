@@ -596,11 +596,17 @@ function Coordinator:_dispatch(effect)
             local ok, reason = pcall(self.deps.requests.cancel, self.deps.requests, target.id)
             if not ok then self:_recordError("request", reason) end
         end
-    elseif effect.type == "ACKNOWLEDGE_ALERT" and self.deps.alerts then
+    elseif effect.type == "DISMISS_ALERT" and self.deps.alerts then
         local target = self.deps.alerts.active and self.deps.alerts:active()[effect.index]
         if target then
-            local ok, reason = pcall(self.deps.alerts.acknowledge, self.deps.alerts, target.key)
-            if not ok then self:_recordError("alert", reason) end
+            local recoveryBlocked = self.deps.recovery and
+                serviceState("recovery", self.deps.recovery) == "BLOCKED"
+            if recoveryBlocked and target.key == "journal_recovery" then
+                self:command({type="ARM_RECOVERY_RELEASE"})
+            else
+                local ok, reason = pcall(self.deps.alerts.resolve, self.deps.alerts, target.key)
+                if not ok then self:_recordError("alert", reason) end
+            end
         end
     elseif effect.type == "RESOLVE_RECOVERY" and self.deps.recovery then
         local ok, reason = pcall(self.deps.recovery.resolve, self.deps.recovery)

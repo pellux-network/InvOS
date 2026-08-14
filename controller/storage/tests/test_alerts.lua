@@ -2,14 +2,12 @@ local Alerts = require("app.alerts")
 local T = require("tests.mock_cc")
 
 return {
-    { name = "alerts deduplicate conditions and preserve acknowledgement", run = function()
+    { name = "setting an alert again bumps its occurrence count", run = function()
         local alerts = Alerts.new(function() return 100 end)
         alerts:set("pickup_full", "warning", "Pickup is full", { slots=0 })
-        alerts:acknowledge("pickup_full")
         alerts:set("pickup_full", "warning", "Pickup is full", { slots=0 })
         local active = alerts:active()
         T.equal(#active, 1)
-        T.equal(active[1].acknowledged, true)
         T.equal(active[1].occurrences, 2)
     end },
     { name = "resolving an alert removes the active condition", run = function()
