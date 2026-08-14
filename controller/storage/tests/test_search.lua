@@ -89,6 +89,34 @@ return {
         T.equal(results[2].name, "mod:mango")
         T.equal(results[3].name, "mod:zebra")
     end },
+    { name = "an unset limit returns every match, past the old fixed cap, still correctly ordered",
+        run = function()
+        -- The Search page used to hand M.query a limit of max(50, height*4), around 96 rows
+        -- on a 24-row terminal. The list is bounded only by the number of distinct stocked
+        -- item groups -- hundreds, not thousands -- so the UI path now passes no limit at
+        -- all and must get every match back, in the same order it would have used to
+        -- truncate.
+        local many = {}
+        for index = 1, 150 do
+            local id = string.format("%03d", index)
+            many[index] = {key="i" .. id, name="mod:item" .. id,
+                display_name="Item " .. id, quantity=1}
+        end
+        local results = Search.query(index(many), "", {})
+        T.equal(#results, 150,
+            "every stocked group must be reachable, not just the old ~96-row cap")
+        T.equal(results[1].name, "mod:item001")
+        T.equal(results[150].name, "mod:item150")
+    end },
+    { name = "a limit is still honored when a caller passes one explicitly", run = function()
+        local many = {}
+        for index = 1, 20 do
+            many[index] = {key="i" .. index, name="mod:item" .. index,
+                display_name="Item " .. index, quantity=1}
+        end
+        T.equal(#Search.query(index(many), "", {}, 5), 5,
+            "an explicit limit must still truncate, for any caller that wants a page")
+    end },
     { name = "search groups NBT identities and exposes exact variants", run = function()
         local potions = {
             {key="heal",name="minecraft:potion",nbt="healing",display_name="Potion of Healing",quantity=3},

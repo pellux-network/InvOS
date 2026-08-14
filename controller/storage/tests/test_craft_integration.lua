@@ -77,20 +77,38 @@ local function build(stock, extra)
     return coordinator, deps, craftSurface
 end
 
+-- _craftSearch used to materialize a whole ranked page of entry tables. Ranking now lives in
+-- _craftOrder, which returns the full match order as plain catalogue positions with no
+-- `_craftStock` calls, and materialization into full entry tables is windowed separately.
+-- These ranking assertions only care about relative order, not about a display page, so this
+-- resolves the *entire* order into catalogue entries (no quantity field -- nothing here reads
+-- one) rather than coupling to whatever window size the coordinator's live surface produces.
+local function craftOrder(coordinator, query)
+    local order = coordinator:_craftOrder(query)
+    local catalogue = coordinator:_craftCatalogue()
+    local results = {}
+    for _, position in ipairs(order) do
+        results[#results + 1] = catalogue[position]
+    end
+    return results
+end
+
 return {
     {name="opening the crafting page lists real recipes",run=function()
         local coordinator = build({})
         coordinator:command({type="OPEN_PAGE", page="crafting"})
         coordinator:_syncCraft()
         local state = coordinator:viewModel().ui
-        -- The list is capped for display; what matters is that the catalogue behind it
-        -- is the full pack, including items with no stock.
-        T.equal(state.craft_result_count, 60, "results are capped for display")
+        local catalogueSize = #coordinator:_craftCatalogue()
         -- Not a fixed count: the pack is regenerated from whatever the installation has,
         -- and pinning a number here only records which modpack was installed that day.
-        -- What matters is that the catalogue is the pack, not the display page.
-        T.truthy(#coordinator:_craftCatalogue() > state.craft_result_count,
-            "the whole pack is searchable, not just a page of it")
+        -- What matters is that there is no longer a display cap: the true count is the
+        -- whole catalogue, and only a window of it is ever materialized into full rows.
+        T.truthy(catalogueSize > 0, "the pack must have outputs")
+        T.equal(state.craft_result_count, catalogueSize,
+            "the true count is the whole catalogue now that scrolling is unbounded")
+        T.truthy(#state.craft_results < state.craft_result_count,
+            "only a window is materialized into rows with a stock lookup, not the whole pack")
         T.equal(state.craft_results[1].quantity, 0,
             "items you hold none of are listed; that is the point of the page")
     end},
@@ -122,34 +140,29 @@ return {
         coordinator:command({type="OPEN_PAGE", page="crafting"})
         coordinator:command({type="CRAFT_QUERY_APPEND", text="chest"})
         coordinator:_syncCraft()
+        local filteredCount = coordinator:viewModel().ui.craft_result_count
         coordinator:handle({"key","DELETE"})
         local state = coordinator:viewModel().ui
         T.equal(state.craft_query, "")
-        -- "chest" alone already fills the 60-row display cap on the live pack, so a count
-        -- comparison cannot tell a resync from a no-op. Content can: the unfiltered catalogue
-        -- must include something "chest" would never have matched.
-        local hasNonChestMatch = false
-        for _, entry in ipairs(state.craft_results) do
-            local label = tostring(entry.display_name or entry.item):lower()
-            if not label:find("chest", 1, true) then hasNonChestMatch = true end
-        end
-        T.truthy(hasNonChestMatch,
+        T.equal(state.craft_result_count, #coordinator:_craftCatalogue(),
             "clearing must resync to the full catalogue without an explicit _syncCraft call")
+        T.truthy(state.craft_result_count > filteredCount,
+            "the full catalogue must be larger than the chest-filtered count")
     end},
     {name="an exact name outranks everything that merely contains it",run=function()
-        -- The catalogue is 22,391 outputs on the live modded pack and the page shows 60.
-        -- Taking the first 60 matches in catalogue order pushed minecraft:chest off the
-        -- page entirely for the query "chest", behind 220 other matches. Relevance has to
-        -- decide what survives truncation, not iteration order.
+        -- The catalogue is tens of thousands of outputs on the live modded pack, and
+        -- "chest" matches hundreds of them. Relevance has to decide what sorts first, not
+        -- iteration order -- and now that there is no display cap, it has to decide that
+        -- for the *whole* order, not just a truncated page of it.
         local coordinator = build({})
-        local results = coordinator:_craftSearch("chest")
+        local results = craftOrder(coordinator, "chest")
         T.truthy(#results > 0, "chest must match something")
         T.equal(results[1].item, "minecraft:chest",
             "the exact item is the one the operator meant, got " .. tostring(results[1].item))
     end},
     {name="a prefix beats a match buried mid-word",run=function()
         local coordinator = build({})
-        local results = coordinator:_craftSearch("oak")
+        local results = craftOrder(coordinator, "oak")
         local prefixAt, buriedAt
         for index, entry in ipairs(results) do
             local label = tostring(entry.display_name or entry.item):lower()
@@ -169,26 +182,24 @@ return {
     end},
     {name="ranking never returns something that does not match",run=function()
         local coordinator = build({})
-        for _, entry in ipairs(coordinator:_craftSearch("piston")) do
+        for _, entry in ipairs(craftOrder(coordinator, "piston")) do
             local label = tostring(entry.display_name or entry.item):lower()
             T.truthy(label:find("piston", 1, true) ~= nil or
                 tostring(entry.item):lower():find("piston", 1, true) ~= nil,
                 "got a non-match: " .. tostring(entry.item))
         end
     end},
-    {name="an empty query still lists the catalogue",run=function()
-        -- Nothing to rank by, so this stays cheap: the first page in catalogue order.
+    {name="an empty query lists the whole catalogue, not a page of it",run=function()
+        -- Nothing to rank by, so this stays cheap: catalogue order, with no _craftStock
+        -- calls at all -- _craftOrder never materializes entry tables.
         local coordinator = build({})
-        local results = coordinator:_craftSearch("")
-        T.equal(#results, 60, "an empty query fills the page")
+        local results = craftOrder(coordinator, "")
+        T.equal(#results, #coordinator:_craftCatalogue(),
+            "an empty query must reach every output now that there is no display cap")
     end},
     {name="a query matching nothing returns nothing",run=function()
         local coordinator = build({})
-        T.equal(#coordinator:_craftSearch("zzzznotathing"), 0)
-    end},
-    {name="results stay capped at one page",run=function()
-        local coordinator = build({})
-        T.truthy(#coordinator:_craftSearch("a") <= 60, "the display cap still holds")
+        T.equal(#craftOrder(coordinator, "zzzznotathing"), 0)
     end},
     {name="craft search matches multi-word abbreviations in order",run=function()
         local recipes = {outputs=function() return {
@@ -196,7 +207,7 @@ return {
             {item="minecraft:red_sand", display_name="Red Sand"},
         } end}
         local coordinator = build({}, {recipes=recipes})
-        local results = coordinator:_craftSearch("red torch")
+        local results = craftOrder(coordinator, "red torch")
         T.equal(#results, 1, "only the item whose words match both tokens in order qualifies")
         T.equal(results[1].item, "minecraft:redstone_torch")
     end},
@@ -207,7 +218,7 @@ return {
         local coordinator = build({}, {recipes=recipes})
         -- "torch" appears before "red" in the label, so the tokens can't be consumed
         -- in query order even though both words are present.
-        T.equal(#coordinator:_craftSearch("torch red"), 0)
+        T.equal(#craftOrder(coordinator, "torch red"), 0)
     end},
     {name="craft search falls back to fuzzy matching only when nothing else matches",run=function()
         -- Each word carries its own typo, so the combined query differs from the label
@@ -216,7 +227,7 @@ return {
             {item="minecraft:golden_apple", display_name="Golden Apple"},
         } end}
         local coordinator = build({}, {recipes=recipes})
-        local results = coordinator:_craftSearch("goldn aople")
+        local results = craftOrder(coordinator, "goldn aople")
         T.equal(#results, 1)
         T.equal(results[1].item, "minecraft:golden_apple")
     end},

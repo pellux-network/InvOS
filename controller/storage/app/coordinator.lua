@@ -195,19 +195,10 @@ function Coordinator:_refreshLifecycle(now)
     end
 end
 
--- A tall terminal has room for far more than 10 rows once the results list scrolls, and a
--- fixed cap left nothing to scroll to. Derive a generous bound from the live surface height
--- when one is available, and otherwise fall back to a bound well above the old default.
-function Coordinator:_defaultSearchLimit()
-    local surface = self.ui and self.ui.surface
-    if surface and type(surface.getSize) == "function" then
-        local ok, _, height = pcall(surface.getSize)
-        if ok and type(height) == "number" and height > 0 then
-            return math.max(50, height * 4)
-        end
-    end
-    return 50
-end
+-- The Search list is bounded only by the number of distinct stocked item groups -- hundreds,
+-- not thousands -- so it is cheap to materialize in full and let the UI scroll the whole
+-- thing. deps.search_limit remains an explicit override for anything that wants a page (e.g.
+-- a test double), but the live UI path below passes no limit at all.
 
 -- Usage stats are only ever added to an identity that enrichment already gave a
 -- display_name and max_count, so every cached entry always has both or neither: a
@@ -236,7 +227,7 @@ function Coordinator:_rebuildIndex()
         self:_clearError("index")
         self.index, self.enrichment = result, nil
         local queryOk, results = pcall(self.deps.search, result, self.uiState.query or "",
-            self.deps.aliases or {}, self.deps.search_limit or self:_defaultSearchLimit())
+            self.deps.aliases or {}, self.deps.search_limit)
         if queryOk then
             self:_clearError("search")
             local reduced, effect = self.ui:reduce(self.uiState,
@@ -745,6 +736,13 @@ function Coordinator:handle(event)
                 command.type == "CRAFT_QUERY_CLEAR" or
                 (command.type == "OPEN_PAGE" and command.page == "crafting") then
                 self:_syncCraft()
+            elseif command.type == "MOVE" or command.type == "ACTIVATE" then
+                -- Neither changes the query, so the ranked order is unaffected; only the
+                -- selection moved, which can push it past the edge of the currently
+                -- materialized window. Re-window around wherever the selection landed so the
+                -- list never appears to end at the old window boundary. _syncCraftWindow is a
+                -- no-op off the crafting search page.
+                self:_syncCraftWindow()
             end
             self:redraw()
         end
@@ -906,35 +904,37 @@ local function relevance(label, id, path, needle, labelWords, needleTokens)
     return 1
 end
 
-local CRAFT_SEARCH_LIMIT = 60
 local CRAFT_BEST_SCORE = 7
+local CRAFT_FALLBACK_VISIBLE = 10
 
 -- Rank matches rather than taking the first page of them in catalogue order.
 --
 -- With the 639-entry vanilla pack, iteration order was as good as anything. On the live
--- modded pack "chest" matches 220 of 22,391 outputs, and minecraft:chest fell off the
--- 60-row page entirely -- the operator had to know to type "minecraft:chest".
+-- modded pack "chest" matches 220 of 22,391 outputs, and minecraft:chest used to fall off a
+-- fixed-size page entirely -- the operator had to know to type "minecraft:chest".
 --
--- Bucketing by score rather than sorting the matches keeps this a single pass with no
--- comparison sort, and each bucket stops growing at the display limit, so the work and
--- the memory are bounded by the page size instead of by how many things matched.
-function Coordinator:_craftSearch(query)
-    local needle = tostring(query or ""):lower()
+-- This produces the full ranked order as plain catalogue *positions* (integers), not entry
+-- tables: no `_craftStock` calls and no table copies happen here. Bucketing by score keeps it
+-- a single pass over the catalogue with no comparison sort, and buckets of integers are cheap
+-- enough that every match can be kept -- unlike the old bucket-of-tables version, there is no
+-- display-limit early exit, because scrolling has to be able to reach every match, not just
+-- the best CRAFT_SEARCH_LIMIT of them. The work is still one pass over the catalogue and
+-- nothing more, so it stays cheap on a computer this slow; what actually used to bound the
+-- work -- how many entries get materialized into full result tables with a stock lookup each
+-- -- is now the caller's job in _craftMaterializeWindow, over this order, not over the
+-- catalogue.
+function Coordinator:_craftOrder(query)
+    query = query or ""
+    if self.craftOrder and self.craftOrderQuery == query then return self.craftOrder end
+    local needle = query:lower()
     local catalogue = self:_craftCatalogue()
-    local results = {}
+    local positions = {}
 
-    local function take(entry)
-        results[#results + 1] = {item=entry.item, display_name=entry.display_name,
-            quantity=self:_craftStock(entry.item)}
-    end
-
-    -- Nothing to rank by, so stay cheap and show the first page as before.
+    -- Nothing to rank by: catalogue order is as good as anything, and needs no scoring pass.
     if needle == "" then
-        for _, entry in ipairs(catalogue) do
-            if #results >= CRAFT_SEARCH_LIMIT then break end
-            take(entry)
-        end
-        return results
+        for position = 1, #catalogue do positions[position] = position end
+        self.craftOrder, self.craftOrderQuery = positions, query
+        return positions
     end
 
     local index = self:_craftSearchIndex()
@@ -949,21 +949,18 @@ function Coordinator:_craftSearch(query)
             matched = true
             local bucket = buckets[score]
             if not bucket then bucket = {}; buckets[score] = bucket end
-            if #bucket < CRAFT_SEARCH_LIMIT then bucket[#bucket + 1] = entry end
+            bucket[#bucket + 1] = position
         end
-        -- A full bucket of exact matches cannot be improved on, so stop reading.
-        local best = buckets[CRAFT_BEST_SCORE]
-        if best and #best >= CRAFT_SEARCH_LIMIT then break end
     end
 
     if matched then
         for score = CRAFT_BEST_SCORE, 1, -1 do
-            for _, entry in ipairs(buckets[score] or {}) do
-                if #results >= CRAFT_SEARCH_LIMIT then return results end
-                take(entry)
+            for _, position in ipairs(buckets[score] or {}) do
+                positions[#positions + 1] = position
             end
         end
-        return results
+        self.craftOrder, self.craftOrderQuery = positions, query
+        return positions
     end
 
     -- Nothing matched even loosely: fall back to typo-tolerant abbreviation matching.
@@ -971,12 +968,59 @@ function Coordinator:_craftSearch(query)
     -- cheap tiers above found nothing at all -- the overwhelmingly common case already
     -- matches without ever reaching here.
     for position, entry in ipairs(catalogue) do
-        if #results >= CRAFT_SEARCH_LIMIT then break end
         if Match.abbreviationFuzzyMatch(words[position], tokens) then
-            take(entry)
+            positions[#positions + 1] = position
         end
     end
-    return results
+    self.craftOrder, self.craftOrderQuery = positions, query
+    return positions
+end
+
+-- How many crafting-list rows the live terminal can actually show, mirroring the layout
+-- UI:_crafting itself uses (UI.craftListVisible). Defensively wrapped like
+-- Coordinator:_defaultSearchLimit used to be: a missing or misbehaving surface must not crash
+-- the coordinator, it just falls back to a modest window.
+function Coordinator:_craftWindowVisible()
+    local ui = self.ui
+    local surface = ui and ui.surface
+    if surface and type(surface.getSize) == "function" and type(ui.craftListVisible) == "function" then
+        local sizeOk, width, height = pcall(surface.getSize)
+        if sizeOk and type(width) == "number" and type(height) == "number" then
+            local visOk, visible = pcall(ui.craftListVisible, width, height)
+            if visOk and type(visible) == "number" and visible > 0 then return visible end
+        end
+    end
+    return CRAFT_FALLBACK_VISIBLE
+end
+
+-- Materializes only the window the renderer is about to draw: entry tables with a stock
+-- lookup apiece, bounded by the visible row count rather than by how many things matched.
+-- The scroll offset is computed with UI.scrollFor, the exact function the renderer uses for
+-- the same selection/count/visible triple, so the window handed to uiState is exactly the
+-- window UI:_crafting will ask _list to draw -- there is no second, independent offset
+-- calculation to drift out of step with it.
+function Coordinator:_craftMaterializeWindow(order, selection)
+    local catalogue = self:_craftCatalogue()
+    local total = #order
+    local visible = self:_craftWindowVisible()
+    local start = 1
+    local scrollFor = self.ui and self.ui.scrollFor
+    if type(scrollFor) == "function" then
+        local ok, computed = pcall(scrollFor, selection or 1, total, visible)
+        if ok and type(computed) == "number" then start = computed end
+    end
+    start = math.max(1, math.min(start, math.max(1, total)))
+    local results = {}
+    for offset = 0, visible - 1 do
+        local orderIndex = start + offset
+        if orderIndex > total then break end
+        local entry = catalogue[order[orderIndex]]
+        if entry then
+            results[#results + 1] = {item=entry.item, display_name=entry.display_name,
+                quantity=self:_craftStock(entry.item)}
+        end
+    end
+    return results, start, total
 end
 
 -- Jobs change without any keypress: they advance through the automation rotation, and a
@@ -996,12 +1040,34 @@ function Coordinator:_syncCraftJobs()
     self.uiState = synced or self.uiState
 end
 
--- The recipe list only changes when the query does, so it stays on the keystroke path.
+-- The ranked order only changes when the query does, so re-ranking stays on the keystroke
+-- path. It also re-materializes the window, since a fresh query means a fresh selection
+-- (the reducer resets craft_selection to 1 on every query edit).
 function Coordinator:_syncCraft()
+    local order = self:_craftOrder(self.uiState.craft_query)
+    local results, windowStart, total = self:_craftMaterializeWindow(order, self.uiState.craft_selection)
     local reduced = self.ui:reduce(self.uiState,
-        {type="SYNC_CRAFT_RESULTS", results=self:_craftSearch(self.uiState.craft_query)})
+        {type="SYNC_CRAFT_RESULTS", results=results, window_start=windowStart, total=total})
     self.uiState = reduced or self.uiState
     self:_syncCraftJobs()
+end
+
+-- Moving the selection (arrow keys, or a click that only highlights) does not change the
+-- query, so the ranked order is still valid and does not need recomputing -- only the window
+-- around the new selection does. If the cached order does not match the current query for any
+-- reason, fall back to the full resync rather than windowing over a stale or absent order.
+function Coordinator:_syncCraftWindow()
+    if self.uiState.mode ~= "craft_search" then return end
+    local query = self.uiState.craft_query or ""
+    if not self.craftOrder or self.craftOrderQuery ~= query then
+        self:_syncCraft()
+        return
+    end
+    local results, windowStart, total =
+        self:_craftMaterializeWindow(self.craftOrder, self.uiState.craft_selection)
+    local reduced = self.ui:reduce(self.uiState,
+        {type="SYNC_CRAFT_RESULTS", results=results, window_start=windowStart, total=total})
+    self.uiState = reduced or self.uiState
 end
 
 -- What the 1x1 crafting monitor renders. Deliberately a different model from the storage

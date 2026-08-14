@@ -98,8 +98,8 @@ function UI.initialState()
         notice=nil, hit_regions={}, armed_selection=nil,
         request_selection=1, request_count=0, alert_selection=1, alert_count=0,
         storage_scroll=1, recovery_confirm_armed=false,
-        craft_query="", craft_results={}, craft_result_count=0, craft_selection=1,
-        craft_armed_selection=nil,
+        craft_query="", craft_results={}, craft_result_count=0, craft_window_start=1,
+        craft_selection=1, craft_armed_selection=nil,
         craft_scroll=1, craft_quantity_text="", craft_item=nil, craft_plan=nil,
         craft_destination="pickup", craft_plan_selection=1,
         craft_jobs={}, craft_job_count=0, craft_job_selection=1,
@@ -108,6 +108,19 @@ end
 
 local function selectedResult(state)
     return state.results and state.results[state.selection] or nil
+end
+
+-- craft_results holds only the coordinator's materialized window, not the full ranked list,
+-- so craft_selection (a position in the true, unbounded order) has to be translated back to
+-- an index into that window via craft_window_start before it can index craft_results. A state
+-- built by hand without craft_window_start (every existing test, and the initial state)
+-- defaults to a window starting at 1, so the offset is a no-op and craft_selection indexes
+-- craft_results directly, exactly as before windowing existed.
+local function craftSelected(state)
+    local results = state.craft_results
+    if not results then return nil end
+    local index = (state.craft_selection or 1) - (state.craft_window_start or 1) + 1
+    return results[index]
 end
 
 -- The autocomplete ghost is computed fresh every frame from the query and the highlighted
@@ -202,8 +215,14 @@ function UI:reduce(current, command)
         state.craft_selection, state.craft_scroll = 1, 1
         state.craft_armed_selection = nil
     elseif kind == "SYNC_CRAFT_RESULTS" then
+        -- command.total is the true count across the whole ranked catalogue match, which can
+        -- run to thousands; command.results is only the coordinator's materialized window
+        -- around the current selection. Falling back to #results when total/window_start are
+        -- omitted keeps every caller that hands over a complete list (every existing test,
+        -- and any future one) working exactly as before windowing existed.
         state.craft_results = copy(command.results or {})
-        state.craft_result_count = #state.craft_results
+        state.craft_result_count = command.total or #state.craft_results
+        state.craft_window_start = command.window_start or 1
         state.craft_selection = math.max(1,
             math.min(state.craft_selection, math.max(1, state.craft_result_count)))
         state.craft_scroll = math.min(state.craft_scroll, state.craft_selection)
@@ -213,7 +232,7 @@ function UI:reduce(current, command)
         state.craft_job_selection = math.max(1,
             math.min(state.craft_job_selection or 1, math.max(1, state.craft_job_count)))
     elseif kind == "OPEN_CRAFT_QUANTITY" then
-        local selected = state.craft_results and state.craft_results[state.craft_selection]
+        local selected = craftSelected(state)
         if selected then
             state.craft_item = copy(selected)
             state.craft_quantity_text, state.mode = "", "craft_quantity"
@@ -221,7 +240,7 @@ function UI:reduce(current, command)
     elseif kind == "CRAFT_AUTOCOMPLETE" then
         -- Same reasoning as AUTOCOMPLETE on the Search page: Tab accepts the highlighted
         -- recipe exactly as Enter does, ghost or no ghost.
-        local selected = state.craft_results and state.craft_results[state.craft_selection]
+        local selected = craftSelected(state)
         if selected then
             state.craft_query = tostring(selected.display_name or selected.item)
             return self:reduce(state, {type="OPEN_CRAFT_QUANTITY"})
@@ -1279,13 +1298,19 @@ function UI:_crafting(state, model, hitRegions)
     local listTo = split and (split - 1) or regions.width
     local paneFrom = split and (split + 2) or nil
     local results = state.craft_results or {}
+    local windowStart = state.craft_window_start or 1
+    -- The true count across the whole ranked match, which can run to thousands; #results is
+    -- only the size of the coordinator's materialized window. Positions/counts shown to the
+    -- operator, and the scrollable range, must use the true count so the list never appears
+    -- to end at the window boundary.
+    local totalResults = state.craft_result_count or #results
     local queryRow = regions.content.top
     local queryBoxWidth = regions.width - 4
     local queryText = state.craft_query .. (state.mode == "craft_search" and "_" or "")
     Draw.text(surface, 2, queryRow, ">", 1, Theme.role.focus, Theme.role.ground)
     Draw.text(surface, 4, queryRow, queryText, queryBoxWidth, Theme.role.text, Theme.role.ground)
     if state.mode == "craft_search" then
-        local highlighted = results[state.craft_selection or 1]
+        local highlighted = craftSelected(state)
         local tail = highlighted and
             ghostTail(state.craft_query, tostring(highlighted.display_name or highlighted.item))
         local ghostWidth = queryBoxWidth - #queryText
@@ -1302,13 +1327,19 @@ function UI:_crafting(state, model, hitRegions)
         self:_bandText(paneFrom, bandRow, "SELECTED", regions.width - paneFrom)
         Draw.divider(surface, split, bandRow, bottom, Theme.role.panel)
     end
-    if #results == 0 then
+    if totalResults == 0 then
         Draw.text(surface, 2, bandRow + 1, "No matching recipes", math.max(1, listTo - 2),
             Theme.role.muted, Theme.role.ground)
     end
-    self:_list(bandRow + 1, bottom, #results, state.craft_selection or 1,
+    -- index here is a position in the true, unbounded order, not an offset into results: the
+    -- coordinator only materializes the window scrollFor would draw, so most indexes this
+    -- callback is offered have no corresponding entry and are skipped. As long as the
+    -- coordinator sized and offset its window with the same scrollFor/visible math this _list
+    -- call uses, every index actually visible this frame does have one.
+    self:_list(bandRow + 1, bottom, totalResults, state.craft_selection or 1,
         function(index, y, selected)
-            local entry = results[index]
+            local entry = results[index - windowStart + 1]
+            if not entry then return end
             self:_row(y, selected, 1, listTo, selected and ">" or nil, nil,
                 tostring(entry.display_name or entry.item),
                 formatNumber(entry.quantity or 0),
@@ -1318,7 +1349,7 @@ function UI:_crafting(state, model, hitRegions)
                 command={type="ACTIVATE", index=index}}
         end)
 
-    local chosen = results[state.craft_selection or 1]
+    local chosen = craftSelected(state)
     if paneFrom and state.mode == "craft_quantity" then
         local paneWidth = regions.width - paneFrom
         local item = state.craft_item or {}
@@ -1525,6 +1556,20 @@ function UI:_frame(state, model)
     surface.setTextColor(Theme.role.text)
     surface.setCursorBlink(state.mode == "search" or state.mode == "craft_search")
     return { hit_regions=hitRegions }
+end
+
+-- Exposed so the coordinator can window the craft results around the true selection using
+-- the exact same offset math the renderer uses, rather than reimplementing it and risking the
+-- two disagreeing about which rows are on screen.
+UI.scrollFor = scrollFor
+
+-- The crafting list's visible row count: a query row, then a band row, then the list runs to
+-- the content bottom -- mirrors the layout UI:_crafting itself uses. Kept here so
+-- coordinator.lua (which sizes the crafting results window) and the renderer agree on
+-- "visible" without duplicating the layout arithmetic in two files.
+function UI.craftListVisible(width, height)
+    local regions = Layout.regions(width, height)
+    return math.max(0, regions.content.bottom - regions.content.top - 1)
 end
 
 return UI

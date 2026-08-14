@@ -30,6 +30,7 @@ local defaultModules = {
     "tests.test_craft_monitor",
     "tests.test_craft_ui",
     "tests.test_craft_integration",
+    "tests.test_craft_window",
     "tests.test_craft_endtoend",
     "tests.test_reconciliation",
     "tests.test_transfer",
