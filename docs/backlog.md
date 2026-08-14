@@ -46,6 +46,12 @@ too low. Worth measuring against real multi-step crafts before trusting them.
 
 ## Untested paths
 
+`tools/emulator/` narrowed this list but did not empty it. It runs the controller under
+ComputerCraft's own Lua 5.2 against emulated inventories, which is a real third tier between
+the host suite and the live installation — but it emulates no crafting turtle, so every
+crafting path below still has never run outside host fakes. See
+[`emulator.md`](emulator.md) for what it does and does not reproduce.
+
 These work in the host suite and have never run in game:
 
 - **A large batched craft against the modded pack.** 500 sticks worked against the vanilla
@@ -55,9 +61,19 @@ These work in the host suite and have never run in game:
 - **The `TRANSFER_STALLED` alert.** Added after a real stall, never seen fire.
 - **Job cancellation mid-craft.**
 
+Now covered outside the host suite, under real CC Lua 5.2 rather than in game: boot from the
+deployment manifest, indexing and stock aggregation across eight containers, search filtering,
+page navigation, the setup wizard's discovery step, and NBT variants staying distinct through
+scanning and indexing. Emulated, not played — but no longer only host fakes.
+
 ## Performance
 
-Measured on the host, never on a ComputerCraft computer, where everything is far slower:
+Measured on the host, never on a ComputerCraft computer, where everything is far slower.
+`python3 tools/emulator/craftos.py profile` now counts peripheral calls exactly — the unit
+that actually costs server ticks, and previously only inferrable from wall-clock timings.
+It confirms the scanner issues one `size` and one `list` per node per scan and nothing else
+per slot beyond the metadata budget. It does not model tick cost, so it ranks work rather
+than predicting how long the real computer takes:
 
 - `items.lua` is 1.85 MB and parsed eagerly at boot. Boot time on #4 has not been measured
   since the pack grew; if `INDEXING` now takes noticeably longer, this is why.
@@ -105,3 +121,16 @@ clickable terminal. What follows is what it did not address.
   with no slot or stack limits; single-ingredient staging tests that could not see the buffer
   ordering bug; hand-written dump fixtures using ints where KubeJS emits floats. A shared
   fake that models CC's real constraints once would be worth more than the individual fixes.
+  `tools/emulator/` is the strongest version of that — it is not a double at all, but the
+  real runtime — and it already covers inventories, stack limits, slot counts and Lua 5.2
+  semantics. It does not yet cover the turtle, which is where several of the defects above
+  actually came from, so the argument for a constrained shared fake still stands for
+  `turtle/`.
+- **The emulator has no crafting turtle.** `periphemu` can create a `computer` peripheral, so
+  a second emulated computer running `turtle/` is possible in principle; until then crafting
+  is exercised only by host fakes, and `scenario.configured()` deliberately leaves the turtle
+  unbound so the Craft page reports crafting unavailable rather than pretending.
+- **Emulated NBT does not survive item movement.** `smoke/world.lua` re-attaches seeded NBT
+  per inventory and slot because CraftOS-PC's chests drop it entirely; the shim does not
+  follow items through `pushItems`/`pullItems`. Enough for indexing, search and planning;
+  not enough to test a transfer that moves a variant.
