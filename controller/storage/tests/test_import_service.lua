@@ -13,7 +13,7 @@ local function step(limit)
         source_epoch=10,destination_epoch=20,source_pre_count=limit,destination_pre_count=0,
         identity_key=stone,limit=limit}
 end
-local function service(plans,outcomes)
+local function service(plans,outcomes,extra)
     local calls=0;local planner={}
     function planner.planImport() calls=calls+1;local value=plans[calls];return value.plan,value.remainder,value.reason end
     local transfer={execute_calls=0,verify_calls=0,retire_calls=0,cursor=1}
@@ -27,8 +27,10 @@ local function service(plans,outcomes)
     end
     function transfer:retire() self.retire_calls=self.retire_calls+1;return true end
     local alerts=Alerts.new(function() return 0 end)
-    return ImportService.new({planner=planner,transfer=transfer,alerts=alerts,
-        transition=Lifecycle.transition,clock=function() return 0 end}),transfer,alerts
+    local deps={planner=planner,transfer=transfer,alerts=alerts,
+        transition=Lifecycle.transition,clock=function() return 0 end}
+    for key,value in pairs(extra or {}) do deps[key]=value end
+    return ImportService.new(deps),transfer,alerts
 end
 local function context(count,generation)
     return {dropoff=dropoff(count),storage={{node_id="storage",health="READY",slots={}}},
@@ -126,7 +128,18 @@ return {
             return {state="VERIFYING",journal={},rescan={}} end
         local ctx=context(20)
         imports:tick(ctx);imports:tick(ctx);imports:tick(ctx)
-        T.equal(#submitted,8,"the default cap bounds a single batch")
+        T.equal(#submitted,8,"the constructor's own conservative default bounds a batch")
+    end},
+    {name="a batch honours a raised cap, the shipped production value",run=function()
+        local submitted
+        local plan={}
+        for index=1,20 do plan[index]=step(1);plan[index].destination_slot=index end
+        local imports,transfer=service({{plan=plan,remainder=0}},{},{batch_limit=16})
+        function transfer:executeMultiBatch(_,steps) submitted=steps
+            return {state="VERIFYING",journal={},rescan={}} end
+        local ctx=context(20)
+        imports:tick(ctx);imports:tick(ctx);imports:tick(ctx)
+        T.equal(#submitted,16,"main.lua raises the shipped cap to 16")
     end},
     {name="opposite import delta raises a critical actionable alert",run=function()
         local imports,transfer,alerts=service({{plan={step(5)},remainder=0}},

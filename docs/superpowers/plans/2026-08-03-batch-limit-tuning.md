@@ -1,6 +1,9 @@
 # Batch limit tuning
 
-Status: pending. Small, measurement-driven; no design work needed.
+Status: `batch_limit` raised to 16 in `main.lua` and the pinned tests updated
+(branch `pickup-perf`); host suite green. Steps 3-4 (deploy and live-measure
+against the table below) still need an operator at the live controller and are
+not done here.
 
 ## Why
 
