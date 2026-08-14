@@ -82,4 +82,49 @@ return {
         end
         T.truthy(sawMissingStorage)
     end},
+    {name="Validate lists every issue and jumps to the step that fixes it",run=function()
+        local coordinator = Main.build(environment())
+        coordinator:handle({"key", keys.right}) -- 1 -> 2
+        coordinator:handle({"key", keys.enter}) -- assign dropoff, -> 3
+        coordinator:handle({"key", keys.enter}) -- assign pickup, -> 4
+        for _ = 4, 8 do coordinator:handle({"key", keys.right}) end -- -> 9, auto-validates
+        local model = coordinator:viewModel()
+        T.equal(model.ui.setup_step, 9)
+        local jumpIndex
+        for index, choice in ipairs(model.ui.setup_choices) do
+            if choice.jump_step == 4 then jumpIndex = index end
+        end
+        T.truthy(jumpIndex, "MISSING_STORAGE should offer a jump to step 4")
+        for _ = 2, jumpIndex do coordinator:handle({"key", keys.down}) end
+        coordinator:handle({"key", keys.enter})
+        T.equal(coordinator:viewModel().ui.setup_step, 4)
+    end},
+    {name="Validate resolves a suspected duplicate in place via confirm_nodes",run=function()
+        local inventories = {drop=chestInventory(27), pick=chestInventory(27),
+            a=chestInventory(3075), b=chestInventory(3075)}
+        local coordinator, services = Main.build(environment(inventories))
+        local setup = services.setup
+        setup:assign("dropoff", "drop")
+        setup:assign("pickup", "pick")
+        setup:addStorage("a", "Vault A", 1)
+        setup:addStorage("b", "Vault B", 2)
+        coordinator:command({type="SYNC_SETUP", step=9, choices={}, issues={}})
+        coordinator:handle({"key", keys.enter}) -- run validation
+        local model = coordinator:viewModel()
+        T.equal(model.ui.setup_step, 9)
+        local confirmIndex
+        for index, choice in ipairs(model.ui.setup_choices) do
+            if choice.confirm_nodes then confirmIndex = index end
+        end
+        T.truthy(confirmIndex, "identical empty chests should surface a duplicate-confirm row")
+        for _ = 2, confirmIndex do coordinator:handle({"key", keys.down}) end
+        coordinator:handle({"key", keys.enter})
+        model = coordinator:viewModel()
+        T.equal(model.ui.setup_step, 9, "confirming stays on Validate")
+        local stillSuspected = false
+        for _, choice in ipairs(model.ui.setup_choices) do
+            if choice.confirm_nodes then stillSuspected = true end
+        end
+        T.equal(stillSuspected, false, "the pair is no longer flagged as suspected after confirming")
+    end},
 }

@@ -125,6 +125,16 @@ local function boundMonitor(peripheralApi,name,fallback)
 end
 
 
+-- Only codes with one unambiguous fix location get a jump. PERIPHERAL_MISSING,
+-- MISSING_METHOD, DUPLICATE_BINDING, and DUPLICATE_CONFIRMED name a peripheral or role in
+-- their own message instead; showing the full message is enough context without guessing.
+local SETUP_ISSUE_STEP = {
+    MISSING_DROPOFF=2, ROLE_COLLISION=2,
+    MISSING_PICKUP=3,
+    MISSING_STORAGE=4,
+    BUFFER_COLLISION=5, TURTLE_WITHOUT_BUFFER=5,
+}
+
 local function setupChoices(service,step)
     local discovered=service:discover()
     local draft=service:draft()
@@ -199,7 +209,20 @@ local function setupChoices(service,step)
         for _,choice in ipairs(choices) do
             if choice.name then choice.label=bound(choice.name,current) end
         end
-    elseif step==9 then choices={{label="Run read-only validation",detail="moves no items"}}
+    elseif step==9 then
+        choices={{label="Run validation and continue",detail="moves no items"}}
+        local report=service:validate()
+        for _,iss in ipairs(report.issues) do
+            local row={label=iss.message,blocking=iss.blocking}
+            if iss.code=="DUPLICATE_SUSPECTED" and iss.details and iss.details.nodes then
+                row.confirm_nodes=iss.details.nodes
+                row.detail="Enter confirms these are two different containers"
+            elseif SETUP_ISSUE_STEP[iss.code] then
+                row.jump_step=SETUP_ISSUE_STEP[iss.code]
+                row.detail="Enter jumps to step "..row.jump_step
+            end
+            choices[#choices+1]=row
+        end
     elseif step==10 then choices={{label="Save configuration and enable",detail="starts immediately"}} end
     return choices
 end
@@ -371,8 +394,15 @@ function Main.build(environment)
                 setup:assign(roles[step],choice.name)
                 syncSetup(active,setup,step+1)
             elseif step==9 then
-                report=setup:validate()
-                syncSetup(active,setup,report.ok and 10 or 9,report.issues)
+                if choice and choice.confirm_nodes then
+                    setup:confirmDistinct(choice.confirm_nodes[1],choice.confirm_nodes[2])
+                    syncSetup(active,setup,9,{})
+                elseif choice and choice.jump_step then
+                    syncSetup(active,setup,choice.jump_step,{})
+                else
+                    report=setup:validate()
+                    syncSetup(active,setup,report.ok and 10 or 9,{})
+                end
             elseif step==10 and report and report.ok then
                 local topologyOk,topologyReason=active:topologyChangeSafe()
                 if not topologyOk then

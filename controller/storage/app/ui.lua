@@ -922,7 +922,12 @@ function UI:_setupWizard(state, model)
     self:_list(regions.content.top + 3, regions.content.bottom - 1, #choices, state.selection,
         function(index, y, selected)
             local choice = choices[index]
-            self:_row(y, selected, 1, regions.width, nil, nil,
+            local marker, markerColor
+            if choice.blocking ~= nil then
+                marker = choice.blocking and "!" or "i"
+                markerColor = choice.blocking and Theme.role.alert or Theme.role.warn
+            end
+            self:_row(y, selected, 1, regions.width, marker, markerColor,
                 tostring(choice.label or choice.name), choice.detail)
         end)
     local issues = state.setup_issues or (model.setup and model.setup.issues) or {}

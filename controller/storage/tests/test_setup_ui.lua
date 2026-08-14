@@ -124,4 +124,20 @@ return {
             choices={{label="Skip"},{label="e"}}})
         T.equal(state.selection,1)
     end},
+
+    {name="Validate step renders a blocking issue with an alert marker",run=function()
+        local surface = T.recordingSurface(51, 19)
+        local ui = UI.new(surface)
+        local state = UI.initialState()
+        state.mode, state.page, state.setup_step = "setup", "setup", 9
+        state.setup_choices = {
+            {label="Run validation and continue", detail="moves no items"},
+            {label="Assign a Drop-off inventory", blocking=true},
+        }
+        state.setup_choice_count = 2
+        state.selection = 1
+        ui:render(state, {})
+        T.equal(surface.foregroundAt(2, 7), Theme.role.alert)
+        T.equal(surface.writesOutsideBounds(), 0)
+    end},
 }
