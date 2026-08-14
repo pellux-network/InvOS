@@ -39,6 +39,34 @@ return {
         T.equal(results[1].score, 100)
         T.equal(#Search.query(index(items), "cbblstn", {}, 8), 0)
     end },
+    { name = "search matches multi-word abbreviations in order", run = function()
+        local mushrooms = {
+            {key="red",name="minecraft:red_mushroom",display_name="Red Mushroom",quantity=4},
+            {key="brown",name="minecraft:brown_mushroom",display_name="Brown Mushroom",quantity=2},
+        }
+        local results = Search.query(index(mushrooms), "re mush", {}, 8)
+        T.equal(#results, 1)
+        T.equal(results[1].display_name, "Red Mushroom")
+        T.equal(results[1].score, 400)
+    end },
+    { name = "search abbreviations require query word order", run = function()
+        local mushrooms = {
+            {key="red",name="minecraft:red_mushroom",display_name="Red Mushroom",quantity=4},
+        }
+        T.equal(#Search.query(index(mushrooms), "mush re", {}, 8), 0)
+    end },
+    { name = "search abbreviations tolerate a typo in either word", run = function()
+        -- Each word carries its own typo ("goldn"/"golden", "aople"/"apple"), so the
+        -- combined query differs from the display name by two edits overall -- only a
+        -- per-token fuzzy check, not a whole-string one, can still find this.
+        local fruit = {
+            {key="apple",name="minecraft:golden_apple",display_name="Golden Apple",quantity=1},
+        }
+        local results = Search.query(index(fruit), "goldn aople", {}, 8)
+        T.equal(#results, 1)
+        T.equal(results[1].display_name, "Golden Apple")
+        T.equal(results[1].score, 100)
+    end },
     { name = "empty search ranks frequent and recent requests", run = function()
         local recent = {
             {key="a",name="mod:a",display_name="A",quantity=1,request_count=2,last_requested=50},

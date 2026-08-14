@@ -1,3 +1,5 @@
+local Match = require("app.match")
+
 local Coordinator = {}
 Coordinator.__index = Coordinator
 
@@ -842,13 +844,14 @@ end
 -- Namespaced item IDs are lowercase by construction, so they are compared as-is.
 function Coordinator:_craftSearchIndex()
     if self.craftSearchIndex then return self.craftSearchIndex end
-    local labels, paths = {}, {}
+    local labels, paths, words = {}, {}, {}
     for index, entry in ipairs(self:_craftCatalogue()) do
         local id = tostring(entry.item)
         labels[index] = tostring(entry.display_name or id):lower()
         paths[index] = id:match("[^:]+$") or id
+        words[index] = Match.words(labels[index])
     end
-    self.craftSearchIndex = {labels=labels, paths=paths}
+    self.craftSearchIndex = {labels=labels, paths=paths, words=words}
     return self.craftSearchIndex
 end
 
@@ -880,11 +883,16 @@ end
 -- The three kinds of exact match are ranked apart rather than lumped together, because
 -- several mods can share a path: "chest" is the exact path of both minecraft:chest and
 -- ae2:chest, and only one of them is named "Chest".
-local function relevance(label, id, path, needle)
-    if id == needle then return 6 end
-    if label == needle then return 5 end
-    if path == needle then return 4 end
-    if path:sub(1, #needle) == needle or label:sub(1, #needle) == needle then return 3 end
+--
+-- Abbreviation matching sits between a whole-string prefix and a word-start substring:
+-- it is a deliberate multi-word prefix chain ("re mush" for "red mushroom"), stronger
+-- evidence of intent than one word merely starting with the whole query mid-string.
+local function relevance(label, id, path, needle, labelWords, needleTokens)
+    if id == needle then return 7 end
+    if label == needle then return 6 end
+    if path == needle then return 5 end
+    if path:sub(1, #needle) == needle or label:sub(1, #needle) == needle then return 4 end
+    if #needleTokens > 1 and Match.abbreviationMatch(labelWords, needleTokens) then return 3 end
     local inLabel = label:find(needle, 1, true) ~= nil
     local inPath = path:find(needle, 1, true) ~= nil
     if not inLabel and not inPath then
@@ -899,7 +907,7 @@ local function relevance(label, id, path, needle)
 end
 
 local CRAFT_SEARCH_LIMIT = 60
-local CRAFT_BEST_SCORE = 6
+local CRAFT_BEST_SCORE = 7
 
 -- Rank matches rather than taking the first page of them in catalogue order.
 --
@@ -930,12 +938,15 @@ function Coordinator:_craftSearch(query)
     end
 
     local index = self:_craftSearchIndex()
-    local labels, paths = index.labels, index.paths
+    local labels, paths, words = index.labels, index.paths, index.words
+    local tokens = Match.words(needle)
     local buckets = {}
+    local matched = false
     for position, entry in ipairs(catalogue) do
         local score = relevance(labels[position], tostring(entry.item),
-            paths[position], needle)
+            paths[position], needle, words[position], tokens)
         if score > 0 then
+            matched = true
             local bucket = buckets[score]
             if not bucket then bucket = {}; buckets[score] = bucket end
             if #bucket < CRAFT_SEARCH_LIMIT then bucket[#bucket + 1] = entry end
@@ -945,9 +956,23 @@ function Coordinator:_craftSearch(query)
         if best and #best >= CRAFT_SEARCH_LIMIT then break end
     end
 
-    for score = CRAFT_BEST_SCORE, 1, -1 do
-        for _, entry in ipairs(buckets[score] or {}) do
-            if #results >= CRAFT_SEARCH_LIMIT then return results end
+    if matched then
+        for score = CRAFT_BEST_SCORE, 1, -1 do
+            for _, entry in ipairs(buckets[score] or {}) do
+                if #results >= CRAFT_SEARCH_LIMIT then return results end
+                take(entry)
+            end
+        end
+        return results
+    end
+
+    -- Nothing matched even loosely: fall back to typo-tolerant abbreviation matching.
+    -- This costs one edit-distance check per catalogue entry, so it only runs when the
+    -- cheap tiers above found nothing at all -- the overwhelmingly common case already
+    -- matches without ever reaching here.
+    for position, entry in ipairs(catalogue) do
+        if #results >= CRAFT_SEARCH_LIMIT then break end
+        if Match.abbreviationFuzzyMatch(words[position], tokens) then
             take(entry)
         end
     end
