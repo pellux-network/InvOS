@@ -86,4 +86,77 @@ return {
         T.truthy(#coordinator.notices>0, "the crash must be recorded")
         T.contains(coordinator.notices[#coordinator.notices].message,"boom")
     end},
+    {name="a scanner failure clears once the same node scans successfully",run=function()
+        local d=dependencies()
+        d.alerts=Alerts.new(function() return 100 end)
+        local coordinator=Coordinator.new(d)
+        coordinator:tick(1)
+        T.equal(#coordinator:viewModel().alerts,1)
+        T.equal(coordinator:viewModel().alerts[1].key,"component_error:scanner")
+        coordinator:tick(2)
+        T.equal(#coordinator:viewModel().alerts,0)
+    end},
+    {name="an index rebuild failure clears once rebuilding succeeds",run=function()
+        local d=dependencies()
+        d.alerts=Alerts.new(function() return 100 end)
+        local calls=0
+        d.build_index=function()
+            calls=calls+1
+            if calls==1 then error("index corrupt") end
+            return {items=function() return {} end}
+        end
+        local coordinator=Coordinator.new(d)
+        coordinator:_rebuildIndex()
+        T.equal(coordinator:viewModel().alerts[1].key,"component_error:index")
+        coordinator:_rebuildIndex()
+        T.equal(#coordinator:viewModel().alerts,0)
+    end},
+    {name="a search failure clears once search succeeds",run=function()
+        local d=dependencies()
+        d.alerts=Alerts.new(function() return 100 end)
+        local calls=0
+        d.search=function()
+            calls=calls+1
+            if calls==1 then error("search index locked") end
+            return {}
+        end
+        local coordinator=Coordinator.new(d)
+        coordinator:_rebuildIndex()
+        T.equal(coordinator:viewModel().alerts[1].key,"component_error:search")
+        coordinator:_rebuildIndex()
+        T.equal(#coordinator:viewModel().alerts,0)
+    end},
+    {name="a metadata enrichment failure clears once enrichment succeeds",run=function()
+        local d=dependencies()
+        d.alerts=Alerts.new(function() return 100 end)
+        local calls=0
+        d.enrich_step=function(_,_,_,state)
+            calls=calls+1
+            if calls==1 then error("registry unavailable") end
+            return state or {done=true,metadata={}}
+        end
+        local coordinator=Coordinator.new(d)
+        coordinator:_rebuildIndex()
+        coordinator:_enrichStep()
+        T.equal(coordinator:viewModel().alerts[1].key,"component_error:metadata")
+        coordinator:_enrichStep()
+        T.equal(#coordinator:viewModel().alerts,0)
+    end},
+    {name="an automation service failure clears once its next tick succeeds",run=function()
+        local d=dependencies()
+        d.alerts=Alerts.new(function() return 100 end)
+        d.requests=nil
+        local calls=0
+        d.imports={status=function() return {state="IDLE"} end,
+            tick=function()
+                calls=calls+1
+                if calls==1 then error("push failed") end
+                return {state="IDLE"}
+            end}
+        local coordinator=Coordinator.new(d)
+        coordinator:_automationStep(1000)
+        T.equal(coordinator:viewModel().alerts[1].key,"component_error:imports")
+        coordinator:_automationStep(1001)
+        T.equal(#coordinator:viewModel().alerts,0)
+    end},
 }

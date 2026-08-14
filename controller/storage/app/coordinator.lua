@@ -107,6 +107,12 @@ function Coordinator:_recordError(component, reason, node)
     self.dirty = true
 end
 
+function Coordinator:_clearError(component)
+    if self.deps.alerts and type(self.deps.alerts.resolve) == "function" then
+        pcall(self.deps.alerts.resolve, self.deps.alerts, "component_error:" .. tostring(component))
+    end
+end
+
 -- Lifecycle only needs role health counts. Building it without snapshot copies keeps
 -- the per-tick cost independent of how many slots the storage pool holds.
 function Coordinator:_statusContext(now)
@@ -225,10 +231,12 @@ function Coordinator:_rebuildIndex()
     end
     local ok, result = pcall(self.deps.build_index, snapshots, self.metadata)
     if ok then
+        self:_clearError("index")
         self.index, self.enrichment = result, nil
         local queryOk, results = pcall(self.deps.search, result, self.uiState.query or "",
             self.deps.aliases or {}, self.deps.search_limit or self:_defaultSearchLimit())
         if queryOk then
+            self:_clearError("search")
             local reduced, effect = self.ui:reduce(self.uiState,
                 {type="SYNC_RESULTS",results=results or {}})
             self.uiState = reduced or self.uiState
@@ -338,6 +346,7 @@ function Coordinator:_scanStep(now)
             self.scanFailedAt[active.node.id] = nil
             self.scanFailures[active.node.id] = nil
             self.generation = self.generation + 1
+            self:_clearError("scanner")
             self:_rebuildIndex()
         else self:_noteScanFailure(active.node, reason and reason.message or reason, now) end
         -- Only a finished scan changes anything on screen. Marking dirty on every partial
@@ -353,6 +362,7 @@ function Coordinator:_enrichStep()
     local ok, state = pcall(self.deps.enrich_step, self.index, self.deps.registry,
         self.metadataBudget, self.enrichment)
     if not ok then self:_recordError("metadata", state); return end
+    self:_clearError("metadata")
     self.enrichment = state
     -- Enrichment owns this table and mutates it in place, so hold the reference rather than
     -- rebuilding a copy of it on every tick. Index.build already deep-copies whatever it is
@@ -496,19 +506,22 @@ function Coordinator:_automationStep(now)
     -- Automation advancing is user-visible: request progress, node states, alerts.
     self.dirty=true
     if not ok then self:_recordError(selected[1],result)
-    elseif type(result)=="table" and result.rescan and
-        (result.state=="VERIFYING" or result.state=="BLOCKED" or selected[1]=="crafts") then
-        -- Crafting asks for a rescan from its own states, not VERIFYING or BLOCKED: the
-        -- turtle drops output into the buffer without anything telling the controller.
-        --
-        -- A gate can never open while the asking service is TRANSFERRING, because
-        -- _scanStep refuses to scan then and the revision it waits on never advances --
-        -- which stops the whole rotation, including the transfer the gate is waiting on.
-        -- Queue the rescan instead and let it happen once the transfer settles.
-        if serviceState(selected[1],selected[2])=="TRANSFERRING" then
-            self:requestRescan(result.rescan)
-        else
-            self:_setVerificationGate(selected[1],result.rescan)
+    else
+        self:_clearError(selected[1])
+        if type(result)=="table" and result.rescan and
+            (result.state=="VERIFYING" or result.state=="BLOCKED" or selected[1]=="crafts") then
+            -- Crafting asks for a rescan from its own states, not VERIFYING or BLOCKED: the
+            -- turtle drops output into the buffer without anything telling the controller.
+            --
+            -- A gate can never open while the asking service is TRANSFERRING, because
+            -- _scanStep refuses to scan then and the revision it waits on never advances --
+            -- which stops the whole rotation, including the transfer the gate is waiting on.
+            -- Queue the rescan instead and let it happen once the transfer settles.
+            if serviceState(selected[1],selected[2])=="TRANSFERRING" then
+                self:requestRescan(result.rescan)
+            else
+                self:_setVerificationGate(selected[1],result.rescan)
+            end
         end
     end
 end
