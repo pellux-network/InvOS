@@ -61,7 +61,7 @@ return {
         surface:render(crafting(), {})
         local text = surface.surface.allText()
         T.contains(text, "Chest")
-        T.contains(text, "have 0")
+        T.contains(text, "0")
     end},
     {name="only the selected recipe's name scrolls; unselected long names hold still",
         run=function()

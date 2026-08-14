@@ -1282,7 +1282,7 @@ function UI:_crafting(state, model, hitRegions)
             local entry = results[index]
             self:_row(y, selected, 1, listTo, selected and ">" or nil, nil,
                 tostring(entry.display_name or entry.item),
-                "have " .. formatNumber(entry.quantity or 0),
+                formatNumber(entry.quantity or 0),
                 (entry.quantity or 0) > 0 and Theme.role.ok or Theme.role.muted,
                 nil, true)
             hitRegions[#hitRegions + 1] = {x1=1, y1=y, x2=listTo, y2=y,
