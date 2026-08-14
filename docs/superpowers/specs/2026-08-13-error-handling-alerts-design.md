@@ -21,9 +21,15 @@ Tracing the actual code turned up three separate, compounding problems:
    `worker` coroutine -> `parallel.waitForAny` -> `Main.run`, caught only
    by the single top-level `xpcall` in `main.lua:508-515`, which prints
    and ends the whole program. `startup.lua`'s supervisor then restarts
-   it. `Coordinator:run`'s `events()` loop (`app/coordinator.lua:1029-1031`)
-   has the same shape: `self:handle(...)` is called with no enclosing
-   `pcall` at that level.
+   it. `Coordinator:handle` (`app/coordinator.lua:673-710`), which is
+   what `Coordinator:run`'s `events()` loop calls for every terminal
+   event, has an independent instance of the same gap: it calls
+   `self:redraw()` directly on `monitor_resize`/`term_resize` and after
+   most commands (`coordinator.lua:686,708`), outside any `pcall`, so a
+   `_model()` failure reached through a keypress or a resize crashes the
+   same way a scan-triggered one does -- and `run()`'s `events()` closure
+   is an infinite loop with no way to unit-test it directly, so the gap
+   has to be closed inside `handle` itself to be verifiable at all.
 2. **Alerts that never self-clear.** `Coordinator:_recordError`
    (`app/coordinator.lua:98-108`) is the catch-all: nearly every `pcall`
    failure in the coordinator funnels into a `critical`
@@ -120,18 +126,55 @@ without needing to enumerate every possible defect. `_recordError` sets
 `self.dirty = true`, so the next `workStep` still redraws with the
 newly-recorded alert visible.
 
-`Coordinator:run`'s `events()` loop gets the same treatment around
-`self:handle(...)`:
+`Coordinator:handle` gets its own body wrapped the same way, so both the
+direct `redraw()` calls inside it and anything reached through
+`self.keymap.command`/`self:command` are covered by one net:
 
 ```lua
-local function events()
-    while true do
-        local event = {os.pullEventRaw()}
-        local ok, reason = pcall(self.handle, self, event)
-        if not ok then self:_recordError("input", reason) end
-    end
+function Coordinator:handle(event)
+    local ok, reason = pcall(function()
+        if type(event) ~= "table" then return end
+        local name, peripheralName = event[1], event[2]
+        if name == "peripheral_detach" or name == "peripheral" then
+            for _, node in ipairs(self.nodes) do
+                if node.peripheral_name == peripheralName then
+                    self.snapshots[node.id] = nil
+                    node.state = name == "peripheral_detach" and "OFFLINE" or "SCANNING"
+                    if name == "peripheral" then self:requestRescan({peripheralName}) end
+                end
+            end
+            self:_refreshLifecycle(); self.dirty=true
+        elseif name == "monitor_resize" or name == "term_resize" then
+            self.dirty=true; self:redraw()
+        elseif name == "rednet_message" then
+            local link = self.deps.turtle_link
+            if link and type(link.deliver) == "function" then
+                local deliverOk, deliverReason = pcall(link.deliver, link, event[2], event[3], event[4])
+                if not deliverOk then self:_recordError("turtle link", deliverReason) end
+                self.dirty = true
+            end
+        end
+        local commandOk, command = pcall(self.keymap.command, event, self.uiState)
+        if not commandOk then self:_recordError("keymap", command); return end
+        if command then
+            self:command(command)
+            if command.type == "QUERY_APPEND" or command.type == "QUERY_BACKSPACE" or
+                command.type == "QUERY_CLEAR" then self:_rebuildIndex() end
+            if command.type == "CRAFT_QUERY_APPEND" or command.type == "CRAFT_QUERY_BACKSPACE" or
+                command.type == "CRAFT_QUERY_CLEAR" or
+                (command.type == "OPEN_PAGE" and command.page == "crafting") then
+                self:_syncCraft()
+            end
+            self:redraw()
+        end
+    end)
+    if not ok then self:_recordError("input", reason) end
 end
 ```
+
+The inner `pcall` variable names (`commandOk`/`deliverOk`) are renamed
+from the original `ok` to avoid shadowing the outer one; behavior is
+otherwise identical to the current body, just wrapped.
 
 After this change, the top-level `xpcall` in `main.lua` should only ever
 fire for failures in `pcall`/`xpcall` machinery itself or a stack
@@ -275,12 +318,14 @@ banner -- clear itself.
 
 ## Testing
 
-- **Crash hardening**: inject a dependency (e.g. a fake `alerts` or
-  `ui`) whose method throws, drive one `workStep`/`handle` call, and
-  assert the coordinator is still usable afterward (subsequent calls
-  succeed) and a `component_error:coordinator` (or `input`) alert was
-  recorded. Cover both the `_model()`/`redraw` path and the `events()`
-  path.
+- **Crash hardening**: inject a fake `alerts` whose `active` method
+  throws (reached by `_model()`), drive it through both `workStep` (the
+  dirty-triggered `redraw()` at the end of the tick loop) and `handle`
+  (the direct `redraw()` on `term_resize`), and assert each records a
+  notice/alert (`"coordinator"` / `"input"`) instead of raising past the
+  call. Read `coordinator.notices` directly rather than through
+  `viewModel()`/`_model()`, since those would hit the same throwing
+  fake.
 - **Auto-clear**: for each of the four in-scope call sites (`_scanStep`,
   `_rebuildIndex`'s index and search steps, `_enrichStep`,
   `_automationStep`'s service tick), drive a failing call followed by a
