@@ -216,12 +216,22 @@ The gate runs in this order and stops at the first refusal:
 Exit status is 0 only if every check passed. On any problem the live tree is in an unknown
 state; restore from the printed backup path before booting.
 
-Two traps worth knowing, because both have caused real damage or wasted a debug cycle:
+Three traps worth knowing, because each has caused real damage or wasted a debug cycle:
 
 - `luac.exe` and Python are Windows binaries. They cannot open Git Bash `/c/...` or `/g/...`
   paths. `luac` reports "cannot open", which reads exactly like a syntax error at a glance.
 - `storage/data/*.lua` are serialized tables, not Lua chunks. They are correctly not
   parseable, which is why the parse check covers manifest files only.
+- **From WSL, don't run `python`/`python3` off `PATH`.** That's the Linux interpreter, and
+  this machine's `G:` (an sshfs-win mapped network drive) does not auto-mount under `/mnt/g`
+  the way local drives do — a WSL process cannot reach it as a filesystem at all, regardless
+  of path style, so the "Git Bash" symptom above doesn't even apply; it just looks like the
+  live tree is missing. Invoke the Windows Python launcher by its full path instead, e.g.
+  `/mnt/c/Users/Pellux/AppData/Local/Programs/Python/Launcher/py.exe`, so the process is a
+  genuine Windows process with native access to `G:\`. Run it with a working directory under
+  `/mnt/c/...` (e.g. the repo root) so WSL's interop path translation resolves a relative
+  script path and the `--repo` default correctly; `luac.exe`'s hardcoded fallback path in
+  `deploy.py` already assumes the same Windows-process model.
 
 After booting, exercise one ordinary import and one retrieval before trusting a release.
 Most defects in this system have surfaced as a service quietly not starting rather than as
