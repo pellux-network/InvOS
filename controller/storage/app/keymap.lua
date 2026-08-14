@@ -73,7 +73,7 @@ function M.command(event, state)
     -- ordinary page navigation while the destructive action is primed.
     if state.mode == "page" and state.page == "alerts" and state.recovery_confirm_armed then
         if key == keys.enter then return {type="CONFIRM_RECOVERY_RELEASE"} end
-        if key == keys.x then return {type="ARM_RECOVERY_RELEASE"} end
+        if key == keys.a then return {type="ARM_RECOVERY_RELEASE"} end
         return {type="CANCEL_RECOVERY_RELEASE"}
     end
 
@@ -143,8 +143,7 @@ function M.command(event, state)
         if key == keys.tab then return {type="OPEN_CRAFT_SEARCH"} end
     end
     if state.mode == "page" and state.page == "alerts" then
-        if key == keys.a then return {type="ACKNOWLEDGE_ALERT"} end
-        if key == keys.x then return {type="ARM_RECOVERY_RELEASE"} end
+        if key == keys.a then return {type="DISMISS_ALERT"} end
     end
 
     if state.mode == "quantity" and key == keys.c then

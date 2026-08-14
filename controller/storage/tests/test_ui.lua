@@ -181,14 +181,14 @@ return {
         T.equal(cancelEffect.type,"CANCEL_REQUEST")
         T.equal(cancelEffect.index,3)
     end },
-    { name = "acknowledging an alert dispatches the selected alert index", run = function()
+    { name = "dismissing an alert dispatches the selected alert index", run = function()
         local ui=UI.new(T.recordingSurface(51,19))
         local state=UI.initialState()
         state.page="alerts"
         state=ui:reduce(state,{type="SYNC_ALERTS",count=4})
         state=ui:reduce(state,{type="MOVE",delta=1})
-        local _,effect=ui:reduce(state,{type="ACKNOWLEDGE_ALERT"})
-        T.equal(effect.type,"ACKNOWLEDGE_ALERT")
+        local _,effect=ui:reduce(state,{type="DISMISS_ALERT"})
+        T.equal(effect.type,"DISMISS_ALERT")
         T.equal(effect.index,2)
     end },
     { name = "toggling pause emits an effect for the coordinator", run = function()

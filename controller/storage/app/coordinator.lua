@@ -107,6 +107,12 @@ function Coordinator:_recordError(component, reason, node)
     self.dirty = true
 end
 
+function Coordinator:_clearError(component)
+    if self.deps.alerts and type(self.deps.alerts.resolve) == "function" then
+        pcall(self.deps.alerts.resolve, self.deps.alerts, "component_error:" .. tostring(component))
+    end
+end
+
 -- Lifecycle only needs role health counts. Building it without snapshot copies keeps
 -- the per-tick cost independent of how many slots the storage pool holds.
 function Coordinator:_statusContext(now)
@@ -225,10 +231,12 @@ function Coordinator:_rebuildIndex()
     end
     local ok, result = pcall(self.deps.build_index, snapshots, self.metadata)
     if ok then
+        self:_clearError("index")
         self.index, self.enrichment = result, nil
         local queryOk, results = pcall(self.deps.search, result, self.uiState.query or "",
             self.deps.aliases or {}, self.deps.search_limit or self:_defaultSearchLimit())
         if queryOk then
+            self:_clearError("search")
             local reduced, effect = self.ui:reduce(self.uiState,
                 {type="SYNC_RESULTS",results=results or {}})
             self.uiState = reduced or self.uiState
@@ -338,6 +346,7 @@ function Coordinator:_scanStep(now)
             self.scanFailedAt[active.node.id] = nil
             self.scanFailures[active.node.id] = nil
             self.generation = self.generation + 1
+            self:_clearError("scanner")
             self:_rebuildIndex()
         else self:_noteScanFailure(active.node, reason and reason.message or reason, now) end
         -- Only a finished scan changes anything on screen. Marking dirty on every partial
@@ -353,6 +362,7 @@ function Coordinator:_enrichStep()
     local ok, state = pcall(self.deps.enrich_step, self.index, self.deps.registry,
         self.metadataBudget, self.enrichment)
     if not ok then self:_recordError("metadata", state); return end
+    self:_clearError("metadata")
     self.enrichment = state
     -- Enrichment owns this table and mutates it in place, so hold the reference rather than
     -- rebuilding a copy of it on every tick. Index.build already deep-copies whatever it is
@@ -496,19 +506,22 @@ function Coordinator:_automationStep(now)
     -- Automation advancing is user-visible: request progress, node states, alerts.
     self.dirty=true
     if not ok then self:_recordError(selected[1],result)
-    elseif type(result)=="table" and result.rescan and
-        (result.state=="VERIFYING" or result.state=="BLOCKED" or selected[1]=="crafts") then
-        -- Crafting asks for a rescan from its own states, not VERIFYING or BLOCKED: the
-        -- turtle drops output into the buffer without anything telling the controller.
-        --
-        -- A gate can never open while the asking service is TRANSFERRING, because
-        -- _scanStep refuses to scan then and the revision it waits on never advances --
-        -- which stops the whole rotation, including the transfer the gate is waiting on.
-        -- Queue the rescan instead and let it happen once the transfer settles.
-        if serviceState(selected[1],selected[2])=="TRANSFERRING" then
-            self:requestRescan(result.rescan)
-        else
-            self:_setVerificationGate(selected[1],result.rescan)
+    else
+        self:_clearError(selected[1])
+        if type(result)=="table" and result.rescan and
+            (result.state=="VERIFYING" or result.state=="BLOCKED" or selected[1]=="crafts") then
+            -- Crafting asks for a rescan from its own states, not VERIFYING or BLOCKED: the
+            -- turtle drops output into the buffer without anything telling the controller.
+            --
+            -- A gate can never open while the asking service is TRANSFERRING, because
+            -- _scanStep refuses to scan then and the revision it waits on never advances --
+            -- which stops the whole rotation, including the transfer the gate is waiting on.
+            -- Queue the rescan instead and let it happen once the transfer settles.
+            if serviceState(selected[1],selected[2])=="TRANSFERRING" then
+                self:requestRescan(result.rescan)
+            else
+                self:_setVerificationGate(selected[1],result.rescan)
+            end
         end
     end
 end
@@ -550,12 +563,15 @@ end
 
 function Coordinator:workStep(now)
     now = now or self.clock()
-    self:_scanStep(now)
-    self:_enrichStep()
-    self:_automationStep(now)
-    self:_stallStep(now)
-    self:_refreshLifecycle(now)
-    if self.dirty then self:redraw() end
+    local ok, reason = pcall(function()
+        self:_scanStep(now)
+        self:_enrichStep()
+        self:_automationStep(now)
+        self:_stallStep(now)
+        self:_refreshLifecycle(now)
+        if self.dirty then self:redraw() end
+    end)
+    if not ok then self:_recordError("coordinator", reason) end
 end
 
 function Coordinator:tick(now) self:workStep(now or self.clock()) end
@@ -580,11 +596,17 @@ function Coordinator:_dispatch(effect)
             local ok, reason = pcall(self.deps.requests.cancel, self.deps.requests, target.id)
             if not ok then self:_recordError("request", reason) end
         end
-    elseif effect.type == "ACKNOWLEDGE_ALERT" and self.deps.alerts then
+    elseif effect.type == "DISMISS_ALERT" and self.deps.alerts then
         local target = self.deps.alerts.active and self.deps.alerts:active()[effect.index]
         if target then
-            local ok, reason = pcall(self.deps.alerts.acknowledge, self.deps.alerts, target.key)
-            if not ok then self:_recordError("alert", reason) end
+            local recoveryBlocked = self.deps.recovery and
+                serviceState("recovery", self.deps.recovery) == "BLOCKED"
+            if recoveryBlocked and target.key == "journal_recovery" then
+                self:command({type="ARM_RECOVERY_RELEASE"})
+            else
+                local ok, reason = pcall(self.deps.alerts.resolve, self.deps.alerts, target.key)
+                if not ok then self:_recordError("alert", reason) end
+            end
         end
     elseif effect.type == "RESOLVE_RECOVERY" and self.deps.recovery then
         local ok, reason = pcall(self.deps.recovery.resolve, self.deps.recovery)
@@ -671,42 +693,45 @@ function Coordinator:command(command)
 end
 
 function Coordinator:handle(event)
-    if type(event) ~= "table" then return end
-    local name, peripheralName = event[1], event[2]
-    if name == "peripheral_detach" or name == "peripheral" then
-        for _, node in ipairs(self.nodes) do
-            if node.peripheral_name == peripheralName then
-                self.snapshots[node.id] = nil
-                node.state = name == "peripheral_detach" and "OFFLINE" or "SCANNING"
-                if name == "peripheral" then self:requestRescan({peripheralName}) end
+    local ok, reason = pcall(function()
+        if type(event) ~= "table" then return end
+        local name, peripheralName = event[1], event[2]
+        if name == "peripheral_detach" or name == "peripheral" then
+            for _, node in ipairs(self.nodes) do
+                if node.peripheral_name == peripheralName then
+                    self.snapshots[node.id] = nil
+                    node.state = name == "peripheral_detach" and "OFFLINE" or "SCANNING"
+                    if name == "peripheral" then self:requestRescan({peripheralName}) end
+                end
+            end
+            self:_refreshLifecycle(); self.dirty=true
+        elseif name == "monitor_resize" or name == "term_resize" then
+            self.dirty=true; self:redraw()
+        elseif name == "rednet_message" then
+            -- The turtle's reply lands here, on the only loop that sees every event. The
+            -- craft service reads it from the link's inbox on its next tick.
+            local link = self.deps.turtle_link
+            if link and type(link.deliver) == "function" then
+                local deliverOk, deliverReason = pcall(link.deliver, link, event[2], event[3], event[4])
+                if not deliverOk then self:_recordError("turtle link", deliverReason) end
+                self.dirty = true
             end
         end
-        self:_refreshLifecycle(); self.dirty=true
-    elseif name == "monitor_resize" or name == "term_resize" then
-        self.dirty=true; self:redraw()
-    elseif name == "rednet_message" then
-        -- The turtle's reply lands here, on the only loop that sees every event. The
-        -- craft service reads it from the link's inbox on its next tick.
-        local link = self.deps.turtle_link
-        if link and type(link.deliver) == "function" then
-            local ok, reason = pcall(link.deliver, link, event[2], event[3], event[4])
-            if not ok then self:_recordError("turtle link", reason) end
-            self.dirty = true
+        local commandOk, command = pcall(self.keymap.command, event, self.uiState)
+        if not commandOk then self:_recordError("keymap", command); return end
+        if command then
+            self:command(command)
+            if command.type == "QUERY_APPEND" or command.type == "QUERY_BACKSPACE" or
+                command.type == "QUERY_CLEAR" then self:_rebuildIndex() end
+            if command.type == "CRAFT_QUERY_APPEND" or command.type == "CRAFT_QUERY_BACKSPACE" or
+                command.type == "CRAFT_QUERY_CLEAR" or
+                (command.type == "OPEN_PAGE" and command.page == "crafting") then
+                self:_syncCraft()
+            end
+            self:redraw()
         end
-    end
-    local ok, command = pcall(self.keymap.command, event, self.uiState)
-    if not ok then self:_recordError("keymap", command); return end
-    if command then
-        self:command(command)
-        if command.type == "QUERY_APPEND" or command.type == "QUERY_BACKSPACE" or
-            command.type == "QUERY_CLEAR" then self:_rebuildIndex() end
-        if command.type == "CRAFT_QUERY_APPEND" or command.type == "CRAFT_QUERY_BACKSPACE" or
-            command.type == "CRAFT_QUERY_CLEAR" or
-            (command.type == "OPEN_PAGE" and command.page == "crafting") then
-            self:_syncCraft()
-        end
-        self:redraw()
-    end
+    end)
+    if not ok then self:_recordError("input", reason) end
 end
 
 function Coordinator:requestRescan(names)

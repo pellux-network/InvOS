@@ -214,8 +214,7 @@ return {
         T.contains(surface.line(18),"cancel")
         state=UI.initialState(); state.page,state.mode="alerts","page"
         ui:render(state,view())
-        T.contains(surface.line(18),"acknowledge")
-        T.contains(surface.line(18),"release recovery")
+        T.contains(surface.line(18),"dismiss")
         state=UI.initialState(); state.page,state.mode="storage","page"
         ui:render(state,view())
         T.contains(surface.line(18),"scroll")

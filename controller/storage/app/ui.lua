@@ -274,8 +274,8 @@ function UI:reduce(current, command)
         return state, {type="RETRY_REQUEST",index=state.request_selection}
     elseif kind == "CANCEL_REQUEST" then
         return state, {type="CANCEL_REQUEST",index=state.request_selection}
-    elseif kind == "ACKNOWLEDGE_ALERT" then
-        return state, {type="ACKNOWLEDGE_ALERT",index=state.alert_selection}
+    elseif kind == "DISMISS_ALERT" then
+        return state, {type="DISMISS_ALERT",index=state.alert_selection}
     elseif kind == "TOGGLE_PAUSE" then
         return state, {type="TOGGLE_PAUSE"}
     elseif kind == "ARM_RECOVERY_RELEASE" then
@@ -613,7 +613,7 @@ local function footerHelp(state, width)
         return "Up/Down select  R retry  C cancel  P pause  F10 back"
     end
     if state.page == "alerts" then
-        return "Up/Down  A acknowledge  X+Enter release recovery"
+        return "Up/Down  A dismiss"
     end
     if state.page == "storage" then return "Up/Down scroll  P pause  F10 back" end
     if state.page == "crafting" then
@@ -841,11 +841,9 @@ function UI:_alerts(state, model, hitRegions)
         math.max(1, math.min(#alerts, (state or {}).alert_selection or 1)),
         function(index, y, selected)
             local alert = alerts[index]
-            -- An acknowledged alert keeps its severity colour but loses its urgency marker:
-            -- it is still true, it is just no longer asking for attention.
             local severity = alert.severity == "critical" and Theme.role.alert or Theme.role.warn
             self:_row(y, selected, 1, regions.width,
-                alert.acknowledged and "-" or "!", severity, tostring(alert.message), nil)
+                "!", severity, tostring(alert.message), nil)
             hitRegions[#hitRegions + 1] = {x1=1, y1=y, x2=regions.width, y2=y,
                 command={type="MOVE", delta=index - (state.alert_selection or 1)}}
         end)

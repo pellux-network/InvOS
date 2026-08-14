@@ -26,10 +26,10 @@ local function recordingRequests(list)
 end
 
 local function recordingAlerts(active)
-    local calls = {acknowledge={}}
+    local calls = {resolve={}}
     return {
         active=function() return active end,
-        acknowledge=function(_, key) calls.acknowledge[#calls.acknowledge + 1] = key; return true end,
+        resolve=function(_, key) calls.resolve[#calls.resolve + 1] = key; return true end,
         calls=calls,
     }
 end
@@ -91,14 +91,25 @@ return {
         coordinator:command({type="RETRY_REQUEST"})
         T.equal(#requests.calls.retry, 0)
     end},
-    {name="acknowledging the selected alert calls the alert service by key", run=function()
+    {name="dismissing the selected alert calls the alert service by key", run=function()
         local alerts = recordingAlerts({{key="scanner_1"}, {key="scanner_2"}})
         local d = baseDeps(); d.alerts = alerts
         local coordinator = Coordinator.new(d)
         coordinator.uiState.page, coordinator.uiState.mode = "alerts", "page"
         coordinator.uiState.alert_selection = 2
-        coordinator:command({type="ACKNOWLEDGE_ALERT"})
-        T.arrayEqual(alerts.calls.acknowledge, {"scanner_2"})
+        coordinator:command({type="DISMISS_ALERT"})
+        T.arrayEqual(alerts.calls.resolve, {"scanner_2"})
+    end},
+    {name="dismissing a blocked recovery alert arms the confirm flow instead of resolving it", run=function()
+        local alerts = recordingAlerts({{key="journal_recovery"}})
+        local recovery = recordingRecovery()
+        local d = baseDeps(); d.alerts, d.recovery = alerts, recovery
+        local coordinator = Coordinator.new(d)
+        coordinator.uiState.page, coordinator.uiState.mode = "alerts", "page"
+        coordinator.uiState.alert_selection = 1
+        coordinator:command({type="DISMISS_ALERT"})
+        T.equal(#alerts.calls.resolve, 0, "the alert must not resolve until confirmed")
+        T.equal(coordinator:viewModel().ui.recovery_confirm_armed, true)
     end},
     {name="confirming recovery release calls the recovery service", run=function()
         local recovery = recordingRecovery()
@@ -241,21 +252,34 @@ return {
         T.equal(model.requests[2].id, "request-2")
         T.equal(model.requests[3].id, "request-1")
     end},
-    {name="the full keyboard path acknowledges an alert after a two key recovery cancel", run=function()
+    {name="the full keyboard path dismisses an ordinary alert", run=function()
         local alerts = recordingAlerts({{key="alert-1"}})
+        local d = baseDeps(); d.alerts = alerts
+        local coordinator = Coordinator.new(d)
+        coordinator:redraw()
+        coordinator:handle({"key", keys.four})
+        T.equal(coordinator:viewModel().ui.page, "alerts")
+        coordinator:handle({"key", keys.a})
+        T.arrayEqual(alerts.calls.resolve, {"alert-1"})
+    end},
+    {name="the full keyboard path arms recovery release for a blocked recovery alert and confirms it", run=function()
+        local alerts = recordingAlerts({{key="journal_recovery"}})
         local recovery = recordingRecovery()
         local d = baseDeps(); d.alerts, d.recovery = alerts, recovery
         local coordinator = Coordinator.new(d)
         coordinator:redraw()
         coordinator:handle({"key", keys.four})
         T.equal(coordinator:viewModel().ui.page, "alerts")
-        coordinator:handle({"key", keys.x})
+        coordinator:handle({"key", keys.a})
         T.equal(coordinator:viewModel().ui.recovery_confirm_armed, true)
+        T.equal(#alerts.calls.resolve, 0, "arming must not resolve the alert directly")
         coordinator:handle({"key", keys.up})
         T.equal(coordinator:viewModel().ui.recovery_confirm_armed, false)
         T.equal(recovery.calls.resolve, 0)
         coordinator:handle({"key", keys.a})
-        T.arrayEqual(alerts.calls.acknowledge, {"alert-1"})
+        T.equal(coordinator:viewModel().ui.recovery_confirm_armed, true)
+        coordinator:handle({"key", keys.enter})
+        T.equal(recovery.calls.resolve, 1)
     end},
     {name="the notices list is capped so it cannot grow without bound", run=function()
         local d = baseDeps()

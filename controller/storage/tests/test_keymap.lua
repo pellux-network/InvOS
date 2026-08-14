@@ -61,13 +61,14 @@ return {
         T.equal(Keymap.command({"key",keys.r},state).type,"RETRY_REQUEST")
         T.equal(Keymap.command({"key",keys.c},state).type,"CANCEL_REQUEST")
     end },
-    { name = "alerts page supports selection movement and acknowledgement", run = function()
+    { name = "alerts page supports selection movement and dismiss", run = function()
         local state={mode="page",page="alerts"}
         T.equal(Keymap.command({"key",keys.up},state).delta,-1)
         T.equal(Keymap.command({"key",keys.down},state).delta,1)
-        T.equal(Keymap.command({"key",keys.a},state).type,"ACKNOWLEDGE_ALERT")
+        T.equal(Keymap.command({"key",keys.a},state).type,"DISMISS_ALERT")
+        T.equal(Keymap.command({"key",keys.x},state),nil)
     end },
-    { name = "storage page scrolls but has no retry or acknowledge shortcuts", run = function()
+    { name = "storage page scrolls but has no retry or dismiss shortcuts", run = function()
         local state={mode="page",page="storage"}
         T.equal(Keymap.command({"key",keys.up},state).delta,-1)
         T.equal(Keymap.command({"key",keys.down},state).delta,1)
@@ -75,15 +76,12 @@ return {
         T.equal(Keymap.command({"key",keys.a},state),nil)
     end },
     { name = "recovery release on the alerts page requires a deliberate two key confirm", run = function()
-        local state={mode="page",page="alerts"}
-        local armed=Keymap.command({"key",keys.x},state)
-        T.equal(armed.type,"ARM_RECOVERY_RELEASE")
         local armedState={mode="page",page="alerts",recovery_confirm_armed=true}
-        T.equal(Keymap.command({"key",keys.x},armedState).type,"ARM_RECOVERY_RELEASE")
+        T.equal(Keymap.command({"key",keys.a},armedState).type,"ARM_RECOVERY_RELEASE")
         T.equal(Keymap.command({"key",keys.enter},armedState).type,"CONFIRM_RECOVERY_RELEASE")
         T.equal(Keymap.command({"key",keys.up},armedState).type,"CANCEL_RECOVERY_RELEASE")
         T.equal(Keymap.command({"key",keys.f10},armedState).type,"CANCEL_RECOVERY_RELEASE")
-        T.equal(Keymap.command({"key",keys.a},armedState).type,"CANCEL_RECOVERY_RELEASE")
+        T.equal(Keymap.command({"key",keys.x},armedState).type,"CANCEL_RECOVERY_RELEASE")
     end },
     { name = "P toggles pause outside the search text box but never while typing", run = function()
         T.equal(Keymap.command({"key",keys.p},{mode="page",page="requests"}).type,"TOGGLE_PAUSE")

@@ -33,19 +33,11 @@ function Alerts:set(key, severity, message, details)
     else
         alert = {
             key=key, severity=severity, message=message, details=copy(details),
-            created_at=now, updated_at=now, occurrences=1, acknowledged=false,
+            created_at=now, updated_at=now, occurrences=1,
         }
         self.conditions[key] = alert
     end
     return copy(alert)
-end
-
-function Alerts:acknowledge(key)
-    local alert = self.conditions[key]
-    if not alert then return nil, "unknown alert " .. tostring(key) end
-    alert.acknowledged = true
-    alert.acknowledged_at = self.clock()
-    return true
 end
 
 function Alerts:resolve(key)
