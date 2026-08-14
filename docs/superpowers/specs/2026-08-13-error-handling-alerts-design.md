@@ -149,21 +149,33 @@ function Coordinator:_clearError(component)
 end
 ```
 
-Every existing `if not ok then self:_recordError(X, reason) end` call
-site that has a meaningful "this succeeded" branch gets a matching
-`else self:_clearError(X) end` (or the equivalent restructure where the
-site is an `elseif` chain). This applies to, at minimum: `_scanStep`'s
-scanner result, `_enrichStep`'s search/index result, `_automationStep`'s
-service tick (line ~495-498), `_dispatch`'s per-effect handlers (request,
-alert, recovery, craft, command, ui, setup, turtle link), `handle`'s
-keymap dispatch, and `redraw`'s terminal/monitor/craft-monitor render
-calls. Each of these already has a component name in its `_recordError`
-call; `_clearError` reuses the same name so the key matches exactly.
+**Scope: the continuous background work loop only** -- `_scanStep`
+(component `"scanner"`), `_rebuildIndex` (components `"index"` and
+`"search"`, called from within `_scanStep`), `_enrichStep` (component
+`"metadata"`), and `_automationStep`'s service tick (component is
+whichever of `recovery`/`imports`/`requests`/`crafts` was selected,
+line ~495-498). These all run every tick without any operator action,
+so a transient failure there needs to heal itself the moment the same
+step next succeeds -- that's the actual "monitor stays red forever for
+something that fixed itself" bug.
 
-Where a call site's "success" doesn't map to a single clean point (e.g.
-`_scanStep` scans one node per call, not all nodes at once), clear using
-that same per-unit key rather than trying to batch it -- consistent with
-how `_recordError` already scopes those alerts per-node/per-component.
+`_dispatch`'s per-effect handlers (request, alert, recovery, craft,
+command, setup, turtle link), `handle`'s keymap dispatch, and `redraw`'s
+render calls are deliberately left alone here: those alerts are raised
+by a discrete operator action (clicking retry, resizing a monitor,
+receiving one rednet reply), not a retry loop, and section 3 already
+makes every alert -- including these -- dismissable by hand from the
+Alerts page. Auto-clear only pays for itself where the operator has no
+"try again" button to press themselves; adding it to action-triggered
+alerts too would be speculative scope with no corresponding bug report.
+
+Each of the four in-scope call sites already has a component name in its
+`_recordError` call; `_clearError` reuses the same name so the key
+matches exactly. Where a call site's "success" doesn't map to a single
+clean point (`_scanStep` scans one node per call, not all nodes at
+once), clear using that same per-unit key rather than trying to batch
+it -- consistent with how `_recordError` already scopes those alerts
+per-node/per-component.
 
 No changes to `alerts.lua` itself: `set`/`resolve` already do exactly
 what's needed.
@@ -269,11 +281,11 @@ banner -- clear itself.
   succeed) and a `component_error:coordinator` (or `input`) alert was
   recorded. Cover both the `_model()`/`redraw` path and the `events()`
   path.
-- **Auto-clear**: for a representative sample of `_recordError` call
-  sites (at least `_automationStep`'s service tick and one `_dispatch`
-  effect), drive a failing call followed by a succeeding one and assert
-  the corresponding `component_error:*` alert is present after the
-  first and gone after the second.
+- **Auto-clear**: for each of the four in-scope call sites (`_scanStep`,
+  `_rebuildIndex`'s index and search steps, `_enrichStep`,
+  `_automationStep`'s service tick), drive a failing call followed by a
+  succeeding one and assert the corresponding `component_error:*` alert
+  is present after the first and gone after the second.
 - **Dismiss dispatch**: an ordinary alert's `DISMISS_ALERT` effect
   resolves it directly (`alerts:active()` no longer contains it
   afterward); a `journal_recovery` alert while `recovery.status().state
@@ -300,8 +312,8 @@ banner -- clear itself.
   (section 2) won't clear this one, since the same component keeps
   failing, so the alert (and monitor banner) will stay lit -- which is
   the correct signal for that case.
-- Broad `else self:_clearError(X) end` additions touch many call sites
-  in an already-large file (`coordinator.lua` is ~1039 lines); each one
-  needs to be checked individually against the surrounding branch
-  structure (several are `elseif` chains, not simple `if/else`) rather
-  than mechanically templated.
+- The four `_clearError` additions each sit in different branch shapes
+  (`_scanStep`'s is a plain `if/else`, `_rebuildIndex`'s is nested,
+  `_automationStep`'s is an `elseif` chain that also has to keep its
+  existing rescan-gate logic) -- each needs to be checked individually
+  against its surrounding structure rather than mechanically templated.
