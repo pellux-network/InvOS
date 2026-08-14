@@ -107,4 +107,21 @@ return {
         T.equal(surface.foregroundAt(2, 3), Theme.role.focus)
         T.equal(surface.writesOutsideBounds(), 0)
     end},
+
+    {name="setup selection resets when the step changes but is kept within the same step",run=function()
+        local ui=UI.new(T.recordingSurface(51,19))
+        local state=UI.initialState()
+        state.mode,state.page,state.setup_step="setup","setup",4
+        state.setup_choices={{label="a"},{label="b"},{label="c"}}
+        state.setup_choice_count=3
+        state.selection=3
+        -- Re-syncing the same step (e.g. after toggling a storage node) keeps the highlight.
+        state=ui:reduce(state,{type="SYNC_SETUP",step=4,
+            choices={{label="a"},{label="b"},{label="c"},{label="d"}}})
+        T.equal(state.selection,3)
+        -- Advancing to a different step resets to the first row.
+        state=ui:reduce(state,{type="SYNC_SETUP",step=5,
+            choices={{label="Skip"},{label="e"}}})
+        T.equal(state.selection,1)
+    end},
 }

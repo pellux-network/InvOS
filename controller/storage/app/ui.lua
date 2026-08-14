@@ -315,12 +315,18 @@ function UI:reduce(current, command)
         state.page, state.mode, state.setup_step = "setup", "setup", 1
         state.selection, state.setup_choices, state.setup_choice_count = 1, {}, 0
     elseif kind == "SYNC_SETUP" then
-        state.setup_step = command.step or state.setup_step or 1
+        local newStep = command.step or state.setup_step or 1
+        local changedStep = newStep ~= state.setup_step
+        state.setup_step = newStep
         state.setup_choices = copy(command.choices or {})
         state.setup_choice_count = #state.setup_choices
         state.setup_issues = copy(command.issues or {})
-        state.selection = math.max(1, math.min(state.selection,
-            math.max(1, state.setup_choice_count)))
+        if changedStep then
+            state.selection = 1
+        else
+            state.selection = math.max(1, math.min(state.selection,
+                math.max(1, state.setup_choice_count)))
+        end
     elseif kind == "SETUP_MOVE" then
         state.selection = math.max(1, math.min(math.max(1, state.setup_choice_count or 0),
             state.selection + command.delta))
