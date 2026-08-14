@@ -81,6 +81,10 @@ M.per_mode = {
             "retrieve prompt", important=true},
         {key="Up/Down", label="select", detail="Move the selection up or down the result list",
             important=true},
+        -- keymap.command handles Backspace in "search" as QUERY_BACKSPACE, the same as
+        -- every other one-character-at-a-time text box; Delete above clears the whole box.
+        {key="Backspace", label=nil, detail="Delete the last character of the search",
+            important=false},
     },
     quantity = {
         {key="Enter", label="1", detail="Request one", important=true},
@@ -88,6 +92,9 @@ M.per_mode = {
         {key="A", label="all", detail="Request everything available", important=true},
         {key="0-9", label="exact", detail="Type an exact quantity, then Enter", important=true},
         {key="C", label="craft", detail="Plan a craft for what storage cannot fill",
+            important=false},
+        -- QUANTITY_BACKSPACE: erases one digit of the typed exact quantity.
+        {key="Backspace", label=nil, detail="Delete the last digit of the typed quantity",
             important=false},
     },
     variant = {
@@ -104,11 +111,17 @@ M.per_mode = {
         {key="F2", label="jobs", detail="View craft jobs", important=true},
         {key="Up/Down", label="select", detail="Move the selection up or down the recipe list",
             important=true},
+        -- CRAFT_QUERY_BACKSPACE, the craft_search mirror of search's own Backspace entry.
+        {key="Backspace", label=nil, detail="Delete the last character of the recipe search",
+            important=false},
     },
     craft_quantity = {
         {key="0-9", label="amount", detail="Type the quantity to craft", important=true},
         {key="Enter", label="plan", detail="Plan the craft", important=true},
         {key="A", label="max", detail="Plan the maximum craftable amount", important=true},
+        -- CRAFT_QUANTITY_BACKSPACE: erases one digit of the typed craft quantity.
+        {key="Backspace", label=nil, detail="Delete the last digit of the typed quantity",
+            important=false},
     },
     craft_plan = {
         {key="Enter", label="craft", detail="Commit the plan", important=true},
@@ -133,7 +146,8 @@ M.per_mode = {
     setup = {
         {key="Up/Down", label="select", detail="Move the selection", important=true},
         {key="Enter", label="select", detail="Choose the highlighted option", important=true},
-        {key="Left", label="back", detail="Go to the previous step", important=true},
+        -- keymap.command accepts Backspace as an alias for Left here (SETUP_BACK either way).
+        {key="Left/Backspace", label="back", detail="Go to the previous step", important=true},
         {key="Right", label="next", detail="Go to the next step", important=true},
         {key="F10", label="cancel", detail="Cancel setup and return to the Setup page",
             important=true},
@@ -144,7 +158,18 @@ M.per_mode = {
         {key="Enter", label="save", detail="Save the new name", important=true},
         {key="Backspace", label=nil, detail="Delete the last character", important=true},
         {key="Delete", label="clear", detail="Clear the text", important=true},
-        {key="Left", label="cancel", detail="Cancel the rename", important=true},
+        -- keymap.command accepts F10 as an alias for Left here (RENAME_CANCEL either way).
+        {key="Left/F10", label="cancel", detail="Cancel the rename", important=true},
+    },
+    -- The modal's own controls -- documented so F1 opens Help onto a screen that explains
+    -- itself, not just the page underneath it. Up/Down is deliberately absent: keymap.lua
+    -- does not yet accept it while state.mode == "help" (only mouse_scroll does, since that
+    -- check runs before the mode dispatch), so listing it here would advertise a key that
+    -- keymap.command refuses -- exactly the drift tests.test_help exists to catch. Add it
+    -- once keymap.lua grows a case for Up/Down under state.mode == "help".
+    help = {
+        {key="F1", label="close", detail="Close this help screen", important=true},
+        {key="F10", label="close", detail="Close this help screen", important=true},
     },
     -- mode="page" covers four different pages; the digit shortcuts and Enter-to-open-setup
     -- live under state.page, since "page" alone does not say which one.

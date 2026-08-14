@@ -77,6 +77,39 @@ function M.marqueeText(surface, x, y, text, width, fg, bg, now)
     return true
 end
 
+-- Breaks `text` into an array of lines no wider than `width`, on whitespace, never mid-word
+-- unless a single word is itself wider than `width` -- that word is hard-broken instead of
+-- overflowing the line forever. This is what let the F1 help modal stop truncating a long
+-- detail sentence mid-word: a caller wraps once, then draws one row per returned line.
+-- Multiple spaces between words collapse to one, matching how the wrapped text reads once
+-- rejoined; an empty (or all-whitespace) input yields a single empty line, never zero, so a
+-- caller can always draw at least one row for an entry with a blank detail.
+function M.wrap(text, width)
+    text = tostring(text or "")
+    width = math.max(1, math.floor(tonumber(width) or 1))
+    local lines, line = {}, ""
+    for word in text:gmatch("%S+") do
+        while #word > width do
+            if line ~= "" then
+                lines[#lines + 1] = line
+                line = ""
+            end
+            lines[#lines + 1] = word:sub(1, width)
+            word = word:sub(width + 1)
+        end
+        if line == "" then
+            line = word
+        elseif #line + 1 + #word <= width then
+            line = line .. " " .. word
+        else
+            lines[#lines + 1] = line
+            line = word
+        end
+    end
+    lines[#lines + 1] = line
+    return lines
+end
+
 function M.rightText(surface, endX, y, text, fg, bg)
     text = tostring(text or "")
     M.text(surface, endX - #text + 1, y, text, #text, fg, bg)
