@@ -195,10 +195,11 @@ python3 run_tests.py emulator        # every category that boots an emulator
 python3 run_tests.py all             # everything test_smoke.py's `-m unittest` invocation covers
 ```
 
-`fast` and `setup-wizard` boot at most one emulator and finish in seconds.
-`manifest` and `keys` are the slowest single categories relative to their size
-— each test in those two classes boots its own bare computer via `run_probe`
-rather than sharing a class-level session.
+`all` finishes in about 70 seconds, so the categories are now a convenience
+rather than something to agonise over — when in doubt, run everything.
+`manifest` and `keys` remain the slowest relative to their size, because each
+test in those two classes boots its own bare computer via `run_probe` rather
+than sharing a class-level session.
 Extra arguments (`-v`, `-k pattern`, ...) pass straight through to `unittest`.
 
 The workdir is keyed to the checkout it runs from — `invos-emulator-run-<hash>`
@@ -214,11 +215,17 @@ The emulator is the closest thing to the real game available from the host, so
 prefer it over the host Lua suite for anything user-visible. Two things are
 worth knowing before you start, both learned the hard way:
 
-- **Run the slow suites in the foreground, with a timeout.** `smoke` and `nbt`
-  take six to seven minutes. Backgrounding one and waiting for it to announce
-  itself does not work — nothing notifies you, and it is easy to sit idle for a
-  long time. `timeout 900 python3 run_tests.py smoke keys 2>&1 | tail -30`
-  blocks, finishes, and prints what matters.
+- **Run the suites in the foreground, with a timeout.** `timeout 300 python3
+  run_tests.py all 2>&1 | tail -30` blocks, finishes in about 70 seconds, and
+  prints what matters. Backgrounding one and waiting for it to announce itself
+  does not work — nothing notifies you, and it is easy to sit idle.
+- **If it feels slow, measure before blaming the emulator.** These suites once
+  took six to seven minutes and almost none of it was emulation. `settle()`
+  waited for the screen to stop changing, but InvOS marquees any label too long
+  for its column, so on most pages the screen never stops — and settle ran to
+  its timeout every single time, 60s twice per capture plus 8s per keypress. A
+  90-key scroll took over twenty minutes to deliver 90 keystrokes. Timing a run
+  at 0, 1 and 4 keys found it in minutes; guessing did not.
 - **Use `craftos.py` for single screens.** One `text` or `shot` capture boots
   once and returns in well under a minute, so checking a specific screen is much
   cheaper than running a whole category. Reach for the suites to prove nothing
