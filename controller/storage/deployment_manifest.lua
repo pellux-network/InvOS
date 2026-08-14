@@ -14,6 +14,7 @@ local M={files={
     "storage/app/keymap.lua",
     "storage/app/layout.lua",
     "storage/app/lifecycle.lua",
+    "storage/app/match.lua",
     "storage/app/monitor.lua",
     "storage/app/requests.lua",
     "storage/app/recovery.lua",

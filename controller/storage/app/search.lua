@@ -1,3 +1,5 @@
+local Match = require("app.match")
+
 local M = {}
 
 local function copy(value, seen)
@@ -12,31 +14,6 @@ end
 
 local function normalize(value)
     return tostring(value or ""):lower():match("^%s*(.-)%s*$")
-end
-
-local function wordPrefix(value, query)
-    for word in value:gmatch("[%w_]+") do
-        if word:sub(1, #query) == query then return true end
-    end
-    return false
-end
-
-local function editDistanceAtMostOne(value, query)
-    if math.abs(#value - #query) > 1 then return false end
-    local left, right, differences = 1, 1, 0
-    while left <= #value and right <= #query do
-        if value:sub(left, left) == query:sub(right, right) then
-            left, right = left + 1, right + 1
-        else
-            differences = differences + 1
-            if differences > 1 then return false end
-            if #value > #query then left = left + 1
-            elseif #query > #value then right = right + 1
-            else left, right = left + 1, right + 1 end
-        end
-    end
-    if left <= #value or right <= #query then differences = differences + 1 end
-    return differences <= 1
 end
 
 local function aliasMatches(group, query, aliases)
@@ -59,18 +36,20 @@ local function aliasMatches(group, query, aliases)
     return false
 end
 
-local function variantScore(variant, group, query, aliases)
+local function variantScore(variant, group, query, tokens, aliases)
     local display = normalize(variant.display_name or variant.name)
     local registry = normalize(variant.name)
+    local displayWords = Match.words(display)
     if display == query then return 500 end
-    if wordPrefix(display, query) then return 400 end
+    if Match.abbreviationMatch(displayWords, tokens) then return 400 end
     if registry == query or aliasMatches(group, query, aliases) then return 300 end
     if display:find(query, 1, true) or registry:find(query, 1, true) then return 200 end
     if #query >= 4 then
-        if editDistanceAtMostOne(display, query) then return 100 end
-        for word in display:gmatch("[%w_]+") do
-            if editDistanceAtMostOne(word, query) then return 100 end
+        if Match.editDistanceAtMostOne(display, query) then return 100 end
+        for _, word in ipairs(displayWords) do
+            if Match.editDistanceAtMostOne(word, query) then return 100 end
         end
+        if Match.abbreviationFuzzyMatch(displayWords, tokens) then return 100 end
     end
     return nil
 end
@@ -110,6 +89,7 @@ end
 
 function M.query(index, rawQuery, aliases, limit)
     local query = normalize(rawQuery)
+    local tokens = Match.words(rawQuery)
     limit = math.max(1, math.floor(limit or 10))
     local results = {}
     for _, group in ipairs(groups(index)) do
@@ -118,7 +98,7 @@ function M.query(index, rawQuery, aliases, limit)
             score = 0
         else
             for _, variant in ipairs(group.variants) do
-                score = math.max(score or 0, variantScore(variant, group, query, aliases) or 0)
+                score = math.max(score or 0, variantScore(variant, group, query, tokens, aliases) or 0)
             end
             if score == 0 then score = nil end
         end

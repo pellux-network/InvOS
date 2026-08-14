@@ -190,6 +190,36 @@ return {
         local coordinator = build({})
         T.truthy(#coordinator:_craftSearch("a") <= 60, "the display cap still holds")
     end},
+    {name="craft search matches multi-word abbreviations in order",run=function()
+        local recipes = {outputs=function() return {
+            {item="minecraft:redstone_torch", display_name="Redstone Torch"},
+            {item="minecraft:red_sand", display_name="Red Sand"},
+        } end}
+        local coordinator = build({}, {recipes=recipes})
+        local results = coordinator:_craftSearch("red torch")
+        T.equal(#results, 1, "only the item whose words match both tokens in order qualifies")
+        T.equal(results[1].item, "minecraft:redstone_torch")
+    end},
+    {name="craft search abbreviations require query word order",run=function()
+        local recipes = {outputs=function() return {
+            {item="modded:blowtorch_red_handle", display_name="Blowtorch With Red Handle"},
+        } end}
+        local coordinator = build({}, {recipes=recipes})
+        -- "torch" appears before "red" in the label, so the tokens can't be consumed
+        -- in query order even though both words are present.
+        T.equal(#coordinator:_craftSearch("torch red"), 0)
+    end},
+    {name="craft search falls back to fuzzy matching only when nothing else matches",run=function()
+        -- Each word carries its own typo, so the combined query differs from the label
+        -- by two edits overall -- only a per-token fuzzy check finds this.
+        local recipes = {outputs=function() return {
+            {item="minecraft:golden_apple", display_name="Golden Apple"},
+        } end}
+        local coordinator = build({}, {recipes=recipes})
+        local results = coordinator:_craftSearch("goldn aople")
+        T.equal(#results, 1)
+        T.equal(results[1].item, "minecraft:golden_apple")
+    end},
 
     {name="planning a craft from stock produces a committable plan",run=function()
         local coordinator = build({["minecraft:oak_log"]=64})
