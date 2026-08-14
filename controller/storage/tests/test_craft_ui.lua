@@ -3,7 +3,7 @@
 -- order. Includes six/tab/d, which the crafting page uses.
 keys = keys or {}
 for name, code in pairs({
-    backspace=14, up=200, down=208, enter=28, tab=15, s=31, a=30, d=32, f10=68,
+    backspace=14, up=200, down=208, enter=28, tab=15, f2=60, s=31, a=30, d=32, f10=68,
     escape=1, one=2, two=3, three=4, four=5, five=6, six=7,
     r=19, c=46, p=25, x=45,
 }) do
@@ -13,6 +13,7 @@ end
 local Keymap = require("app.keymap")
 local UI = require("app.ui")
 local Draw = require("app.draw")
+local Theme = require("app.theme")
 local T = require("tests.mock_cc")
 
 local function ui() return UI.new(T.recordingSurface(51, 19)) end
@@ -138,6 +139,39 @@ return {
         state = surface:reduce(state, {type="ACTIVATE", index=2})
         T.equal(state.mode, "craft_quantity", "a second click on the same recipe opens quantity")
         T.equal(state.craft_item.item, "minecraft:stick")
+    end},
+    {name="the recipe query box ghosts the unmatched tail of the highlighted recipe",
+        run=function()
+        local surface = ui()
+        local state = crafting({craft_query="ch"})
+        surface:render(state, {lifecycle="READY"})
+        T.contains(surface.surface.line(3), "> ch_est")
+        T.equal(surface.surface.foregroundAt(8, 3), Theme.role.ghost,
+            "the unmatched tail must render in the ghost role")
+    end},
+    {name="no recipe ghost when the query is not a literal prefix of the highlighted recipe",
+        run=function()
+        local surface = ui()
+        -- "stick" is not a prefix of "Chest", the highlighted (first) recipe.
+        local state = crafting({craft_query="stick"})
+        surface:render(state, {lifecycle="READY"})
+        T.equal(surface.surface.line(3):gsub("%s+$", ""), " > stick_")
+    end},
+    {name="Tab accepts the highlighted recipe exactly like a second click does",run=function()
+        local surface = ui()
+        local state = crafting({craft_selection=2, craft_query="sti"})
+        state = surface:reduce(state, {type="CRAFT_AUTOCOMPLETE"})
+        T.equal(state.mode, "craft_quantity", "Tab must land exactly where Enter would")
+        T.equal(state.craft_item.item, "minecraft:stick")
+        T.equal(state.craft_query, "Stick", "the query becomes the full display name")
+        T.equal(state.craft_quantity_text, "", "the quantity box starts fresh")
+    end},
+    {name="Tab does nothing with no recipe results",run=function()
+        local surface = ui()
+        local state = crafting({craft_results={}, craft_result_count=0, craft_selection=1})
+        local before = state.mode
+        state = surface:reduce(state, {type="CRAFT_AUTOCOMPLETE"})
+        T.equal(state.mode, before, "no highlighted row means Tab has nothing to accept")
     end},
     {name="typing in the recipe search re-arms the click so a repeat click only selects",
         run=function()

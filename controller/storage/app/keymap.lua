@@ -126,7 +126,10 @@ function M.command(event, state)
         if key == keys.up then return {type="MOVE",delta=-1} end
         if key == keys.down then return {type="MOVE",delta=1} end
         if key == keys.enter then return {type="OPEN_CRAFT_QUANTITY"} end
-        if key == keys.tab then return {type="OPEN_CRAFT_JOBS"} end
+        -- Tab is autocomplete here (letters are query characters and digits are page
+        -- shortcuts, so only a function key was free); the jobs/search toggle moved to F2.
+        if key == keys.tab then return {type="CRAFT_AUTOCOMPLETE"} end
+        if key == keys.f2 then return {type="OPEN_CRAFT_JOBS"} end
     elseif state.mode == "craft_quantity" then
         if key == keys.a then return {type="CRAFT_QUANTITY_MAX",char="a"} end
         if key == keys.backspace then return {type="CRAFT_QUANTITY_BACKSPACE"} end
@@ -144,7 +147,7 @@ function M.command(event, state)
         if key == keys.r then return {type="RETRY_CRAFT"} end
         if key == keys.c then return {type="CANCEL_CRAFT"} end
         if key == keys.enter then return {type="CONFIRM_CRAFT"} end
-        if key == keys.tab then return {type="OPEN_CRAFT_SEARCH"} end
+        if key == keys.f2 then return {type="OPEN_CRAFT_SEARCH"} end
     end
     if state.mode == "page" and state.page == "alerts" then
         if key == keys.a then return {type="DISMISS_ALERT"} end
@@ -160,6 +163,7 @@ function M.command(event, state)
         if key == keys.up then return {type="MOVE",delta=-1} end
         if key == keys.down then return {type="MOVE",delta=1} end
         if key == keys.enter then return {type="OPEN_QUANTITY"} end
+        if key == keys.tab then return {type="AUTOCOMPLETE"} end
     elseif state.mode == "quantity" then
         -- A REQUEST here drops mode back to "search" before the char event that
         -- shares this keypress arrives, so name it for suppression there.

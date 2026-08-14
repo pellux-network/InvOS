@@ -24,7 +24,7 @@ return {
             T.equal(slots[value], true, name .. " must be one of the sixteen CC slots")
             count = count + 1
         end
-        T.equal(count, 15, "a role added without a test is a role nothing checks")
+        T.equal(count, 16, "a role added without a test is a role nothing checks")
     end },
     { name = "brand and alert are different reds", run = function()
         T.equal(Theme.role.brand ~= Theme.role.alert, true,
