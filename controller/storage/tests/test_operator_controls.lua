@@ -203,32 +203,45 @@ return {
         T.equal(active[1].occurrences, 2)
         T.equal(active[1].severity, "critical")
     end},
-    {name="a tall terminal derives a search result limit far above the old fixed cap", run=function()
+    -- The Search list is bounded only by the number of distinct stocked item groups, which is
+    -- cheap to materialize in full, so the coordinator no longer derives a display limit from
+    -- terminal height at all: it leaves the limit unset regardless of surface size, and the
+    -- UI scrolls the whole thing. This replaces three tests that pinned the old capped
+    -- behavior (a limit derived from a tall/short/absent terminal).
+    {name="a tall terminal still gets every search result, not a height-derived cap", run=function()
         local d = baseDeps()
         d.ui = UI.new(T.recordingSurface(51, 40))
         local seenLimit
         d.search = function(_, _, _, limit) seenLimit = limit; return {} end
         local coordinator = Coordinator.new(d)
         coordinator:tick(1000)
-        T.truthy(seenLimit ~= nil)
-        T.truthy(seenLimit > 10)
+        T.equal(seenLimit, nil, "the live UI search path must pass no limit at all")
     end},
-    {name="a short terminal still derives a limit that covers its own visible rows", run=function()
+    {name="a short terminal also gets every search result, not a smaller cap", run=function()
         local d = baseDeps()
         d.ui = UI.new(T.recordingSurface(51, 13))
         local seenLimit
         d.search = function(_, _, _, limit) seenLimit = limit; return {} end
         local coordinator = Coordinator.new(d)
         coordinator:tick(1000)
-        T.truthy(seenLimit >= 13)
+        T.equal(seenLimit, nil, "a short terminal must not shrink the search limit either")
     end},
-    {name="without a terminal surface the default limit is still far above 10", run=function()
+    {name="without a terminal surface the search path still passes no limit", run=function()
         local d = baseDeps()
         local seenLimit
         d.search = function(_, _, _, limit) seenLimit = limit; return {} end
         local coordinator = Coordinator.new(d)
         coordinator:tick(1000)
-        T.truthy(seenLimit >= 50)
+        T.equal(seenLimit, nil, "a missing surface must not crash or fall back to a cap")
+    end},
+    {name="an explicit search_limit override is still honored", run=function()
+        local d = baseDeps()
+        d.search_limit = 12
+        local seenLimit
+        d.search = function(_, _, _, limit) seenLimit = limit; return {} end
+        local coordinator = Coordinator.new(d)
+        coordinator:tick(1000)
+        T.equal(seenLimit, 12, "deps.search_limit remains an explicit override for callers that want one")
     end},
     {name="the full keyboard path retries a request without touching internal state directly", run=function()
         -- Selection 2, newest first, lands on the oldest entry (request-1).

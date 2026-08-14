@@ -87,10 +87,13 @@ local function groups(index)
     return ordered
 end
 
+-- limit is optional: the Search page is bounded only by the number of distinct stocked
+-- item groups (hundreds, not thousands), so its UI path leaves limit unset and gets every
+-- match back. Passing a number still truncates, for any caller or test that wants a page.
 function M.query(index, rawQuery, aliases, limit)
     local query = normalize(rawQuery)
     local tokens = Match.words(rawQuery)
-    limit = math.max(1, math.floor(limit or 10))
+    if limit ~= nil then limit = math.max(1, math.floor(limit)) end
     local results = {}
     for _, group in ipairs(groups(index)) do
         local score
@@ -126,7 +129,7 @@ function M.query(index, rawQuery, aliases, limit)
         if leftName ~= rightName then return leftName < rightName end
         return left.name < right.name
     end)
-    while #results > limit do table.remove(results) end
+    if limit then while #results > limit do table.remove(results) end end
     return results
 end
 
