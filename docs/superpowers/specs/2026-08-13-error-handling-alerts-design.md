@@ -174,57 +174,59 @@ what's needed.
 / `acknowledged_at` fields entirely. `Alerts:set`/`:resolve`/`:active`
 are unchanged.
 
-**`app/coordinator.lua`**: when building the alerts list for the view
-model (currently `coordinator.lua:982`), annotate the one alert that
-needs confirmation. The BLOCKED-recovery alert is the only one that ever
-needs this, and the coordinator already has both `alerts:active()` and
-`recovery.status()` in scope at that point:
+**`UI:reduce(current, command)` never receives the view model**
+(`app/ui.lua:120`, called as `self.ui.reduce(self.ui, self.uiState,
+command)` from `Coordinator:command` at `app/coordinator.lua:661`) --
+only `state` and `command`. So the reducer cannot itself decide whether
+the selected alert needs confirmation; that decision has to live in
+`_dispatch`, which already holds both `self.deps.alerts` and
+`self.deps.recovery`.
+
+**`app/ui.lua` reducer**: `ACKNOWLEDGE_ALERT`'s case is renamed, keeping
+the same shape (index-only, no lookup):
 
 ```lua
-local recoveryBlocked = self.deps.recovery and
-    serviceState("recovery", self.deps.recovery) == "BLOCKED"
-for _, alert in ipairs(alerts) do
-    alert.requires_confirm = recoveryBlocked and alert.key == "journal_recovery"
-end
+elseif kind == "DISMISS_ALERT" then
+    return state, {type="DISMISS_ALERT",index=state.alert_selection}
 ```
 
-Replace the `ACKNOWLEDGE_ALERT` effect with `DISMISS_ALERT`, keeping the
-same shape as the handler it replaces (`coordinator.lua:583-588`) but
-calling `resolve` instead of `acknowledge`:
+**`app/coordinator.lua` `_dispatch`**: replace the `ACKNOWLEDGE_ALERT`
+handler (`coordinator.lua:583-588`) with one that looks up the selected
+alert and either resolves it directly or, for the one alert that needs
+confirmation, re-enters the existing arm flow:
 
 ```lua
 elseif effect.type == "DISMISS_ALERT" and self.deps.alerts then
     local target = self.deps.alerts.active and self.deps.alerts:active()[effect.index]
     if target then
-        local ok, reason = pcall(self.deps.alerts.resolve, self.deps.alerts, target.key)
-        if not ok then self:_recordError("alert", reason) end
+        local recoveryBlocked = self.deps.recovery and
+            serviceState("recovery", self.deps.recovery) == "BLOCKED"
+        if recoveryBlocked and target.key == "journal_recovery" then
+            self:command({type="ARM_RECOVERY_RELEASE"})
+        else
+            local ok, reason = pcall(self.deps.alerts.resolve, self.deps.alerts, target.key)
+            if not ok then self:_recordError("alert", reason) end
+        end
     end
 ```
 
-**`app/ui.lua` reducer**: `ACKNOWLEDGE_ALERT`'s case becomes:
-
-```lua
-elseif kind == "DISMISS_ALERT" then
-    local alert = (model.alerts or {})[state.alert_selection]
-    if alert and alert.requires_confirm then
-        state.recovery_confirm_armed = true
-        state.notice = "Press Enter to release recovery: gives up proof of what the " ..
-            "interrupted transfer moved. Any other key cancels."
-    else
-        return state, {type="DISMISS_ALERT", index=state.alert_selection}
-    end
-```
-
-The existing `ARM_RECOVERY_RELEASE` / `CANCEL_RECOVERY_RELEASE` /
-`CONFIRM_RECOVERY_RELEASE` cases and the `RESOLVE_RECOVERY` effect are
-unchanged -- Dismiss now arms the same state machine instead of a
-separate key doing it.
+`self:command({type="ARM_RECOVERY_RELEASE"})` re-enters
+`Coordinator:command`, which runs the existing, untouched
+`ARM_RECOVERY_RELEASE` reducer case (arms `state.recovery_confirm_armed`
+and sets the same warning `notice`) through the same path any other
+command takes; `_dispatch` is a no-op on a `nil` effect
+(`coordinator.lua:564`), so the reducer producing no effect for that case
+is safe. The existing `ARM_RECOVERY_RELEASE` / `CANCEL_RECOVERY_RELEASE`
+/ `CONFIRM_RECOVERY_RELEASE` reducer cases and the `RESOLVE_RECOVERY`
+effect handler are entirely unchanged -- Dismiss now triggers the same
+state machine instead of a separate key doing it.
 
 `UI:_alerts` (`app/ui.lua:825-853`) drops the `acknowledged and "-" or
 "!"` marker (nothing left to distinguish -- an alert is either listed or
 it's gone) and simplifies to a plain severity-colored row.
 
 **`app/keymap.lua`**: on the `alerts` page, replace both bindings
+(`keymap.lua:145-148`)
 
 ```lua
 if key == keys.a then return {type="ACKNOWLEDGE_ALERT"} end
@@ -238,8 +240,17 @@ if key == keys.a then return {type="DISMISS_ALERT"} end
 ```
 
 The `recovery_confirm_armed` key-handling block above it
-(`keymap.lua:74-78`) is unchanged -- it already takes over all key
-handling once armed, regardless of what armed it.
+(`keymap.lua:74-78`) keeps taking over all key handling once armed,
+regardless of what armed it, but its own re-arm special case moves from
+`x` to `a` since `x` no longer does anything on this page:
+
+```lua
+if state.mode == "page" and state.page == "alerts" and state.recovery_confirm_armed then
+    if key == keys.enter then return {type="CONFIRM_RECOVERY_RELEASE"} end
+    if key == keys.a then return {type="ARM_RECOVERY_RELEASE"} end
+    return {type="CANCEL_RECOVERY_RELEASE"}
+end
+```
 
 Footer hint text (`app/ui.lua:616`) changes from `"Up/Down A acknowledge
 X+Enter release recovery"` to `"Up/Down A dismiss"`.
@@ -263,9 +274,11 @@ banner -- clear itself.
   effect), drive a failing call followed by a succeeding one and assert
   the corresponding `component_error:*` alert is present after the
   first and gone after the second.
-- **Dismiss reducer**: an ordinary alert dispatches `DISMISS_ALERT` and
-  is removed from `alerts:active()`; the `requires_confirm` alert instead
-  arms `recovery_confirm_armed` and leaves the alert present until
+- **Dismiss dispatch**: an ordinary alert's `DISMISS_ALERT` effect
+  resolves it directly (`alerts:active()` no longer contains it
+  afterward); a `journal_recovery` alert while `recovery.status().state
+  == "BLOCKED"` instead arms `recovery_confirm_armed` (via the
+  coordinator re-entering `command`) and leaves the alert present until
   `CONFIRM_RECOVERY_RELEASE` fires; any other key while armed still
   cancels (existing behavior, re-verify unchanged).
 - **Regression**: remove/replace the existing `acknowledge`-specific
