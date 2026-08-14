@@ -1005,11 +1005,13 @@ function UI:_setupWizard(state, model)
     local progress = tostring(step) .. " / " .. #names
     Draw.rightText(surface, regions.width - 1, regions.header, progress, Theme.role.text, Theme.role.panel)
 
-    -- The card reclaims the nav row and strip row the wizard never used, as pure top/bottom
-    -- padding, and never grows into the header or footer regardless of terminal height.
+    -- Stops one row short of the header and footer on purpose: both are already panel-
+    -- coloured, so a card that touched them fused into one undifferentiated block instead
+    -- of reading as its own section. The untouched row above and below stays ground colour
+    -- (surface.clear() already painted it), giving the card a visible gap on every side.
     local cardFrom, cardTo = 2, regions.width - 1
-    local cardTop = math.max(regions.header + 1, regions.content.top - 1)
-    local cardBottom = math.min(regions.footer - 1, regions.content.bottom + 1)
+    local cardTop = regions.content.top
+    local cardBottom = regions.content.bottom
     for y = cardTop, cardBottom do Draw.band(surface, y, Theme.role.panel, cardFrom, cardTo) end
 
     local promptWidth = math.max(10, cardTo - cardFrom - 1)
@@ -1106,8 +1108,8 @@ function UI:_setupRename(state, model)
     Draw.text(surface, 2, regions.header, "SETUP WIZARD", 20, Theme.role.brand, Theme.role.panel)
 
     local cardFrom, cardTo = 2, regions.width - 1
-    local cardTop = math.max(regions.header + 1, regions.content.top - 1)
-    local cardBottom = math.min(regions.footer - 1, regions.content.bottom + 1)
+    local cardTop = regions.content.top
+    local cardBottom = regions.content.bottom
     for y = cardTop, cardBottom do Draw.band(surface, y, Theme.role.panel, cardFrom, cardTo) end
 
     Draw.text(surface, 2, regions.content.top, "Name this storage node", regions.width - 3,
