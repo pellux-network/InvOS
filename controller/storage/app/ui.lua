@@ -386,6 +386,10 @@ function UI:reduce(current, command)
             state.selection + command.delta))
     elseif kind == "SETUP_SELECT" then
         return state, {type="SETUP_SELECT",step=state.setup_step,index=state.selection}
+    elseif kind == "SETUP_ACTIVATE" then
+        state.selection = math.max(1, math.min(math.max(1, state.setup_choice_count or 0),
+            command.index or 1))
+        return state, {type="SETUP_SELECT", step=state.setup_step, index=state.selection}
     elseif kind == "SETUP_NEXT" or kind == "SETUP_BACK" then
         return state, {type=kind,step=state.setup_step}
     elseif kind == "CANCEL_SETUP" then
@@ -994,6 +998,7 @@ function UI:_setupWizard(state, model)
     }
     local step = state.setup_step or 1
     local regions = Layout.regions(surface.getSize())
+    local hitRegions = {}
 
     Draw.band(surface, regions.header, Theme.role.panel)
     Draw.text(surface, 2, regions.header, "SETUP WIZARD", 20, Theme.role.brand, Theme.role.panel)
@@ -1056,31 +1061,40 @@ function UI:_setupWizard(state, model)
             self:_row(cardY, selected, cardFrom, cardTo, marker, markerColor,
                 labelLines[1], nil, nil, Theme.role.panel)
             self:_cardDetail(cardY + 1, selected, cardFrom, cardTo, secondLine, Theme.role.panel)
+            hitRegions[#hitRegions + 1] = {x1=cardFrom, y1=cardY, x2=cardTo, y2=cardY + 1,
+                command={type="SETUP_ACTIVATE", index=index}}
         end)
 
     Draw.band(surface, regions.footer, Theme.role.panel)
     local footerX = 2
-    local function footerSegment(text)
+    local function footerSegment(text, command)
         Draw.text(surface, footerX, regions.footer, text, #text, Theme.role.text, Theme.role.panel)
+        if command then
+            hitRegions[#hitRegions + 1] = {x1=footerX, y1=regions.footer,
+                x2=footerX + #text - 1, y2=regions.footer, command=command}
+        end
         footerX = footerX + #text + 2
     end
     if step == 4 then
         footerSegment("Up/Down Enter")
-        footerSegment("Left back")
-        footerSegment("Right next")
-        footerSegment("R rename")
+        footerSegment("Left back", {type="SETUP_BACK"})
+        footerSegment("Right next", {type="SETUP_NEXT"})
+        footerSegment("R rename", {type="RENAME_STORAGE_REQUEST"})
     else
         footerSegment("Up/Down")
         footerSegment("Enter select")
-        footerSegment("Left back")
-        footerSegment("Right next")
+        footerSegment("Left back", {type="SETUP_BACK"})
+        footerSegment("Right next", {type="SETUP_NEXT"})
     end
 
     Draw.band(surface, regions.status, Theme.role.ground)
-    Draw.text(surface, 2, regions.status, "F10 cancel", regions.width - 3,
+    local cancelText = "F10 cancel"
+    Draw.text(surface, 2, regions.status, cancelText, regions.width - 3,
         Theme.role.muted, Theme.role.ground)
+    hitRegions[#hitRegions + 1] = {x1=2, y1=regions.status, x2=1 + #cancelText,
+        y2=regions.status, command={type="CANCEL_SETUP"}}
     surface.setCursorBlink(false)
-    return {hit_regions = {}}
+    return {hit_regions = hitRegions}
 end
 
 function UI:_setupRename(state, model)

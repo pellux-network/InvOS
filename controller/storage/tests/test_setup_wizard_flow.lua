@@ -214,4 +214,27 @@ return {
         coordinator:handle({"key", keys.r})
         T.equal(coordinator:viewModel().ui.mode, "setup")
     end},
+    {name="clicking a card does what pressing Enter on it would do",run=function()
+        local coordinator = Main.build(environment())
+        coordinator:handle({"key", keys.right}) -- 1 -> 2
+        local model = coordinator:viewModel()
+        local cardRegion
+        for _, region in ipairs(model.ui.hit_regions or {}) do
+            if region.command.type == "SETUP_ACTIVATE" then cardRegion = region end
+        end
+        T.truthy(cardRegion, "expected at least one clickable card on step 2")
+        coordinator:handle({"mouse_click", 1, cardRegion.x1, cardRegion.y1})
+        T.equal(coordinator:viewModel().ui.setup_step, 3)
+    end},
+    {name="clicking F10 cancels setup the same as pressing it",run=function()
+        local coordinator = Main.build(environment())
+        local model = coordinator:viewModel()
+        local cancelRegion
+        for _, region in ipairs(model.ui.hit_regions or {}) do
+            if region.command.type == "CANCEL_SETUP" then cancelRegion = region end
+        end
+        T.truthy(cancelRegion)
+        coordinator:handle({"mouse_click", 1, cancelRegion.x1, cancelRegion.y1})
+        T.equal(coordinator:viewModel().ui.mode, "page")
+    end},
 }

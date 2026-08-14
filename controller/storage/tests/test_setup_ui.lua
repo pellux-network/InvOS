@@ -357,4 +357,36 @@ return {
         T.contains(text,"Save configuration and enable")
         T.equal(surface.writesOutsideBounds(),0)
     end},
+
+    {name="SETUP_ACTIVATE selects the clicked card and produces the same effect as Enter",run=function()
+        local ui=UI.new(T.recordingSurface(51,19))
+        local state=UI.initialState()
+        state.mode,state.page,state.setup_step="setup","setup",4
+        state.setup_choices={{label="a"},{label="b"},{label="c"}}
+        state.setup_choice_count=3
+        state.selection=1
+        local nextState,effect=ui:reduce(state,{type="SETUP_ACTIVATE",index=3})
+        T.equal(nextState.selection,3)
+        T.equal(effect.type,"SETUP_SELECT")
+        T.equal(effect.step,4)
+        T.equal(effect.index,3)
+    end},
+    {name="every wizard card and footer control is clickable",run=function()
+        local surface=T.recordingSurface(51,19)
+        local ui=UI.new(surface)
+        local state=UI.initialState()
+        state.mode,state.page,state.setup_step="setup","setup",4
+        state.setup_choices={{name="chest_0",label="chest_0",detail="27 slots"},
+            {name="chest_3",label="chest_3",detail="27 slots"}}
+        state.setup_choice_count=2
+        state.selection=1
+        local layout=ui:render(state,{})
+        local kinds={}
+        for _,region in ipairs(layout.hit_regions) do kinds[region.command.type]=true end
+        T.truthy(kinds.SETUP_ACTIVATE)
+        T.truthy(kinds.SETUP_BACK)
+        T.truthy(kinds.SETUP_NEXT)
+        T.truthy(kinds.RENAME_STORAGE_REQUEST)
+        T.truthy(kinds.CANCEL_SETUP)
+    end},
 }
