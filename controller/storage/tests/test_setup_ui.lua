@@ -137,7 +137,12 @@ return {
         state.setup_choice_count = 2
         state.selection = 1
         ui:render(state, {})
-        T.equal(surface.foregroundAt(2, 7), Theme.role.alert)
+        local markerRow
+        for y = 1, 19 do
+            if surface.line(y):find("Assign a Drop-off inventory", 1, true) then markerRow = y end
+        end
+        T.truthy(markerRow, "expected the blocking issue's row to be found")
+        T.equal(surface.foregroundAt(3, markerRow), Theme.role.alert)
         T.equal(surface.writesOutsideBounds(), 0)
     end},
 
@@ -167,10 +172,16 @@ return {
             {label="Storage nodes", detail="2 enabled / 2 total"},
         }
         ui:render(state, {})
+        -- Label and value render as a table row (label left, value right-aligned), not a
+        -- joined "label: value" string, matching the same left/right convention every card
+        -- and every other page's rows already use.
         local text = surface.allText()
-        T.contains(text, "Drop-off: drop")
-        T.contains(text, "Pickup: pick")
-        T.contains(text, "Storage nodes: 2 enabled / 2 total")
+        T.contains(text, "Drop-off")
+        T.contains(text, "drop")
+        T.contains(text, "Pickup")
+        T.contains(text, "pick")
+        T.contains(text, "Storage nodes")
+        T.contains(text, "2 enabled / 2 total")
         T.contains(text, "Save configuration and enable")
         T.equal(surface.writesOutsideBounds(), 0)
     end},
@@ -251,5 +262,99 @@ return {
         T.equal(surface.backgroundAt(2,6),Theme.role.panel)
         ui:_row(7,true,1,51,nil,nil,"label",nil,nil,Theme.role.panel)
         T.equal(surface.backgroundAt(2,7),Theme.role.focus)
+    end},
+
+    {name="a long prompt wraps to multiple lines instead of being cut off",run=function()
+        local surface=T.recordingSurface(51,19)
+        local ui=UI.new(surface)
+        local state=UI.initialState()
+        -- step 1's real prompt is 60 characters, well past the ~45-character card width.
+        state.mode,state.page,state.setup_step="setup","setup",1
+        state.setup_choices={{label="Continue with 3 inventories",detail="read-only discovery"}}
+        state.setup_choice_count=1
+        ui:render(state,{})
+        local text=surface.allText()
+        T.contains(text,"Read-only discovery of the wired inventories on")
+        T.contains(text,"the network.")
+        T.equal(surface.writesOutsideBounds(),0)
+    end},
+    {name="a long validation message wraps across both lines of its card",run=function()
+        local surface=T.recordingSurface(51,19)
+        local ui=UI.new(surface)
+        local state=UI.initialState()
+        state.mode,state.page,state.setup_step="setup","setup",9
+        state.setup_choices={
+            {label="Run validation and continue",detail="moves no items"},
+            {label="chest_4 and chest_6 may expose the same storage container",
+                blocking=true,detail="Enter confirms distinct"},
+        }
+        state.setup_choice_count=2
+        state.selection=1
+        ui:render(state,{})
+        local text=surface.allText()
+        T.contains(text,"chest_4 and chest_6 may expose the same")
+        T.contains(text,"storage container")
+        T.equal(surface.writesOutsideBounds(),0)
+    end},
+    {name="the wizard content band is a panel-coloured card inset from the ground",run=function()
+        local surface=T.recordingSurface(51,19)
+        local ui=UI.new(surface)
+        local state=UI.initialState()
+        state.mode,state.page,state.setup_step="setup","setup",2
+        state.setup_choices={{name="drop",label="drop",detail="27 slots"}}
+        state.setup_choice_count=1
+        ui:render(state,{})
+        -- Column 1 is the card's margin and is never drawn to; column 2 is inside the card.
+        T.equal(surface.backgroundAt(1,5),nil)
+        T.equal(surface.backgroundAt(2,5),Theme.role.panel)
+        T.equal(surface.writesOutsideBounds(),0)
+    end},
+    {name="the section band inside the card uses the track colour",run=function()
+        local surface=T.recordingSurface(51,19)
+        local ui=UI.new(surface)
+        local state=UI.initialState()
+        state.mode,state.page,state.setup_step="setup","setup",2
+        state.setup_choices={{name="drop",label="drop",detail="27 slots"}}
+        state.setup_choice_count=1
+        ui:render(state,{})
+        local bandRow
+        for y=1,19 do if surface.line(y):find("INVENTORY",1,true) then bandRow=y end end
+        T.truthy(bandRow,"expected an INVENTORY band somewhere on screen")
+        T.equal(surface.backgroundAt(3,bandRow),Theme.role.track)
+    end},
+    {name="a selected card fills both its title and detail row",run=function()
+        local surface=T.recordingSurface(51,19)
+        local ui=UI.new(surface)
+        local state=UI.initialState()
+        state.mode,state.page,state.setup_step="setup","setup",4
+        state.setup_choices={{name="chest_0",label="[added] chest_0",detail="as \"Vault A\""}}
+        state.setup_choice_count=1
+        state.selection=1
+        ui:render(state,{})
+        -- "Vault A" is the detail text (card row 2); its title sits one row above it.
+        local detailRow
+        for y=1,19 do if surface.line(y):find("Vault A",1,true) then detailRow=y end end
+        T.truthy(detailRow)
+        T.equal(surface.backgroundAt(3,detailRow-1),Theme.role.focus)
+        T.equal(surface.backgroundAt(3,detailRow),Theme.role.focus)
+    end},
+    {name="Review lists each bound role as label/value before the Save card",run=function()
+        local surface=T.recordingSurface(51,19)
+        local ui=UI.new(surface)
+        local state=UI.initialState()
+        state.mode,state.page,state.setup_step="setup","setup",10
+        state.setup_choices={{label="Save configuration and enable",detail="starts immediately"}}
+        state.setup_choice_count=1
+        state.selection=1
+        state.setup_summary={
+            {label="Drop-off",detail="chest_0"},{label="Pickup",detail="chest_5"},
+            {label="Storage nodes",detail="3 enabled / 3 total"},
+        }
+        ui:render(state,{})
+        local text=surface.allText()
+        T.contains(text,"Drop-off")
+        T.contains(text,"chest_0")
+        T.contains(text,"Save configuration and enable")
+        T.equal(surface.writesOutsideBounds(),0)
     end},
 }

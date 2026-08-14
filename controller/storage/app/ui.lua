@@ -40,6 +40,40 @@ local function fittedLabel(width, options)
     return options[#options]:sub(1, math.max(0, width))
 end
 
+-- Greedy word wrap. A word longer than `width` is hard-cut rather than left to overflow --
+-- today's vocabulary (peripheral names, short prose) never produces one, but a future long
+-- identifier must not corrupt the layout. `maxLines`, when given, caps the return; content
+-- past it is simply dropped, and the caller decides whether that's acceptable (the wizard's
+-- card renderer prefers the wrapped message over its detail hint when both can't fit).
+local function wrapText(text, width, maxLines)
+    text = tostring(text or "")
+    width = math.max(1, width or 1)
+    local lines = {}
+    local current = ""
+    local capped = false
+    for word in text:gmatch("%S+") do
+        if maxLines and #lines >= maxLines then capped = true; break end
+        local candidate = current == "" and word or (current .. " " .. word)
+        if #candidate <= width then
+            current = candidate
+        else
+            if current ~= "" then lines[#lines + 1] = current end
+            while #word > width do
+                if maxLines and #lines >= maxLines then capped = true; break end
+                lines[#lines + 1] = word:sub(1, width)
+                word = word:sub(width + 1)
+            end
+            current = capped and "" or word
+        end
+    end
+    if not capped and current ~= "" then lines[#lines + 1] = current end
+    if maxLines then
+        for index = #lines, maxLines + 1, -1 do lines[index] = nil end
+    end
+    if #lines == 0 then lines[1] = "" end
+    return lines
+end
+
 -- The window ends on the selection rather than starting on it, so arrowing down the list
 -- scrolls under a cursor that stays put. Starting the window on the selection instead makes
 -- the cursor jump to the top of a fresh page every time it reaches the bottom of one.
@@ -482,6 +516,33 @@ function UI:_row(y, selected, from, to, marker, markerColor, left, right, rightC
     end
 end
 
+-- Like _windowed, but each item occupies `rows` physical rows instead of one -- the
+-- wizard's cards need a second line for detail text or a wrapped continuation. _list and
+-- _windowed themselves are untouched; every other page keeps its one-row-per-item math.
+function UI:_cardWindow(top, bottom, count, selection, rows, render)
+    local visible = math.max(0, math.floor((bottom - top + 1) / rows))
+    local scroll = scrollFor(selection, count, visible)
+    for offset = 0, visible - 1 do
+        local index = scroll + offset
+        if index > count then break end
+        render(index, top + offset * rows)
+    end
+    return scroll, visible
+end
+
+-- A card's second physical row: fills with the same selection-state background UI:_row
+-- uses, so a selected card highlights as one solid two-row block, not a highlighted title
+-- over a plain detail line.
+function UI:_cardDetail(y, selected, from, to, text, baseBg)
+    local surface = self.surface
+    local background = selected and Theme.role.focus or (baseBg or Theme.role.ground)
+    Draw.band(surface, y, background, from, to)
+    if text and text ~= "" then
+        Draw.text(surface, from + 3, y, tostring(text), math.max(1, (to - from + 1) - 4),
+            selected and Theme.role.ground or Theme.role.muted, background)
+    end
+end
+
 -- Drop-off and Pickup levels, on every page, because they are the two numbers you always want
 -- and a page switch to read them is a page switch too many. Occupancy comes from model.nodes
 -- by role: model.dropoff and model.pickup are built by Coordinator:_nodeForRole, which does
@@ -902,7 +963,6 @@ end
 
 function UI:_setupWizard(state, model)
     local surface = self.surface
-    local width, height = surface.getSize()
     -- One title and one prompt per step. Both lists must cover every step: a missing
     -- entry falls back to a generic "select an inventory" line, which is actively wrong
     -- on the turtle and monitor steps and reads as if the wizard is asking again for a
@@ -925,56 +985,102 @@ function UI:_setupWizard(state, model)
         "Read-only validation. Moves no items.",
         "Save the configuration and start.",
     }
+    -- A band adds nothing on a single-choice step (Discover, Review's lone Save card), so
+    -- those stay nil.
+    local bandLabels = {
+        nil, "INVENTORY", "INVENTORY", "INVENTORY",
+        "INVENTORY", "TURTLE", "MONITOR", "MONITOR",
+        "CHECKS", nil,
+    }
+    local step = state.setup_step or 1
     local regions = Layout.regions(surface.getSize())
+
     Draw.band(surface, regions.header, Theme.role.panel)
     Draw.text(surface, 2, regions.header, "SETUP WIZARD", 20, Theme.role.brand, Theme.role.panel)
-    local progress = tostring(state.setup_step or 1) .. " / " .. #names
-    Draw.rightText(surface, regions.width - 1, regions.header, progress,
-        Theme.role.text, Theme.role.panel)
-    Draw.text(surface, 2, regions.content.top, names[state.setup_step or 1] or "Setup",
-        regions.width - 3, Theme.role.focus, Theme.role.ground)
-    Draw.text(surface, 2, regions.content.top + 1, prompts[state.setup_step or 1] or
-        "Select the exact wired peripheral for this role.", regions.width - 3,
-        Theme.role.muted, Theme.role.ground)
-    local summary = (state.setup_step == 10) and (state.setup_summary or {}) or {}
-    for index, row in ipairs(summary) do
-        Draw.text(surface, 2, regions.content.top + 3 + index - 1,
-            tostring(row.label) .. ": " .. tostring(row.detail), regions.width - 3,
-            Theme.role.text, Theme.role.ground)
+    local progress = tostring(step) .. " / " .. #names
+    Draw.rightText(surface, regions.width - 1, regions.header, progress, Theme.role.text, Theme.role.panel)
+
+    -- The card reclaims the nav row and strip row the wizard never used, as pure top/bottom
+    -- padding, and never grows into the header or footer regardless of terminal height.
+    local cardFrom, cardTo = 2, regions.width - 1
+    local cardTop = math.max(regions.header + 1, regions.content.top - 1)
+    local cardBottom = math.min(regions.footer - 1, regions.content.bottom + 1)
+    for y = cardTop, cardBottom do Draw.band(surface, y, Theme.role.panel, cardFrom, cardTo) end
+
+    local promptWidth = math.max(10, cardTo - cardFrom - 1)
+    local cardTextWidth = math.max(6, (cardTo - cardFrom + 1) - 4)
+
+    Draw.text(surface, 2, regions.content.top, names[step] or "Setup", regions.width - 3,
+        Theme.role.focus, Theme.role.panel)
+    local promptLines = wrapText(prompts[step] or
+        "Select the exact wired peripheral for this role.", promptWidth, 3)
+    for index, line in ipairs(promptLines) do
+        Draw.text(surface, 2, regions.content.top + index, line, regions.width - 3,
+            Theme.role.muted, Theme.role.panel)
     end
-    local listTop = regions.content.top + 3 + #summary + (#summary > 0 and 1 or 0)
+
+    local y = regions.content.top + #promptLines + 2
+    if step == 10 then
+        for _, row in ipairs(state.setup_summary or {}) do
+            if y > cardBottom then break end
+            Draw.text(surface, cardFrom + 1, y, tostring(row.label), 20, Theme.role.muted, Theme.role.panel)
+            Draw.rightText(surface, cardTo - 1, y, tostring(row.detail), Theme.role.text, Theme.role.panel)
+            y = y + 1
+        end
+        y = y + 1
+    end
+
+    local bandLabel = bandLabels[step]
+    if bandLabel then
+        Draw.band(surface, y, Theme.role.track, cardFrom, cardTo)
+        Draw.text(surface, cardFrom + 1, y, bandLabel, 30, Theme.role.muted, Theme.role.track)
+        y = y + 1
+    end
+
     local choices = state.setup_choices or {}
     if #choices == 0 then
-        Draw.text(surface, 2, listTop, "No choices on this step",
-            regions.width - 3, Theme.role.muted, Theme.role.ground)
+        Draw.text(surface, cardFrom + 1, y, "No choices on this step", cardTextWidth,
+            Theme.role.muted, Theme.role.panel)
     end
-    self:_list(listTop, regions.content.bottom - 1, #choices, state.selection,
-        function(index, y, selected)
+    self:_cardWindow(y, cardBottom, #choices, state.selection, 2,
+        function(index, cardY)
             local choice = choices[index]
+            local selected = index == state.selection
             local marker, markerColor
             if choice.blocking ~= nil then
                 marker = choice.blocking and "!" or "i"
                 markerColor = choice.blocking and Theme.role.alert or Theme.role.warn
             end
-            self:_row(y, selected, 1, regions.width, marker, markerColor,
-                tostring(choice.label or choice.name), choice.detail)
+            local labelLines = wrapText(tostring(choice.label or choice.name or ""), cardTextWidth, 2)
+            local secondLine = (#labelLines > 1) and labelLines[2] or choice.detail
+            self:_row(cardY, selected, cardFrom, cardTo, marker, markerColor,
+                labelLines[1], nil, nil, Theme.role.panel)
+            self:_cardDetail(cardY + 1, selected, cardFrom, cardTo, secondLine, Theme.role.panel)
         end)
-    local issues = state.setup_issues or (model.setup and model.setup.issues) or {}
-    if #issues > 0 then
-        Draw.text(surface, 2, regions.content.bottom, "! " .. tostring(issues[1].message),
-            regions.width - 3, Theme.role.warn, Theme.role.ground)
-    end
+
     Draw.band(surface, regions.footer, Theme.role.panel)
-    local footerHint = "Up/Down  Enter select  Left back  Right next"
-    if state.setup_step == 4 then
-        footerHint = "Up/Down Enter  Left back  Right next  R rename"
+    local footerX = 2
+    local function footerSegment(text)
+        Draw.text(surface, footerX, regions.footer, text, #text, Theme.role.text, Theme.role.panel)
+        footerX = footerX + #text + 2
     end
-    Draw.text(surface, 2, regions.footer, footerHint, regions.width - 3, Theme.role.text, Theme.role.panel)
+    if step == 4 then
+        footerSegment("Up/Down Enter")
+        footerSegment("Left back")
+        footerSegment("Right next")
+        footerSegment("R rename")
+    else
+        footerSegment("Up/Down")
+        footerSegment("Enter select")
+        footerSegment("Left back")
+        footerSegment("Right next")
+    end
+
     Draw.band(surface, regions.status, Theme.role.ground)
     Draw.text(surface, 2, regions.status, "F10 cancel", regions.width - 3,
         Theme.role.muted, Theme.role.ground)
     surface.setCursorBlink(false)
-    return {hit_regions={}}
+    return {hit_regions = {}}
 end
 
 function UI:_setupRename(state, model)
