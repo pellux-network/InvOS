@@ -116,4 +116,8 @@ return {
         T.equal(Keymap.command({"key",keys.left},state).type,"RENAME_CANCEL")
         T.equal(Keymap.command({"key",keys.f10},state).type,"RENAME_CANCEL")
     end },
+    { name = "R requests a rename only on the storage step", run = function()
+        T.equal(Keymap.command({"key",keys.r},{mode="setup",setup_step=4}).type,"RENAME_STORAGE_REQUEST")
+        T.equal(Keymap.command({"key",keys.r},{mode="setup",setup_step=2}),nil)
+    end },
 }

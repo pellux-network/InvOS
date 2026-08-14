@@ -345,6 +345,8 @@ function UI:reduce(current, command)
             text=state.setup_rename_text}
     elseif kind == "RENAME_CANCEL" then
         return state, {type="RENAME_CANCEL"}
+    elseif kind == "RENAME_STORAGE_REQUEST" then
+        return state, {type="RENAME_STORAGE_REQUEST", step=state.setup_step, index=state.selection}
     elseif kind == "SETUP_MOVE" then
         state.selection = math.max(1, math.min(math.max(1, state.setup_choice_count or 0),
             state.selection + command.delta))
@@ -961,8 +963,11 @@ function UI:_setupWizard(state, model)
             regions.width - 3, Theme.role.warn, Theme.role.ground)
     end
     Draw.band(surface, regions.footer, Theme.role.panel)
-    Draw.text(surface, 2, regions.footer, "Up/Down  Enter select  Left back  Right next",
-        regions.width - 3, Theme.role.text, Theme.role.panel)
+    local footerHint = "Up/Down  Enter select  Left back  Right next"
+    if state.setup_step == 4 then
+        footerHint = "Up/Down Enter  Left back  Right next  R rename"
+    end
+    Draw.text(surface, 2, regions.footer, footerHint, regions.width - 3, Theme.role.text, Theme.role.panel)
     Draw.band(surface, regions.status, Theme.role.ground)
     Draw.text(surface, 2, regions.status, "F10 cancel", regions.width - 3,
         Theme.role.muted, Theme.role.ground)

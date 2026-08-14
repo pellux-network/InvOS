@@ -406,6 +406,19 @@ function Main.build(environment)
             syncSetup(active,setup,4)
         elseif effect.type=="RENAME_CANCEL" then
             syncSetup(active,setup,4)
+        elseif effect.type=="RENAME_STORAGE_REQUEST" then
+            local choices=setupChoices(setup,4)
+            local choice=choices[effect.index or 1]
+            local found
+            if choice then
+                for _,node in ipairs(setup:draft().storage or {}) do
+                    if node.peripheral_name==choice.name then found=node; break end
+                end
+            end
+            if found then
+                active:command({type="OPEN_RENAME",node_id=found.id,text=found.label})
+                active:redraw()
+            end
         elseif effect.type=="SETUP_SELECT" then
             local step=effect.step or 1
             local choices=setupChoices(setup,step)

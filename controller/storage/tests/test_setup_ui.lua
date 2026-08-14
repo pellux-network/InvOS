@@ -221,4 +221,24 @@ return {
         state=ui:reduce(state,{type="SYNC_SETUP",step=4,choices={}})
         T.equal(state.mode,"setup")
     end},
+
+    {name="RENAME_STORAGE_REQUEST carries the current step and selection as an effect",run=function()
+        local ui=UI.new(T.recordingSurface(51,19))
+        local state=UI.initialState()
+        state.mode,state.page,state.setup_step,state.selection="setup","setup",4,2
+        local nextState,effect=ui:reduce(state,{type="RENAME_STORAGE_REQUEST"})
+        T.equal(effect.type,"RENAME_STORAGE_REQUEST")
+        T.equal(effect.step,4)
+        T.equal(effect.index,2)
+    end},
+    {name="the storage step footer hints at R once choices exist",run=function()
+        local surface=T.recordingSurface(51,19)
+        local ui=UI.new(surface)
+        local state=UI.initialState()
+        state.mode,state.page,state.setup_step="setup","setup",4
+        state.setup_choices={{label="[added] a",detail="as \"Vault A\""}}
+        state.setup_choice_count=1
+        ui:render(state,{})
+        T.contains(surface.allText(),"R rename")
+    end},
 }

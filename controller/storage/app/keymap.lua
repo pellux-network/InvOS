@@ -58,6 +58,7 @@ function M.command(event, state)
         if key == keys.enter then return {type="SETUP_SELECT"} end
         if key == keys.left or key == keys.backspace then return {type="SETUP_BACK"} end
         if key == keys.right then return {type="SETUP_NEXT"} end
+        if key == keys.r and state.setup_step == 4 then return {type="RENAME_STORAGE_REQUEST"} end
         return nil
     end
     if state.mode == "setup_rename" then

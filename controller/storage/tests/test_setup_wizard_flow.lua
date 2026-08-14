@@ -184,4 +184,34 @@ return {
         T.equal(model.ui.mode, "setup")
         T.equal(services.setup:draft().storage[1].label, "vault")
     end},
+    {name="R renames an already-added storage node",run=function()
+        local inventories = {drop=chestInventory(27), pick=chestInventory(27), vault=chestInventory(3075)}
+        local coordinator, services = Main.build(environment(inventories))
+        coordinator:handle({"key", keys.right})
+        coordinator:handle({"key", keys.enter})
+        coordinator:handle({"key", keys.down})
+        coordinator:handle({"key", keys.enter})
+        coordinator:handle({"key", keys.enter}) -- add "vault"
+        coordinator:handle({"key", keys.enter}) -- confirm default label "vault"
+        T.equal(coordinator:viewModel().ui.mode, "setup")
+        coordinator:handle({"key", keys.r}) -- re-open rename for the now-highlighted "vault" row
+        local model = coordinator:viewModel()
+        T.equal(model.ui.mode, "setup_rename")
+        T.equal(model.ui.setup_rename_text, "vault")
+        coordinator:handle({"key", keys.backspace})
+        coordinator:handle({"char", "z"})
+        coordinator:handle({"key", keys.enter})
+        T.equal(services.setup:draft().storage[1].label, "vaulz")
+    end},
+    {name="R does nothing on a peripheral that hasn't been added yet",run=function()
+        local inventories = {drop=chestInventory(27), pick=chestInventory(27), vault=chestInventory(3075)}
+        local coordinator = Main.build(environment(inventories))
+        coordinator:handle({"key", keys.right})
+        coordinator:handle({"key", keys.enter})
+        coordinator:handle({"key", keys.down})
+        coordinator:handle({"key", keys.enter})
+        -- now on step 4 with "vault" highlighted but not yet added
+        coordinator:handle({"key", keys.r})
+        T.equal(coordinator:viewModel().ui.mode, "setup")
+    end},
 }
