@@ -51,6 +51,24 @@ function M.command(event, state)
 
     local key = event[2]
     if key == keys.escape then return nil end
+
+    -- Help is a mode of its own, entered and left with F1 (F10 also leaves it, to match every
+    -- other screen's "back" key). While it is open every other key is inert: an operator
+    -- reading it should never accidentally fire the command underneath it.
+    if state.mode == "help" then
+        if key == keys.f1 or key == keys.f10 then return {type="TOGGLE_HELP"} end
+        return nil
+    end
+
+    -- F1 opens Help from anywhere -- including from inside the search boxes, where every
+    -- letter is a query character and every digit a page shortcut, so a function key is the
+    -- only thing free there. It does not fire during an armed recovery release: that state
+    -- already claims every key as confirm, re-arm or cancel, and letting F1 slip past would
+    -- break the "nothing falls through" guarantee that state depends on.
+    local recoveryArmed = state.mode == "page" and state.page == "alerts" and
+        state.recovery_confirm_armed
+    if key == keys.f1 and not recoveryArmed then return {type="TOGGLE_HELP"} end
+
     if state.mode == "setup" then
         if key == keys.f10 then return {type="CANCEL_SETUP"} end
         if key == keys.up then return {type="SETUP_MOVE",delta=-1} end

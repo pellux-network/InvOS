@@ -1,6 +1,7 @@
 local Draw = require("app.draw")
 local Layout = require("app.layout")
 local Theme = require("app.theme")
+local Help = require("app.help")
 
 local UI = {}
 UI.__index = UI
@@ -441,6 +442,18 @@ function UI:reduce(current, command)
         elseif state.mode == "quantity" or state.mode == "variant" then
             state.mode, state.quantity_text, state.variants = "search", "", nil
         end
+    elseif kind == "TOGGLE_HELP" then
+        -- F1 opens Help from wherever the operator is and closing it must land back on the
+        -- exact same screen, not just the same page -- a search mid-query or a craft plan
+        -- half chosen must still be there, so the mode being interrupted is stashed rather
+        -- than reconstructed.
+        if state.mode == "help" then
+            state.mode = state.help_return_mode or "search"
+            state.help_return_mode = nil
+        else
+            state.help_return_mode = state.mode
+            state.mode = "help"
+        end
     elseif kind == "OPEN_PAGE" then
         state.page = command.page
         state.mode = command.page == "search" and "search" or "page"
@@ -640,46 +653,6 @@ function UI:_header(state, model, hitRegions)
     self:_nav(state, regions, hitRegions)
 end
 
--- Search and Crafting are the only pages with a search box to clear, and both of their hint
--- strings are already close to the width budget of a 51-column terminal. Adding "Delete
--- clear" verbatim would silently truncate mid-word there, so both build a widest-to-narrowest
--- candidate list and let fittedLabel pick whichever fits -- the same technique the RETRIEVE
--- and CHOOSE buttons already use -- rather than ever clipping the hotkey itself.
-local function footerHelp(state, width)
-    if state.page == "search" then
-        return fittedLabel(width or math.huge, {
-            "Type search  Up/Down select  Enter retrieve  Delete clear",
-            "Up/Down select  Enter retrieve  Delete clear",
-            "Enter retrieve  Delete clear",
-            "Delete clear",
-        })
-    end
-    if state.page == "requests" then
-        return "Up/Down select  R retry  C cancel  P pause"
-    end
-    if state.page == "alerts" then
-        return "Up/Down  A dismiss"
-    end
-    if state.page == "storage" then return "Up/Down scroll  P pause" end
-    if state.page == "crafting" then
-        if state.mode == "craft_plan" then
-            return "Enter craft  D destination  P pin choice  F10 back"
-        end
-        if state.mode == "craft_quantity" then return "Digits then Enter  A max  F10 back" end
-        if state.mode == "craft_jobs" then
-            return "Up/Down select  R retry  C cancel  Enter confirm  F2 search"
-        end
-        return fittedLabel(width or math.huge, {
-            "Type to find a recipe  Enter choose  Tab complete  F2 jobs  Delete clear",
-            "Enter choose  Tab complete  F2 jobs  Delete clear",
-            "Enter choose  Tab complete  Delete clear",
-            "Enter choose  Delete clear",
-            "Delete clear",
-        })
-    end
-    return "1 Search  P pause"
-end
-
 local function enrichmentText(enrichment)
     if not enrichment then return nil end
     return "Learning item names: " .. formatNumber(enrichment.learned) .. "/" .. formatNumber(enrichment.total)
@@ -690,7 +663,7 @@ function UI:_footer(state, model)
     local regions = Layout.regions(surface.getSize())
     if regions.height < 2 then return end
     Draw.band(surface, regions.footer, Theme.role.panel)
-    Draw.text(surface, 2, regions.footer, footerHelp(state, regions.width - 2), regions.width - 2,
+    Draw.text(surface, 2, regions.footer, Help.footerText(state, regions.width - 2), regions.width - 2,
         Theme.role.text, Theme.role.panel)
     Draw.band(surface, regions.status, Theme.role.ground)
     Draw.text(surface, 2, regions.status,
@@ -1417,12 +1390,67 @@ function UI:render(state, model)
     return result
 end
 
+-- F1 toggles this from any mode, including from inside a search box, since letters and
+-- digits are query characters there and only the function row is free. Closing must restore
+-- the exact prior screen, so this never touches anything but state.mode/help_return_mode --
+-- the interrupted mode's own fields (query text, craft plan, selection...) are untouched and
+-- still there when TOGGLE_HELP flips mode back.
+function UI:_help(state, model)
+    local surface = self.surface
+    local width, height = surface.getSize()
+    Draw.band(surface, 1, Theme.role.panel)
+    Draw.text(surface, 2, 1, "HELP", math.max(1, width - 3), Theme.role.brand, Theme.role.panel)
+    local closeHint = "F1/F10/click closes"
+    if width - 3 >= #closeHint then
+        Draw.rightText(surface, width - 1, 1, closeHint, Theme.role.muted, Theme.role.panel)
+    end
+
+    -- Closing on a click anywhere, not just on some button, because the whole screen is the
+    -- modal -- there is no "outside" to distinguish it from.
+    local hitRegions = {{x1 = 1, y1 = 1, x2 = width, y2 = math.max(1, height),
+        command = {type = "TOGGLE_HELP"}}}
+
+    local contextState = copy(state)
+    contextState.mode = state.help_return_mode or "search"
+    local sections = Help.modalSections(contextState)
+
+    local row, bottom = 3, height
+    for _, section in ipairs(sections) do
+        local entries = section.entries
+        -- A section is shown whole or not at all: a page that fits three of its five
+        -- controls before running out of room is worse than a page that names none and
+        -- leaves the rest to be discovered once the terminal is bigger.
+        if #entries > 0 and row + #entries > bottom then break end
+        if #entries > 0 then
+            self:_band(row)
+            self:_bandText(2, row, section.title:upper(), math.max(1, width - 2))
+            row = row + 1
+            for _, entry in ipairs(entries) do
+                local label = entry.key .. (entry.label and (" " .. entry.label) or "")
+                local labelWidth = math.max(1, math.min(18, width - 3))
+                Draw.text(surface, 2, row, label, labelWidth, Theme.role.focus, Theme.role.ground)
+                local detailX = 3 + labelWidth
+                if width - detailX >= 6 then
+                    Draw.text(surface, detailX, row, entry.detail, width - detailX,
+                        Theme.role.text, Theme.role.ground)
+                end
+                row = row + 1
+            end
+            row = row + 1
+        end
+    end
+
+    surface.setCursorBlink(false)
+    return {hit_regions = hitRegions}
+end
+
 function UI:_frame(state, model)
     model = model or {}
     local surface = self.surface
     surface.setBackgroundColor(Theme.role.ground)
     surface.setTextColor(Theme.role.text)
     surface.clear()
+    if state.mode == "help" then return self:_help(state, model) end
     if state.mode == "setup_rename" then return self:_setupRename(state, model) end
     if state.mode == "setup" then return self:_setupWizard(state, model) end
     -- Declared before the header, which now contributes the nav tab regions.

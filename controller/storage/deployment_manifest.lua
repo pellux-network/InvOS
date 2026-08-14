@@ -10,6 +10,7 @@ local M={files={
     "storage/app/craft_service.lua",
     "storage/app/coordinator.lua",
     "storage/app/draw.lua",
+    "storage/app/help.lua",
     "storage/app/import_service.lua",
     "storage/app/keymap.lua",
     "storage/app/layout.lua",
