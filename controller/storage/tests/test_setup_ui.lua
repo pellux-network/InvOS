@@ -389,4 +389,23 @@ return {
         T.truthy(kinds.RENAME_STORAGE_REQUEST)
         T.truthy(kinds.CANCEL_SETUP)
     end},
+
+    {name="the rename screen is boxed, wraps its hint text, and is clickable",run=function()
+        local surface=T.recordingSurface(51,19)
+        local ui=UI.new(surface)
+        local state=UI.initialState()
+        state.mode,state.page,state.setup_step="setup_rename","setup",4
+        state.setup_rename_id,state.setup_rename_text="storage_1","chest_3"
+        local layout=ui:render(state,{})
+        T.equal(surface.backgroundAt(1,5),nil)
+        T.equal(surface.backgroundAt(2,5),Theme.role.panel)
+        local text=surface.allText()
+        T.contains(text,"Shown on the Storage page instead of the")
+        T.contains(text,"peripheral name.")
+        T.equal(surface.writesOutsideBounds(),0)
+        local kinds={}
+        for _,region in ipairs(layout.hit_regions) do kinds[region.command.type]=true end
+        T.truthy(kinds.RENAME_CONFIRM)
+        T.truthy(kinds.RENAME_CANCEL)
+    end},
 }

@@ -237,4 +237,24 @@ return {
         coordinator:handle({"mouse_click", 1, cancelRegion.x1, cancelRegion.y1})
         T.equal(coordinator:viewModel().ui.mode, "page")
     end},
+    {name="clicking Enter save on the rename screen confirms the new label",run=function()
+        local inventories = {drop=chestInventory(27), pick=chestInventory(27), vault=chestInventory(3075)}
+        local coordinator, services = Main.build(environment(inventories))
+        coordinator:handle({"key", keys.right})
+        coordinator:handle({"key", keys.enter})
+        coordinator:handle({"key", keys.down})
+        coordinator:handle({"key", keys.enter})
+        coordinator:handle({"key", keys.enter}) -- add "vault", opens rename
+        coordinator:handle({"char", "!"})
+        local model = coordinator:viewModel()
+        T.equal(model.ui.mode, "setup_rename")
+        local saveRegion
+        for _, region in ipairs(model.ui.hit_regions or {}) do
+            if region.command.type == "RENAME_CONFIRM" then saveRegion = region end
+        end
+        T.truthy(saveRegion)
+        coordinator:handle({"mouse_click", 1, saveRegion.x1, saveRegion.y1})
+        T.equal(coordinator:viewModel().ui.mode, "setup")
+        T.equal(services.setup:draft().storage[1].label, "vault!")
+    end},
 }

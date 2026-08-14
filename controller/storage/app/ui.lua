@@ -1100,21 +1100,43 @@ end
 function UI:_setupRename(state, model)
     local surface = self.surface
     local regions = Layout.regions(surface.getSize())
+    local hitRegions = {}
+
     Draw.band(surface, regions.header, Theme.role.panel)
     Draw.text(surface, 2, regions.header, "SETUP WIZARD", 20, Theme.role.brand, Theme.role.panel)
+
+    local cardFrom, cardTo = 2, regions.width - 1
+    local cardTop = math.max(regions.header + 1, regions.content.top - 1)
+    local cardBottom = math.min(regions.footer - 1, regions.content.bottom + 1)
+    for y = cardTop, cardBottom do Draw.band(surface, y, Theme.role.panel, cardFrom, cardTo) end
+
     Draw.text(surface, 2, regions.content.top, "Name this storage node", regions.width - 3,
-        Theme.role.focus, Theme.role.ground)
-    Draw.text(surface, 2, regions.content.top + 1,
-        "Shown on the Storage page instead of the peripheral name.", regions.width - 3,
-        Theme.role.muted, Theme.role.ground)
-    Draw.text(surface, 2, regions.content.top + 3, ">", 1, Theme.role.focus, Theme.role.ground)
-    Draw.text(surface, 4, regions.content.top + 3, (state.setup_rename_text or "") .. "_",
-        regions.width - 4, Theme.role.text, Theme.role.ground)
-    Draw.band(surface, regions.footer, Theme.role.panel)
-    Draw.text(surface, 2, regions.footer, "Enter save   Left/F10 cancel", regions.width - 3,
+        Theme.role.focus, Theme.role.panel)
+    local promptLines = wrapText("Shown on the Storage page instead of the peripheral name.",
+        math.max(10, cardTo - cardFrom - 1), 2)
+    for index, line in ipairs(promptLines) do
+        Draw.text(surface, 2, regions.content.top + index, line, regions.width - 3,
+            Theme.role.muted, Theme.role.panel)
+    end
+
+    local inputRow = regions.content.top + #promptLines + 2
+    Draw.text(surface, 2, inputRow, ">", 1, Theme.role.focus, Theme.role.panel)
+    Draw.text(surface, 4, inputRow, (state.setup_rename_text or "") .. "_", regions.width - 4,
         Theme.role.text, Theme.role.panel)
+
+    Draw.band(surface, regions.footer, Theme.role.panel)
+    local footerX = 2
+    local function footerSegment(text, command)
+        Draw.text(surface, footerX, regions.footer, text, #text, Theme.role.text, Theme.role.panel)
+        hitRegions[#hitRegions + 1] = {x1=footerX, y1=regions.footer,
+            x2=footerX + #text - 1, y2=regions.footer, command=command}
+        footerX = footerX + #text + 3
+    end
+    footerSegment("Enter save", {type="RENAME_CONFIRM"})
+    footerSegment("Left/F10 cancel", {type="RENAME_CANCEL"})
+
     surface.setCursorBlink(false)
-    return {hit_regions={}}
+    return {hit_regions = hitRegions}
 end
 
 -- Crafting page. Four views behind one page, because they are steps of one task and
