@@ -194,5 +194,51 @@ class KeyTableTests(unittest.TestCase):
                              "rawterm.KEYS[%r] disagrees with the runtime" % name)
 
 
+@unittest.skipIf(SKIP, "INVOS_SKIP_EMULATOR=1")
+class SetupWizardTests(unittest.TestCase):
+    """A computer with a network but no config, which is what a fresh install is.
+
+    The wizard is how every real installation starts, and its first job is
+    read-only discovery of what is on the wired network -- a step that cannot be
+    exercised by host fakes at all, because there is no network to discover.
+    """
+
+    session = None
+
+    @classmethod
+    def setUpClass(cls):
+        cls.harness = harness_module.Harness()
+        cls.session = cls.harness.start(scenario_module.unconfigured())
+        cls.session.wait_for_text("SETUP WIZARD", timeout=90)
+        cls.session.settle(quiet_for=2.0, timeout=60)
+
+    @classmethod
+    def tearDownClass(cls):
+        if cls.session:
+            cls.session.stop()
+
+    def test_an_unconfigured_computer_boots_into_the_wizard(self):
+        self.assertTrue(self.session.screen.contains("SETUP WIZARD"),
+                        self.session.text())
+
+    def test_discovery_finds_every_inventory_on_the_network(self):
+        # The scenario puts four inventories on the modem. Discovery is
+        # read-only, so this also pins that the wizard reports what it found
+        # without binding anything yet.
+        self.assertTrue(self.session.screen.contains("4 inventories"),
+                        self.session.text())
+
+    def test_the_wizard_advances_and_offers_the_discovered_inventories(self):
+        self.session.press("enter")
+        self.session.wait_for_text("2 / 10", timeout=30)
+        self.session.settle(quiet_for=1.0, timeout=20)
+        text = self.session.text()
+        self.assertIn("Drop-off", text)
+        # Sizes come from the real peripherals, so a double chest reads 54 and a
+        # barrel 27 -- the wizard is showing measured capacity, not a guess.
+        self.assertIn("54 slots", text)
+        self.assertIn("27 slots", text)
+
+
 if __name__ == "__main__":
     unittest.main()

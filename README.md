@@ -8,8 +8,8 @@
 
   <p>
     <img alt="status" src="https://img.shields.io/badge/status-deployed%20%26%20live-B91C2E">
-    <img alt="lua tests" src="https://img.shields.io/badge/lua%20tests-718%20passing-B91C2E">
-    <img alt="python tests" src="https://img.shields.io/badge/python%20tests-74%20passing-B91C2E">
+    <img alt="lua tests" src="https://img.shields.io/badge/lua%20tests-816%20passing-B91C2E">
+    <img alt="python tests" src="https://img.shields.io/badge/python%20tests-149%20passing-B91C2E">
     <img alt="runtime" src="https://img.shields.io/badge/runtime-CC%3ATweaked%20%2F%20CraftOS-2b2b2b">
   </p>
 </div>
@@ -21,7 +21,7 @@ back. InvOS indexes every storage container you give it, takes deposits through 
 Drop-off, fulfills exact item-and-quantity requests into a dedicated Pickup, and — if you
 give it a spare turtle — plans and executes multi-step crafting against your own live
 recipe set. No mainframe, no external database: it's one advanced computer, some wired
-modems, and nearly 800 tests standing behind it.
+modems, and over 950 tests standing behind it.
 
 ## Why InvOS
 
@@ -102,6 +102,11 @@ over — see [`controller/storage/app/splash.lua`](controller/storage/app/splash
 </tr>
 </table>
 
+These are captured in game, so they include the computer's Minecraft GUI frame. The same
+screens can be rendered headlessly from the emulator — same font, same palette, no frame —
+which is how a UI change gets checked without logging in; see
+[`docs/emulator.md`](docs/emulator.md).
+
 ## Features
 
 - Responsive, search-first advanced-computer UI, keyboard- and mouse-driven
@@ -162,7 +167,8 @@ Search retrieval.
 - `turtle/` — the crafting turtle's own deployable tree. It never shares files with the
   controller in either direction.
 - `tools/` — host-side build tooling that is never deployed: `recipe_import.py` builds the
-  recipe pack, `deploy.py` gates every live deployment.
+  recipe pack, `deploy.py` gates every live deployment, and `emulator/` boots the controller
+  in [CraftOS-PC](https://www.craftos-pc.cc) to drive and screenshot it headlessly.
 
 See [`AGENTS.md`](AGENTS.md) for the full set of runtime and crafting invariants this
 system is built against — the reasoning behind the design, not just the shape of it.
@@ -175,6 +181,10 @@ lua storage/tests/run.lua
 
 # Python suite (from tools/)
 python -m unittest test_recipe_pack test_recipe_import
+
+# Emulator harness (from tools/emulator/) — the second command boots CraftOS-PC
+python3 -m unittest test_rawterm test_scenario test_render test_session
+python3 -m unittest test_smoke test_smoke_nbt
 
 # Boot the real thing in an emulator and screenshot it, headlessly
 python3 tools/emulator/craftos.py shot --keys "type:vault" --out /tmp/search.png

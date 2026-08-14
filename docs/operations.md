@@ -175,6 +175,18 @@ The live installation is a running Minecraft world with real player items in it.
 deployment goes through `tools/deploy.py`, which is the whole gate in one command and
 refuses rather than guesses at every step.
 
+**Boot the change in the emulator first.** The host suite runs on Lua 5.4 and the computer
+runs 5.2, so a green suite does not prove the code loads in game — and the emulator installs
+from the same `deployment_manifest.lua` the deploy gate uses, so a module missing from the
+manifest fails there instead of on the live computer:
+
+```bash
+cd tools/emulator && python3 -m unittest test_smoke
+```
+
+This is a cheap pre-flight, not a substitute for the gate below or for the host suite. See
+[`emulator.md`](emulator.md).
+
 **Shut both computers down first, and confirm it.** The script samples file mtimes as
 corroboration, but an idle controller can sit still for a few seconds; the sample is not
 evidence on its own.
