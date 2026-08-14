@@ -137,16 +137,43 @@ computer's GUI frame. Everything inside that frame matches.
 ```bash
 cd tools/emulator
 python3 -m unittest test_rawterm test_scenario test_render test_session   # fast, no emulator
-python3 -m unittest test_smoke test_smoke_nbt                             # boots the emulator
+python3 -m unittest test_smoke test_smoke_nbt                             # boots the emulator, ~6-7 minutes
 ```
 
-`test_smoke` boots InvOS and asserts on what it draws. It is slow — each class
-starts an emulator — and skips entirely with `INVOS_SKIP_EMULATOR=1` where one
-cannot be provisioned.
+`test_smoke` and `test_smoke_nbt` boot InvOS and assert on what it draws. They
+are slow — most classes start an emulator, and `ManifestTests`/`KeyTableTests`
+start a fresh one per test — so running the whole thing on every change is not
+worth it. They skip entirely with `INVOS_SKIP_EMULATOR=1` where one cannot be
+provisioned.
 
-Two of its tests exist specifically to catch drift rather than to test InvOS:
-one pins `_VERSION` to `Lua 5.2`, and one re-dumps the `keys` table from the
-running emulator and compares it to `rawterm.KEYS`.
+Two of `test_smoke`'s tests exist specifically to catch drift rather than to
+test InvOS: one pins `_VERSION` to `Lua 5.2`, and one re-dumps the `keys` table
+from the running emulator and compares it to `rawterm.KEYS`.
+
+### Running by category
+
+`run_tests.py` groups the suite by what a change is likely to touch, so a
+change to one area only reboots the emulator classes that cover it:
+
+```bash
+cd tools/emulator
+python3 run_tests.py --list          # show every category and what it covers
+python3 run_tests.py fast            # harness/protocol unit tests, no emulator boot
+python3 run_tests.py smoke           # Search, index totals, navigation, theme
+python3 run_tests.py setup-wizard    # the unconfigured-computer setup wizard
+python3 run_tests.py nbt             # NBT variant scanning/search
+python3 run_tests.py manifest keys   # deployment manifest + key-code drift
+python3 run_tests.py emulator        # every category that boots an emulator
+python3 run_tests.py all             # everything test_smoke.py's `-m unittest` invocation covers
+```
+
+`fast` and `setup-wizard` boot at most one emulator and finish in seconds.
+`manifest` and `keys` are the slowest single categories relative to their size
+— each test in those two classes boots its own bare computer via `run_probe`
+rather than sharing a class-level session. Only one Harness runs at a time:
+every category shares the fixed workdir `/tmp/invos-emulator-run`, so running
+two `run_tests.py` invocations concurrently races and corrupts both.
+Extra arguments (`-v`, `-k pattern`, ...) pass straight through to `unittest`.
 
 ## Counting peripheral calls
 

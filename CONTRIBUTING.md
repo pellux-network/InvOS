@@ -31,7 +31,10 @@ python -m unittest test_recipe_pack test_recipe_import
 
 # Emulator harness, from tools/emulator/
 python3 -m unittest test_rawterm test_scenario test_render test_session  # fast
-python3 -m unittest test_smoke                                          # boots CraftOS-PC
+python3 -m unittest test_smoke test_smoke_nbt                           # boots CraftOS-PC, ~6-7 min
+
+# Or pick just the emulator category your change affects (see run_tests.py --list)
+python3 run_tests.py smoke
 ```
 
 Before committing or merging any runtime change, run the **complete** Lua suite (not a
