@@ -7,9 +7,11 @@ file set turns every emulator test downstream into a test of the wrong tree.
 
 import os
 import tempfile
+import time
 import unittest
 
 import harness
+import rawterm
 import session
 
 
@@ -148,6 +150,71 @@ class SessionInputTests(unittest.TestCase):
         driver = session.Session("craftos", "/nonexistent")
         with self.assertRaises(ValueError):
             driver.press("anykey")
+
+
+def terminal_payload(line):
+    """A one-row terminal-contents payload showing ``line``."""
+    import struct
+    width = len(line)
+    body = struct.pack("<BBBBHHHHB3x", rawterm.PACKET_TERMINAL_CONTENTS, 0, 0, 0,
+                       width, 1, 0, 0, 0)
+    body += b"".join(bytes((ord(c), 1)) for c in line)
+    body += bytes((0x0F, width))
+    body += bytes(48)
+    return body
+
+
+def queue_frames(driver, lines):
+    for line in lines:
+        driver._queue.put(rawterm.Packet(rawterm.PACKET_TERMINAL_CONTENTS, 0,
+                                         terminal_payload(line)))
+
+
+class SettleTests(unittest.TestCase):
+    """Why settle() is not simply "wait for no packets".
+
+    Both behaviours here were measured against the real emulator: CraftOS-PC
+    resends an unchanged terminal several times a second, and InvOS marquees
+    long labels forever. Between them, the original settle() could never return
+    early on any page, so it always ran to its timeout -- 60s per capture and 8s
+    per keypress, which is where a 90-key scroll spent twenty minutes.
+    """
+
+    def driver(self):
+        return session.Session("craftos", "/nonexistent")
+
+    def test_resending_an_identical_frame_is_not_an_update(self):
+        driver = self.driver()
+        queue_frames(driver, ["HELLO"])
+        self.assertTrue(driver.pump(timeout=0.05), "first frame should count")
+        queue_frames(driver, ["HELLO", "HELLO"])
+        self.assertFalse(driver.pump(timeout=0.05),
+                         "an unchanged repaint must not read as an update")
+
+    def test_a_changed_frame_is_an_update(self):
+        driver = self.driver()
+        queue_frames(driver, ["HELLO"])
+        driver.pump(timeout=0.05)
+        queue_frames(driver, ["WORLD"])
+        self.assertTrue(driver.pump(timeout=0.05))
+
+    def test_settle_returns_once_a_static_screen_stops_repainting(self):
+        driver = self.driver()
+        queue_frames(driver, ["HELLO", "HELLO"])
+        started = time.time()
+        driver.settle(quiet_for=0.05, timeout=5.0)
+        self.assertLess(time.time() - started, 2.0,
+                        "settle waited out its timeout on a static screen")
+
+    def test_settle_returns_on_an_animation_rather_than_waiting_it_out(self):
+        # A marquee cycles, so frames recur. Without cycle detection this queue
+        # never goes quiet and settle burns the whole timeout.
+        driver = self.driver()
+        queue_frames(driver, ["ABC", "BCA", "CAB"] * 40)
+        started = time.time()
+        driver.settle(quiet_for=0.05, timeout=5.0)
+        self.assertLess(time.time() - started, 2.0,
+                        "settle waited out its timeout on a cycling screen")
 
 
 if __name__ == "__main__":

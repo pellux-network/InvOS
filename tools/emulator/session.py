@@ -111,6 +111,9 @@ class Session(object):
         self.process = None
         self.screen = None
         self.title = None
+        # The last window-0 payload parsed, so pump() can tell a real repaint
+        # from CraftOS-PC resending an unchanged terminal.
+        self._last_payload = None
         self._queue = queue.Queue()
         self._reader = None
         self._stderr = []
@@ -185,7 +188,14 @@ class Session(object):
     # -- reading the screen ------------------------------------------------
 
     def pump(self, timeout=0.2):
-        """Consume pending packets, updating the current screen. Returns bool."""
+        """Consume pending packets, updating the current screen. Returns bool.
+
+        "Updated" means the screen's *contents* changed, not that a packet
+        arrived. CraftOS-PC resends the terminal on a cadence of its own
+        regardless of whether anything was redrawn -- measured at 24 packets
+        for 7 real changes over six seconds -- so counting packets made
+        :meth:`settle` believe a completely static screen was still repainting.
+        """
         updated = False
         deadline = time.time() + timeout
         while True:
@@ -200,8 +210,12 @@ class Session(object):
                 # Only window 0 is the computer's own terminal; monitors arrive
                 # as further windows and would otherwise overwrite it.
                 if packet.window == 0:
-                    self.screen = rawterm.Screen.from_payload(packet.payload)
-                    updated = True
+                    if packet.payload != self._last_payload:
+                        self._last_payload = packet.payload
+                        self.screen = rawterm.Screen.from_payload(packet.payload)
+                        updated = True
+                    elif self.screen is None:
+                        self.screen = rawterm.Screen.from_payload(packet.payload)
             elif packet.type == rawterm.PACKET_TERMINAL_CHANGE:
                 body = packet.payload[6:].split(b"\x00")[0]
                 self.title = body.decode("utf-8", "replace")
@@ -228,15 +242,34 @@ class Session(object):
                              description="text %r" % needle)
 
     def settle(self, quiet_for=0.6, timeout=10.0):
-        """Pump until no new frame arrives for ``quiet_for`` seconds.
+        """Pump until the screen stops changing, or starts repeating itself.
 
-        Screens that animate or redraw in stages would otherwise be captured
-        mid-repaint, which shows up as a screenshot no player would ever see.
+        Screens that redraw in stages would otherwise be captured mid-repaint,
+        which shows up as a screenshot no player would ever see. But InvOS
+        marquees any label too long for its column, so on most pages the screen
+        never stops changing at all: waiting for quiet meant waiting out the
+        whole timeout, every time. That cost 60s twice per capture and 8s per
+        keypress -- a 90-key scroll took over twenty minutes, essentially all of
+        it idle.
+
+        A marquee cycles through a finite set of frames, so a screen that is
+        only animating eventually shows one it has shown before. Treating that
+        repeat as settled distinguishes "still painting" (always new frames)
+        from "animating forever" (frames recur) without needing to know
+        anything about what is on screen.
         """
         deadline = time.time() + timeout
+        seen = set()
+        if self.screen is not None:
+            seen.add(self.screen.text_dump())
         while time.time() < deadline:
             if not self.pump(timeout=quiet_for):
                 return self.screen
+            if self.screen is not None:
+                dump = self.screen.text_dump()
+                if dump in seen:
+                    return self.screen
+                seen.add(dump)
         return self.screen
 
     def text(self):

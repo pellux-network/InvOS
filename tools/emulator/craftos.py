@@ -39,7 +39,14 @@ def build_scenario(name, profile=False):
 
 
 def apply_steps(active, steps):
-    """Apply a list of ``key``/``type:text``/``click:x,y`` steps to a session."""
+    """Apply a list of ``key``/``type:text``/``click:x,y`` steps to a session.
+
+    Only ``wait:`` steps block on the screen reaching a state; the rest just
+    need the input delivered in order, because run_session settles once after
+    the whole sequence. Settling after every step instead made each keypress
+    cost a full settle timeout, so driving a list 90 rows down took twenty
+    minutes of almost pure waiting.
+    """
     for step in steps or []:
         if step.startswith("type:"):
             active.type_text(step[5:])
@@ -50,7 +57,6 @@ def apply_steps(active, steps):
             active.wait_for_text(step[5:])
         else:
             active.press(step)
-        active.settle(quiet_for=0.5, timeout=8)
 
 
 def run_session(args, then):
@@ -60,9 +66,14 @@ def run_session(args, then):
     try:
         active.wait_for(lambda screen: screen.text_dump().strip() != "",
                         timeout=args.timeout, description="the first drawn frame")
-        active.settle(quiet_for=args.settle, timeout=args.timeout)
+        # --timeout is the budget for *booting*, which legitimately takes tens
+        # of seconds. Settling is a different question -- either the screen goes
+        # quiet promptly or it is animating and never will -- so it gets its own
+        # short cap rather than inheriting the boot budget and burning it whole.
+        settle_cap = max(2.0, args.settle * 3)
+        active.settle(quiet_for=args.settle, timeout=settle_cap)
         apply_steps(active, getattr(args, "keys", None))
-        active.settle(quiet_for=args.settle, timeout=args.timeout)
+        active.settle(quiet_for=args.settle, timeout=settle_cap)
         return then(active, harness)
     finally:
         active.stop()
