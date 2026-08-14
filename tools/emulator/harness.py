@@ -1,5 +1,6 @@
 """One call to get from a repository checkout to a driveable InvOS terminal."""
 
+import hashlib
 import os
 import shutil
 import tempfile
@@ -13,9 +14,21 @@ SMOKE_DIR = os.path.join(HERE, "smoke")
 CONTROLLER_ROOT = os.path.abspath(os.path.join(HERE, "..", "..", "controller"))
 
 
-def default_workdir():
+def default_workdir(controller_root=None):
+    """A scratch directory private to one checkout.
+
+    ``prepare`` rmtree's this path before every run, so two checkouts sharing it
+    delete each other's computer directory mid-boot -- which looks like a random
+    boot failure in the code under test rather than like contention. That is not
+    hypothetical: three agents working in sibling git worktrees hit it at once,
+    and only ``craftos.py`` had a ``--workdir`` escape hatch, so the unittest
+    suites could not isolate themselves at all. Keying the path to the checkout
+    makes concurrent worktrees safe without anyone having to know to ask.
+    """
     base = os.environ.get("TMPDIR") or tempfile.gettempdir()
-    return os.path.join(base, "invos-emulator-run")
+    root = os.path.abspath(controller_root or CONTROLLER_ROOT)
+    digest = hashlib.sha256(root.encode("utf-8")).hexdigest()[:8]
+    return os.path.join(base, "invos-emulator-run-" + digest)
 
 
 class Harness(object):
@@ -23,7 +36,7 @@ class Harness(object):
 
     def __init__(self, controller_root=None, workdir=None, provisioner=None):
         self.controller_root = os.path.abspath(controller_root or CONTROLLER_ROOT)
-        self.workdir = os.path.abspath(workdir or default_workdir())
+        self.workdir = os.path.abspath(workdir or default_workdir(self.controller_root))
         self.provisioner = provisioner or provision.Provisioner()
 
     @property

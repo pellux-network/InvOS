@@ -198,10 +198,35 @@ python3 run_tests.py all             # everything test_smoke.py's `-m unittest` 
 `fast` and `setup-wizard` boot at most one emulator and finish in seconds.
 `manifest` and `keys` are the slowest single categories relative to their size
 — each test in those two classes boots its own bare computer via `run_probe`
-rather than sharing a class-level session. Only one Harness runs at a time:
-every category shares the fixed workdir `/tmp/invos-emulator-run`, so running
-two `run_tests.py` invocations concurrently races and corrupts both.
+rather than sharing a class-level session.
 Extra arguments (`-v`, `-k pattern`, ...) pass straight through to `unittest`.
+
+The workdir is keyed to the checkout it runs from — `invos-emulator-run-<hash>`
+under `$TMPDIR` — so separate clones and separate git worktrees no longer
+collide. `Harness.prepare()` deletes its workdir before every run, so two trees
+sharing one path used to delete each other's computer directory mid-boot and
+present it as a random boot failure. Two `run_tests.py` invocations in the *same*
+checkout still race; give one of them a different `TMPDIR`.
+
+### Driving this from an agent
+
+The emulator is the closest thing to the real game available from the host, so
+prefer it over the host Lua suite for anything user-visible. Two things are
+worth knowing before you start, both learned the hard way:
+
+- **Run the slow suites in the foreground, with a timeout.** `smoke` and `nbt`
+  take six to seven minutes. Backgrounding one and waiting for it to announce
+  itself does not work — nothing notifies you, and it is easy to sit idle for a
+  long time. `timeout 900 python3 run_tests.py smoke keys 2>&1 | tail -30`
+  blocks, finishes, and prints what matters.
+- **Use `craftos.py` for single screens.** One `text` or `shot` capture boots
+  once and returns in well under a minute, so checking a specific screen is much
+  cheaper than running a whole category. Reach for the suites to prove nothing
+  regressed, and for `craftos.py` to see what your change actually looks like.
+
+A rendered screen outranks a passing host test. If the two disagree, the screen
+is right — the host suite runs Lua 5.4 against a mock terminal, and the emulator
+runs the Lua 5.2 the game runs against the real one.
 
 ## Counting peripheral calls
 

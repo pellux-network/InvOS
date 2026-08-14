@@ -9,6 +9,7 @@ import os
 import tempfile
 import unittest
 
+import harness
 import session
 
 
@@ -108,6 +109,36 @@ class InstallationTests(unittest.TestCase):
         message = str(caught.exception)
         for missing in self.names[-2:]:
             self.assertIn(missing, message)
+
+
+class WorkdirIsolationTests(unittest.TestCase):
+    # Harness.prepare() rmtree's its workdir before every run, so two checkouts
+    # sharing one path delete each other's computer directory mid-boot. That
+    # presents as a random boot failure in the code under test, which is a long
+    # way from the real cause -- hence a test rather than a convention.
+    def test_two_checkouts_get_different_workdirs(self):
+        first = harness.default_workdir("/repo/one/controller")
+        second = harness.default_workdir("/repo/two/controller")
+        self.assertNotEqual(first, second)
+
+    def test_the_same_checkout_is_stable_across_calls(self):
+        # Stable, because a run that cannot find the directory the previous call
+        # created would reinstall the tree on every single command.
+        self.assertEqual(harness.default_workdir("/repo/one/controller"),
+                         harness.default_workdir("/repo/one/controller"))
+
+    def test_a_relative_path_matches_its_absolute_form(self):
+        # The suites are run from tools/emulator/ and the CLI from the repo root,
+        # so the same checkout reaches this by two different spellings.
+        absolute = os.path.abspath("controller")
+        self.assertEqual(harness.default_workdir("controller"),
+                         harness.default_workdir(absolute))
+
+    def test_the_harness_defaults_to_its_own_controller_root(self):
+        driver = harness.Harness(controller_root="/repo/one/controller",
+                                 provisioner=object())
+        self.assertEqual(driver.workdir,
+                         os.path.abspath(harness.default_workdir("/repo/one/controller")))
 
 
 class SessionInputTests(unittest.TestCase):
