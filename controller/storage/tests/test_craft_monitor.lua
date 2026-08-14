@@ -140,4 +140,69 @@ return {
         CraftMonitor.render(surface, {active={item="x", state="STAGING"}})
         T.equal(frames.ended, frames.begun)
     end},
+    {name="the full tier gets a panel header band, not bare text",run=function()
+        local Theme = require("app.theme")
+        local surface = scaled()
+        CraftMonitor.render(surface, activeModel())
+        local banded = 0
+        for x = 1, 15 do
+            if surface.backgroundAt(x, 1) == Theme.role.panel then banded = banded + 1 end
+        end
+        T.truthy(banded > 10, "expected the header row painted as a panel band")
+    end},
+    {name="a large monitor gets a header band with the state alongside it",run=function()
+        local Theme = require("app.theme")
+        local surface = T.recordingSurface(40, 16)
+        CraftMonitor.render(surface, activeModel({active={state="STAGING"}}))
+        local text = surface.allText()
+        T.contains(text, "CRAFTING")
+        T.contains(text, "STAGING")
+        local banded = 0
+        for x = 1, 40 do
+            if surface.backgroundAt(x, 1) == Theme.role.panel then banded = banded + 1 end
+        end
+        T.truthy(banded > 30, "expected the header row painted as a full panel band")
+    end},
+    {name="a large monitor shows a percent alongside the progress meter",run=function()
+        local surface = T.recordingSurface(40, 16)
+        CraftMonitor.render(surface, activeModel({active={produced=8, quantity=16}}))
+        T.contains(surface.allText(), "50%")
+    end},
+    {name="a large monitor still shows the step meter and staged ingredient",run=function()
+        local surface = T.recordingSurface(40, 16)
+        CraftMonitor.render(surface, activeModel())
+        local text = surface.allText()
+        T.contains(text, "STEP 2/3")
+        T.contains(text, "oak_planks")
+    end},
+    {name="a large monitor shows queue depth and a blocked reason",run=function()
+        local surface = T.recordingSurface(40, 16)
+        CraftMonitor.render(surface, activeModel({
+            active={state="BLOCKED", reason="INSUFFICIENT_MATERIALS"}, queued=3}))
+        local text = surface.allText()
+        T.contains(text, "+3 queued")
+        T.contains(text, "INSUFFICIENT")
+    end},
+    {name="an idle large monitor shows the recipe count as block digits",run=function()
+        local Theme = require("app.theme")
+        local surface = T.recordingSurface(40, 16)
+        CraftMonitor.render(surface, {active=nil, queued=0, craftable_types=639})
+        local painted = 0
+        for y = 1, 16 do
+            for x = 1, 40 do
+                if surface.backgroundAt(x, y) == Theme.role.focus then painted = painted + 1 end
+            end
+        end
+        T.truthy(painted > 20,
+            "expected block digits for the recipe count, got " .. painted .. " painted cells")
+        T.contains(surface.allText(), "RECIPES")
+    end},
+    {name="the craft monitor never draws outside its surface at any size",run=function()
+        for _, size in ipairs({{79,24},{40,16},{30,14},{29,13},{15,10},{7,5},{4,3}}) do
+            local surface = T.recordingSurface(size[1], size[2])
+            CraftMonitor.render(surface, activeModel({
+                active={state="BLOCKED", reason="INSUFFICIENT_MATERIALS"}, queued=5}))
+            T.equal(surface.writesOutsideBounds(), 0, size[1] .. "x" .. size[2] .. " drew outside")
+        end
+    end},
 }
