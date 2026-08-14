@@ -315,6 +315,7 @@ function UI:reduce(current, command)
         state.page, state.mode, state.setup_step = "setup", "setup", 1
         state.selection, state.setup_choices, state.setup_choice_count = 1, {}, 0
     elseif kind == "SYNC_SETUP" then
+        state.mode = "setup"
         local newStep = command.step or state.setup_step or 1
         local changedStep = newStep ~= state.setup_step
         state.setup_step = newStep
@@ -328,6 +329,22 @@ function UI:reduce(current, command)
             state.selection = math.max(1, math.min(state.selection,
                 math.max(1, state.setup_choice_count)))
         end
+    elseif kind == "OPEN_RENAME" then
+        state.mode = "setup_rename"
+        state.setup_rename_id = command.node_id
+        state.setup_rename_text = tostring(command.text or "")
+    elseif kind == "RENAME_APPEND" then
+        state.setup_rename_text = (state.setup_rename_text or "") .. tostring(command.text or "")
+    elseif kind == "RENAME_BACKSPACE" then
+        local current = state.setup_rename_text or ""
+        state.setup_rename_text = current:sub(1, math.max(0, #current - 1))
+    elseif kind == "RENAME_CLEAR" then
+        state.setup_rename_text = ""
+    elseif kind == "RENAME_CONFIRM" then
+        return state, {type="RENAME_CONFIRM", node_id=state.setup_rename_id,
+            text=state.setup_rename_text}
+    elseif kind == "RENAME_CANCEL" then
+        return state, {type="RENAME_CANCEL"}
     elseif kind == "SETUP_MOVE" then
         state.selection = math.max(1, math.min(math.max(1, state.setup_choice_count or 0),
             state.selection + command.delta))
@@ -953,6 +970,26 @@ function UI:_setupWizard(state, model)
     return {hit_regions={}}
 end
 
+function UI:_setupRename(state, model)
+    local surface = self.surface
+    local regions = Layout.regions(surface.getSize())
+    Draw.band(surface, regions.header, Theme.role.panel)
+    Draw.text(surface, 2, regions.header, "SETUP WIZARD", 20, Theme.role.brand, Theme.role.panel)
+    Draw.text(surface, 2, regions.content.top, "Name this storage node", regions.width - 3,
+        Theme.role.focus, Theme.role.ground)
+    Draw.text(surface, 2, regions.content.top + 1,
+        "Shown on the Storage page instead of the peripheral name.", regions.width - 3,
+        Theme.role.muted, Theme.role.ground)
+    Draw.text(surface, 2, regions.content.top + 3, ">", 1, Theme.role.focus, Theme.role.ground)
+    Draw.text(surface, 4, regions.content.top + 3, (state.setup_rename_text or "") .. "_",
+        regions.width - 4, Theme.role.text, Theme.role.ground)
+    Draw.band(surface, regions.footer, Theme.role.panel)
+    Draw.text(surface, 2, regions.footer, "Enter save   Left/F10 cancel", regions.width - 3,
+        Theme.role.text, Theme.role.panel)
+    surface.setCursorBlink(false)
+    return {hit_regions={}}
+end
+
 -- Crafting page. Four views behind one page, because they are steps of one task and
 -- swapping pages between them would lose the search that found the item.
 function UI:_crafting(state, model, hitRegions)
@@ -1151,6 +1188,7 @@ function UI:_frame(state, model)
     surface.setBackgroundColor(Theme.role.ground)
     surface.setTextColor(Theme.role.text)
     surface.clear()
+    if state.mode == "setup_rename" then return self:_setupRename(state, model) end
     if state.mode == "setup" then return self:_setupWizard(state, model) end
     -- Declared before the header, which now contributes the nav tab regions.
     local hitRegions = {}

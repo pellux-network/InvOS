@@ -1,7 +1,7 @@
 keys = {
     backspace=14, up=200, down=208, enter=28, s=31, a=30, f10=68,
     escape=1, one=2, two=3, three=4, four=5, five=6,
-    r=19, c=46, p=25, x=45, delete=211,
+    r=19, c=46, p=25, x=45, delete=211, left=203,
 }
 
 local Keymap = require("app.keymap")
@@ -104,5 +104,16 @@ return {
         local tab=Keymap.command({"key",keys.two},{mode="search",query="mod"})
         T.equal(tab and tab.page,"storage")
         T.equal(Keymap.command({"char","1"},{mode="search",query="mod"}).text,"1")
+    end },
+    { name = "setup_rename mode captures typing and confirm/cancel", run = function()
+        local state = {mode="setup_rename"}
+        T.equal(Keymap.command({"char","V"},state).type,"RENAME_APPEND")
+        T.equal(Keymap.command({"char","V"},state).text,"V")
+        T.equal(Keymap.command({"paste","Vault"},state).type,"RENAME_APPEND")
+        T.equal(Keymap.command({"key",keys.backspace},state).type,"RENAME_BACKSPACE")
+        T.equal(Keymap.command({"key",keys.delete},state).type,"RENAME_CLEAR")
+        T.equal(Keymap.command({"key",keys.enter},state).type,"RENAME_CONFIRM")
+        T.equal(Keymap.command({"key",keys.left},state).type,"RENAME_CANCEL")
+        T.equal(Keymap.command({"key",keys.f10},state).type,"RENAME_CANCEL")
     end },
 }

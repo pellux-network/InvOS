@@ -28,6 +28,9 @@ function M.command(event, state)
     if name == "paste" and state.mode == "craft_search" then
         return {type="CRAFT_QUERY_APPEND",text=tostring(event[2] or "")}
     end
+    if name == "paste" and state.mode == "setup_rename" then
+        return {type="RENAME_APPEND",text=tostring(event[2] or "")}
+    end
     if name == "char" then
         local character = tostring(event[2] or "")
         if state.suppress_char == character then
@@ -35,6 +38,7 @@ function M.command(event, state)
         end
         if state.mode == "search" then return {type="QUERY_APPEND",text=character} end
         if state.mode == "craft_search" then return {type="CRAFT_QUERY_APPEND",text=character} end
+        if state.mode == "setup_rename" then return {type="RENAME_APPEND",text=character} end
         if state.mode == "quantity" and character:match("^%d$") then
             return {type="SET_QUANTITY",digit=character}
         end
@@ -54,6 +58,13 @@ function M.command(event, state)
         if key == keys.enter then return {type="SETUP_SELECT"} end
         if key == keys.left or key == keys.backspace then return {type="SETUP_BACK"} end
         if key == keys.right then return {type="SETUP_NEXT"} end
+        return nil
+    end
+    if state.mode == "setup_rename" then
+        if key == keys.enter then return {type="RENAME_CONFIRM"} end
+        if key == keys.backspace then return {type="RENAME_BACKSPACE"} end
+        if key == keys.delete then return {type="RENAME_CLEAR"} end
+        if key == keys.left or key == keys.f10 then return {type="RENAME_CANCEL"} end
         return nil
     end
     -- A recovery release abandons proof of what an interrupted transfer moved, so once

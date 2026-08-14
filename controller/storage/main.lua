@@ -174,7 +174,12 @@ local function setupChoices(service,step)
         end)
         for _,choice in ipairs(choices) do
             for _,node in ipairs(draft.storage or {}) do
-                if node.peripheral_name==choice.name then choice.label="[added] "..choice.label end
+                if node.peripheral_name==choice.name then
+                    choice.label="[added] "..choice.label
+                    if node.label ~= node.peripheral_name then
+                        choice.detail = "as \""..node.label.."\""
+                    end
+                end
             end
         end
     elseif step==5 then
@@ -395,6 +400,12 @@ function Main.build(environment)
                 if nextStep==9 then report=setup:validate() end
                 syncSetup(active,setup,nextStep,report and report.issues)
             end
+        elseif effect.type=="RENAME_CONFIRM" then
+            local text=tostring(effect.text or "")
+            setup:updateStorage(effect.node_id,{label=text~="" and text or nil})
+            syncSetup(active,setup,4)
+        elseif effect.type=="RENAME_CANCEL" then
+            syncSetup(active,setup,4)
         elseif effect.type=="SETUP_SELECT" then
             local step=effect.step or 1
             local choices=setupChoices(setup,step)
@@ -408,9 +419,14 @@ function Main.build(environment)
                 for _,node in ipairs(setup:draft().storage or {}) do
                     if node.peripheral_name==choice.name then found=node; break end
                 end
-                if found then setup:removeStorage(found.id)
-                else setup:addStorage(choice.name,choice.name) end
-                syncSetup(active,setup,4)
+                if found then
+                    setup:removeStorage(found.id)
+                    syncSetup(active,setup,4)
+                else
+                    local node=setup:addStorage(choice.name,choice.name)
+                    active:command({type="OPEN_RENAME",node_id=node.id,text=node.label})
+                    active:redraw()
+                end
             elseif (step==5 or step==6 or step==7 or step==8) and choice then
                 -- choice.name is nil for the Skip entry, which clears the binding.
                 local roles={[5]="craft_buffer",[6]="turtle",

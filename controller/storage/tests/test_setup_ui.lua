@@ -174,4 +174,51 @@ return {
         T.contains(text, "Save configuration and enable")
         T.equal(surface.writesOutsideBounds(), 0)
     end},
+
+    {name="OPEN_RENAME enters setup_rename mode pre-filled with the given text",run=function()
+        local ui=UI.new(T.recordingSurface(51,19))
+        local state=UI.initialState()
+        state.mode,state.page,state.setup_step="setup","setup",4
+        state=ui:reduce(state,{type="OPEN_RENAME",node_id="storage_1",text="chest_3"})
+        T.equal(state.mode,"setup_rename")
+        T.equal(state.setup_rename_id,"storage_1")
+        T.equal(state.setup_rename_text,"chest_3")
+    end},
+    {name="typing and confirming in rename mode produces the effect and clears on cancel",run=function()
+        local ui=UI.new(T.recordingSurface(51,19))
+        local state=UI.initialState()
+        state=ui:reduce(state,{type="OPEN_RENAME",node_id="storage_1",text="chest_3"})
+        state=ui:reduce(state,{type="RENAME_BACKSPACE"})
+        T.equal(state.setup_rename_text,"chest_")
+        state=ui:reduce(state,{type="RENAME_APPEND",text="9"})
+        T.equal(state.setup_rename_text,"chest_9")
+        local nextState,effect=ui:reduce(state,{type="RENAME_CONFIRM"})
+        T.equal(effect.type,"RENAME_CONFIRM")
+        T.equal(effect.node_id,"storage_1")
+        T.equal(effect.text,"chest_9")
+        local cancelState,cancelEffect=ui:reduce(state,{type="RENAME_CANCEL"})
+        T.equal(cancelEffect.type,"RENAME_CANCEL")
+        T.truthy(cancelState)
+    end},
+    {name="setup_rename renders a text prompt and its own footer",run=function()
+        local surface=T.recordingSurface(51,19)
+        local ui=UI.new(surface)
+        local state=UI.initialState()
+        state.mode,state.page,state.setup_step="setup_rename","setup",4
+        state.setup_rename_id,state.setup_rename_text="storage_1","chest_3"
+        ui:render(state,{})
+        local text=surface.allText()
+        T.contains(text,"Name this storage node")
+        T.contains(text,"chest_3")
+        T.contains(text,"Enter save")
+        T.equal(surface.writesOutsideBounds(),0)
+    end},
+    {name="SYNC_SETUP returns the wizard to setup mode, exiting any rename in progress",run=function()
+        local ui=UI.new(T.recordingSurface(51,19))
+        local state=UI.initialState()
+        state=ui:reduce(state,{type="OPEN_RENAME",node_id="storage_1",text="chest_3"})
+        T.equal(state.mode,"setup_rename")
+        state=ui:reduce(state,{type="SYNC_SETUP",step=4,choices={}})
+        T.equal(state.mode,"setup")
+    end},
 }

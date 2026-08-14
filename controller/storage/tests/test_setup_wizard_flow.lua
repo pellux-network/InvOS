@@ -145,4 +145,43 @@ return {
         T.equal(byLabel["Storage nodes"], "1 enabled / 1 total")
         T.equal(byLabel["Craft buffer"], "not set")
     end},
+    {name="adding a storage node opens a rename prompt pre-filled with its default label",run=function()
+        -- discover() sorts alphabetically and step 3 (Pickup) doesn't filter out whatever
+        -- step 2 already chose, so a bare Enter-Enter would assign both roles to "drop"
+        -- (the alphabetically-first item both times). One Down before confirming Pickup
+        -- moves onto "pick" instead, leaving "vault" as the only free peripheral for step 4.
+        local inventories = {drop=chestInventory(27), pick=chestInventory(27), vault=chestInventory(3075)}
+        local coordinator = Main.build(environment(inventories))
+        coordinator:handle({"key", keys.right}) -- 1 -> 2
+        coordinator:handle({"key", keys.enter}) -- assign dropoff = "drop", -> 3
+        coordinator:handle({"key", keys.down})
+        coordinator:handle({"key", keys.enter}) -- assign pickup = "pick", -> 4
+        coordinator:handle({"key", keys.enter}) -- add the only remaining discovered inventory ("vault")
+        local model = coordinator:viewModel()
+        T.equal(model.ui.mode, "setup_rename")
+        T.equal(model.ui.setup_rename_text, "vault")
+        coordinator:handle({"char", "!"}) -- typed suffix, renaming to "vault!"
+        coordinator:handle({"key", keys.enter}) -- confirm
+        model = coordinator:viewModel()
+        T.equal(model.ui.mode, "setup")
+        T.equal(model.ui.setup_step, 4)
+        local sawCustomLabel = false
+        for _, choice in ipairs(model.ui.setup_choices) do
+            if choice.detail and choice.detail:find("vault!", 1, true) then sawCustomLabel = true end
+        end
+        T.truthy(sawCustomLabel, "the storage step should show the custom label once set")
+    end},
+    {name="cancelling a rename keeps the node with its default label",run=function()
+        local inventories = {drop=chestInventory(27), pick=chestInventory(27), vault=chestInventory(3075)}
+        local coordinator, services = Main.build(environment(inventories))
+        coordinator:handle({"key", keys.right})
+        coordinator:handle({"key", keys.enter})
+        coordinator:handle({"key", keys.down})
+        coordinator:handle({"key", keys.enter})
+        coordinator:handle({"key", keys.enter}) -- add "vault", opens rename
+        coordinator:handle({"key", keys.f10}) -- cancel
+        local model = coordinator:viewModel()
+        T.equal(model.ui.mode, "setup")
+        T.equal(services.setup:draft().storage[1].label, "vault")
+    end},
 }
