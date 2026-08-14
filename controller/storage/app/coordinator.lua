@@ -48,7 +48,7 @@ function Coordinator.new(deps)
         scanFailedAt={}, scanFailures={},
         scanRetryBase=deps.scan_retry_base or 500, scanRetryCap=deps.scan_retry_cap or 10000,
         stallAfter=deps.stall_after or 60000, inFlightSince={}, stalled={},
-        metadata=copy(deps.metadata or {}), notices={}, dirty=true,
+        metadata=copy(deps.metadata or {}), notices={}, dirty=true, animating=false,
     }, Coordinator)
     self:_replaceNodes(deps.nodes or {})
     self:_refreshLifecycle()
@@ -569,9 +569,25 @@ function Coordinator:workStep(now)
         self:_automationStep(now)
         self:_stallStep(now)
         self:_refreshLifecycle(now)
-        if self.dirty then self:redraw() end
+        self:_animationStep(now)
+        if self.dirty then self:redraw(now) end
     end)
     if not ok then self:_recordError("coordinator", reason) end
+end
+
+-- Draw.marqueeText only shows new columns if something keeps marking the screen dirty, but
+-- redrawing unconditionally on every 0.05s work-loop tick would turn every long name into a
+-- constant stream of peripheral writes -- exactly what AGENTS.md's performance guidance says
+-- to avoid. So this re-arms dirty on its own, much slower cadence, and only while the most
+-- recent frame actually had something scrolling (see redraw's `animating`); a screen with
+-- nothing truncated never pays for this at all.
+function Coordinator:_animationStep(now)
+    if not self.animating then return end
+    local interval = ((self.deps.intervals or {}).marquee or 0.4) * 1000
+    if not self.lastAnimationAt or (now - self.lastAnimationAt) >= interval then
+        self.lastAnimationAt = now
+        self.dirty = true
+    end
 end
 
 function Coordinator:tick(now) self:workStep(now or self.clock()) end
@@ -992,7 +1008,10 @@ function Coordinator:_craftMonitorModel()
     }
 end
 
-function Coordinator:_model()
+-- `now` feeds Draw.marqueeText (via UI:render/monitor.M.render) so long names scroll into
+-- view instead of clipping. Optional and defaulting to the live clock: callers that only want
+-- a snapshot of state (viewModel, most tests) don't need to think about it.
+function Coordinator:_model(now)
     local items = self.index and self.index.items and self.index:items() or {}
     local total=0; for _, item in ipairs(items) do total=total+(item.quantity or 0) end
     local alerts = self.deps.alerts and self.deps.alerts.active and self.deps.alerts:active() or {}
@@ -1006,7 +1025,7 @@ function Coordinator:_model()
         total_items=total,total_types=#items,alerts=copy(alerts),requests=copy(requests),
         highest_alert=alerts[1],active_request=activeRequest(requests),
         dropoff=self:_nodeForRole("dropoff"),pickup=self:_nodeForRole("pickup"),
-        enrichment=self:_enrichmentProgress(),
+        enrichment=self:_enrichmentProgress(),now=now or self.clock(),
         notices=copy(self.notices),generation=self.generation,configured=self.configured}
 end
 
@@ -1024,23 +1043,32 @@ function Coordinator:_syncPageCounts(model)
     self:_syncCraftJobs()
 end
 
-function Coordinator:redraw()
-    local model=self:_model()
+function Coordinator:redraw(now)
+    local model=self:_model(now)
     self:_syncPageCounts(model)
+    -- Whether anything actually scrolled this frame, across every surface -- see
+    -- Coordinator:_animationStep, which uses it to decide whether the next frame is needed at
+    -- all, rather than re-arming dirty forever once the first long name ever appears.
+    local animating=false
     local ok, result=pcall(self.ui.render,self.ui,self.uiState,model)
     if not ok then self:_recordError("terminal",result)
-    elseif type(result) == "table" and result.hit_regions then
-        self.uiState.hit_regions = result.hit_regions
+    else
+        if type(result) == "table" and result.hit_regions then
+            self.uiState.hit_regions = result.hit_regions
+        end
+        if type(result) == "table" and result.animating then animating=true end
     end
     if self.deps.monitor and self.deps.monitor_surface then
-        local monitorOk, monitorReason=pcall(self.deps.monitor.render,self.deps.monitor_surface,model)
-        if not monitorOk then self:_recordError("monitor",monitorReason) end
+        local monitorOk, monitorResult=pcall(self.deps.monitor.render,self.deps.monitor_surface,model)
+        if not monitorOk then self:_recordError("monitor",monitorResult)
+        elseif monitorResult then animating=true end
     end
     if self.deps.craft_monitor and self.deps.craft_monitor_surface then
         local craftOk, craftReason=pcall(self.deps.craft_monitor.render,
             self.deps.craft_monitor_surface,self:_craftMonitorModel())
         if not craftOk then self:_recordError("craft monitor",craftReason) end
     end
+    self.animating=animating
     self.dirty=false
 end
 

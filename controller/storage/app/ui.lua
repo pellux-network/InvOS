@@ -513,7 +513,9 @@ function UI:_row(y, selected, from, to, marker, markerColor, left, right, rightC
     end
     right = right and tostring(right) or nil
     local nameWidth = math.max(1, (to - from + 1) - #(right or "") - 4)
-    Draw.text(surface, from + 3, y, left, nameWidth, primary, background)
+    if Draw.marqueeText(surface, from + 3, y, left, nameWidth, primary, background, self._now) then
+        self._animating = true
+    end
     if right then
         Draw.rightText(surface, to - 1, y, right,
             selected and Theme.role.ground or (rightColor or Theme.role.muted), background)
@@ -698,10 +700,14 @@ function UI:_search(state, model, hitRegions)
     local selected = results[state.selection]
     if paneFrom and selected then
         local paneWidth = regions.width - paneFrom
-        Draw.text(surface, paneFrom, bodyTop, tostring(selected.display_name or selected.name),
-            paneWidth, Theme.role.focus, Theme.role.ground)
-        Draw.text(surface, paneFrom, bodyTop + 1, tostring(selected.name), paneWidth,
-            Theme.role.muted, Theme.role.ground)
+        if Draw.marqueeText(surface, paneFrom, bodyTop, tostring(selected.display_name or selected.name),
+            paneWidth, Theme.role.focus, Theme.role.ground, self._now) then
+            self._animating = true
+        end
+        if Draw.marqueeText(surface, paneFrom, bodyTop + 1, tostring(selected.name), paneWidth,
+            Theme.role.muted, Theme.role.ground, self._now) then
+            self._animating = true
+        end
         Draw.text(surface, paneFrom, bodyTop + 3, "STOCK", paneWidth,
             Theme.role.muted, Theme.role.ground)
         -- Measured against the largest item currently on screen, not against a fixed
@@ -1324,10 +1330,17 @@ end
 -- page renderer must not be able to hide the display either.
 function UI:render(state, model)
     local surface = self.surface
+    -- Transient, reset every render: not part of `state`, so this does not touch anything
+    -- test_ui_purity.lua checks. `_now` drives Draw.marqueeText; `_animating` reports back
+    -- whether any row actually used it, so the caller only keeps asking for animation frames
+    -- while something on screen is genuinely scrolling.
+    self._now = (model or {}).now
+    self._animating = false
     if surface.beginFrame then surface.beginFrame() end
     local ok, result = pcall(self._frame, self, state, model)
     if surface.endFrame then surface.endFrame() end
     if not ok then error(result, 0) end
+    if type(result) == "table" then result.animating = self._animating end
     return result
 end
 

@@ -35,6 +35,48 @@ function M.text(surface, x, y, text, width, fg, bg)
     surface.write(text)
 end
 
+-- Long names that don't fit their column scroll into view instead of clipping silently --
+-- clipping alone is what left "Giant Iron Ch" and "Environment Detect" unreadable with no way
+-- to see the rest. The offset is a pure function of `now` (milliseconds, e.g. os.epoch("utc")):
+-- there is no per-row state to track, so two rows showing the same text at the same width move
+-- identically, and nothing needs resetting when a row's content changes underneath it next
+-- frame -- the new text just starts from its own offset(0, its own length). A caller that
+-- omits `now` (tests, or a surface with no clock) gets the text's first `width` columns, same
+-- as M.text.
+--
+-- Text that fits does not move: motion is a signal that something is being hidden, so a short
+-- name sharing a screen with a long one should stay still rather than drift for no reason.
+-- Returns true when the text is actually scrolling, so a caller can tell whether it needs to
+-- keep asking for new frames to see the rest.
+-- Exposed (rather than kept local) so tests can compute exact `now` values instead of
+-- hardcoding a duplicate of the tuning.
+M.MARQUEE_STEP_MS = 400
+M.MARQUEE_HOLD_STEPS = 3
+
+function M.marqueeText(surface, x, y, text, width, fg, bg, now)
+    text = tostring(text or "")
+    width = width or 0
+    if #text <= width then
+        M.text(surface, x, y, text, width, fg, bg)
+        return false
+    end
+    local hold, overflow = M.MARQUEE_HOLD_STEPS, #text - width
+    local span = hold * 2 + overflow * 2
+    local step = math.floor((tonumber(now) or 0) / M.MARQUEE_STEP_MS) % span
+    local offset
+    if step < hold then
+        offset = 0
+    elseif step < hold + overflow then
+        offset = step - hold
+    elseif step < hold + overflow + hold then
+        offset = overflow
+    else
+        offset = overflow - (step - hold - overflow - hold)
+    end
+    M.text(surface, x, y, text:sub(offset + 1), width, fg, bg)
+    return true
+end
+
 function M.rightText(surface, endX, y, text, fg, bg)
     text = tostring(text or "")
     M.text(surface, endX - #text + 1, y, text, #text, fg, bg)

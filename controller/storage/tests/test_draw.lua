@@ -118,4 +118,45 @@ return {
         Draw.blockText(surface, 6, 3, "148,302", FILL)
         T.equal(surface.writesOutsideBounds(), 0)
     end },
+    { name = "marqueeText draws text that fits exactly like a plain clipped write", run = function()
+        local surface = surfaceOf(20, 3)
+        local scrolling = Draw.marqueeText(surface, 1, 1, "short", 10, nil, nil, 999999)
+        T.equal(scrolling, false)
+        T.equal(surface.line(1):sub(1, 10), "short     ")
+    end },
+    { name = "marqueeText holds on the first `width` columns at now = 0", run = function()
+        local surface = surfaceOf(20, 3)
+        local scrolling = Draw.marqueeText(surface, 1, 1, "ABCDEFGH", 5, nil, nil, 0)
+        T.equal(scrolling, true)
+        T.equal(surface.line(1):sub(1, 5), "ABCDE")
+    end },
+    { name = "marqueeText with no `now` behaves like a static clipped write", run = function()
+        local surface = surfaceOf(20, 3)
+        Draw.marqueeText(surface, 1, 1, "ABCDEFGH", 5)
+        T.equal(surface.line(1):sub(1, 5), "ABCDE")
+    end },
+    { name = "marqueeText scrolls one column per step and holds at the far end", run = function()
+        local surface = surfaceOf(20, 3)
+        local overflow = #"ABCDEFGH" - 5
+        local hold, step = Draw.MARQUEE_HOLD_STEPS, Draw.MARQUEE_STEP_MS
+        -- One step in: still the same first column the hold has not finished yet.
+        Draw.marqueeText(surface, 1, 1, "ABCDEFGH", 5, nil, nil, step)
+        T.equal(surface.line(1):sub(1, 5), "ABCDE")
+        -- Just past the hold: the window has started sliding right by one column.
+        Draw.marqueeText(surface, 1, 2, "ABCDEFGH", 5, nil, nil, (hold + 1) * step)
+        T.equal(surface.line(2):sub(1, 5), "BCDEF")
+        -- Long past the hold and the slide: parked on the last `width` columns.
+        Draw.marqueeText(surface, 1, 3, "ABCDEFGH", 5, nil, nil, (hold + overflow) * step)
+        T.equal(surface.line(3):sub(1, 5), "DEFGH")
+    end },
+    { name = "marqueeText's offset is periodic: a full span returns to the start", run = function()
+        local surface = surfaceOf(20, 3)
+        local overflow = #"ABCDEFGH" - 5
+        local hold, step = Draw.MARQUEE_HOLD_STEPS, Draw.MARQUEE_STEP_MS
+        local span = (hold * 2 + overflow * 2) * step
+        Draw.marqueeText(surface, 1, 1, "ABCDEFGH", 5, nil, nil, span)
+        T.equal(surface.line(1):sub(1, 5), "ABCDE")
+        Draw.marqueeText(surface, 1, 2, "ABCDEFGH", 5, nil, nil, span * 3 + (hold + 1) * step)
+        T.equal(surface.line(2):sub(1, 5), "BCDEF")
+    end },
 }

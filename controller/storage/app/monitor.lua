@@ -21,6 +21,13 @@ local function shortName(value)
     return text:match("^[%w_]+:(.+)$") or text
 end
 
+-- Set false at the top of every frame and raised by any row that actually scrolls; M.render
+-- reports it back so the coordinator only keeps re-requesting animation frames while
+-- something on the wall monitor is genuinely too long for its column. Module-local rather
+-- than passed through every render* function -- CC is single-threaded, so one frame always
+-- finishes before the next starts.
+local animating = false
+
 local function nodeByRole(model,role)
     for _,node in ipairs(model.nodes or {}) do if node.role==role then return node end end
 end
@@ -140,8 +147,10 @@ local function renderLarge(surface,model,width,height)
             local showPercent=leftEnd-meterWidth-#percent-6>=12
             local percentWidth=showPercent and (#percent+1) or 0
             local meterX=leftEnd-percentWidth-meterWidth+1
-            Draw.text(surface,4,row,shortName(node.label or node.id),
-                math.max(1,meterX-5),Theme.role.text,Theme.role.ground)
+            if Draw.marqueeText(surface,4,row,shortName(node.label or node.id),
+                math.max(1,meterX-5),Theme.role.text,Theme.role.ground,model.now) then
+                animating=true
+            end
             if meterWidth>0 then
                 Draw.meter(surface,meterX,row,meterWidth,value,fillColor(value),Theme.role.track)
             end
@@ -154,8 +163,10 @@ local function renderLarge(surface,model,width,height)
 
     local active=model.active_request
     if active then
-        Draw.text(surface,right,top+1,tostring(active.display_name or active.id),width-right,
-            Theme.role.text,Theme.role.ground)
+        if Draw.marqueeText(surface,right,top+1,tostring(active.display_name or active.id),width-right,
+            Theme.role.text,Theme.role.ground,model.now) then
+            animating=true
+        end
         local requested=active.requested or 0
         Draw.text(surface,right,top+2,formatNumber(active.delivered or 0).." / "..
             formatNumber(requested),width-right,Theme.role.muted,Theme.role.ground)
@@ -215,8 +226,10 @@ local function renderMedium(surface,model,width,height)
     gauge(surface,half+1,6,half-3,"PICK",nodeByRole(model,"pickup"))
     local active=model.active_request
     if active and height>=9 then
-        Draw.text(surface,2,8,tostring(active.display_name or active.id),width-2,
-            Theme.role.text,Theme.role.ground)
+        if Draw.marqueeText(surface,2,8,tostring(active.display_name or active.id),width-2,
+            Theme.role.text,Theme.role.ground,model.now) then
+            animating=true
+        end
         Draw.text(surface,2,9,formatNumber(active.delivered or 0).." / "..
             formatNumber(active.requested or 0).."  "..tostring(active.state or ""),
             width-2,Theme.statusColor(active.state),Theme.role.ground)
@@ -243,6 +256,7 @@ local function renderSmall(surface,model,width,height)
 end
 
 local function frame(surface,model)
+    animating=false
     local width,height=surface.getSize()
     surface.setBackgroundColor(Theme.role.ground)
     surface.setTextColor(Theme.role.text)
@@ -263,6 +277,7 @@ function M.render(surface,model)
     local ok,reason=pcall(frame,surface,model or {})
     if surface.endFrame then surface.endFrame() end
     if not ok then error(reason,0) end
+    return animating
 end
 
 return M
