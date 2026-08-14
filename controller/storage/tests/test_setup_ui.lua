@@ -241,4 +241,15 @@ return {
         ui:render(state,{})
         T.contains(surface.allText(),"R rename")
     end},
+
+    {name="UI:_row defaults to the ground background and accepts a custom one",run=function()
+        local surface=T.recordingSurface(51,19)
+        local ui=UI.new(surface)
+        ui:_row(5,false,1,51,nil,nil,"label",nil)
+        T.equal(surface.backgroundAt(2,5),Theme.role.ground)
+        ui:_row(6,false,1,51,nil,nil,"label",nil,nil,Theme.role.panel)
+        T.equal(surface.backgroundAt(2,6),Theme.role.panel)
+        ui:_row(7,true,1,51,nil,nil,"label",nil,nil,Theme.role.panel)
+        T.equal(surface.backgroundAt(2,7),Theme.role.focus)
+    end},
 }

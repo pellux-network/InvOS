@@ -462,9 +462,11 @@ end
 -- One list row: an optional status marker, a name, and a right-aligned value. Selection is a
 -- filled row in the focus colour with inverted text -- the same on every page. The pages used
 -- to disagree, Search filling red and Crafting filling grey, which read as two products.
-function UI:_row(y, selected, from, to, marker, markerColor, left, right, rightColor)
+-- `baseBg` lets a caller draw on something other than the ground colour (the setup wizard's
+-- panel-toned card) without changing the four pages that don't pass it.
+function UI:_row(y, selected, from, to, marker, markerColor, left, right, rightColor, baseBg)
     local surface = self.surface
-    local background = selected and Theme.role.focus or Theme.role.ground
+    local background = selected and Theme.role.focus or (baseBg or Theme.role.ground)
     local primary = selected and Theme.role.ground or Theme.role.text
     Draw.band(surface, y, background, from, to)
     if marker then
