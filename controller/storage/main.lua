@@ -317,12 +317,17 @@ function Main.build(environment)
     -- A gate cycle costs about the same whether it carries one item or hundreds, so let one
     -- drain several Drop-off slots. The cap bounds how much a single ambiguous window can
     -- span; every item type in the batch is still measured against its own storage total.
+    --
+    -- Raised from 8 per docs/superpowers/plans/2026-08-03-batch-limit-tuning.md: live
+    -- measurement with slot_batch_limit=8 showed 6 of 7 batches hitting the steps=8 cap
+    -- exactly, meaning batch_limit -- not slot_batch_limit -- was the binding constraint.
     local imports=ImportService.new({planner=Planner,transfer=transfer,alerts=alerts,
         transition=Lifecycle.transition,clock=now,
-        slot_batch_limit=env.slot_batch_limit or 8})
+        slot_batch_limit=env.slot_batch_limit or 8, batch_limit=env.batch_limit or 16})
     local requests=Requests.new({planner=Planner,transfer=transfer,alerts=alerts,
         transition=Lifecycle.transition,clock=now,
         idGenerator=function(counter) return "request-"..osApi.getComputerID().."-"..counter end,
+        batch_limit=env.batch_limit or 16,
         record_usage=function(key,timestamp)
             if coordinator then coordinator:recordItemRequested(key,timestamp) end
         end})
@@ -365,7 +370,8 @@ function Main.build(environment)
         -- A second importer instance, private to the buffer, so draining the buffer and
         -- draining Drop-off never share in-flight state.
         local bufferImports=ImportService.new({planner=Planner,transfer=transfer,alerts=alerts,
-            transition=Lifecycle.transition,clock=now,slot_batch_limit=env.slot_batch_limit or 8})
+            transition=Lifecycle.transition,clock=now,slot_batch_limit=env.slot_batch_limit or 8,
+            batch_limit=env.batch_limit or 16})
         local buffer=CraftBuffer.new({imports=bufferImports,adapter=adapter})
         link=TurtleLink.new({rednet=env.rednet or rednet,peripheral=peripheralApi,
             name=config.turtle.peripheral_name})

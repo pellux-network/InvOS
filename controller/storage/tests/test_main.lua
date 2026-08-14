@@ -84,8 +84,10 @@ return {
         local _,services=Main.build(environment())
         T.equal(services.imports.slotBatchLimit,8,
             "how many Drop-off slots one gate cycle may drain")
-        T.equal(services.imports.batchLimit,8,
+        T.equal(services.imports.batchLimit,16,
             "how many moves one ambiguous window may span")
+        T.equal(services.requests.batchLimit,16,
+            "how many retrieval moves one ambiguous window may span")
     end},
     {name="startup retires legacy journal asynchronously without slot inspection or freeze",run=function()
         local fs=T.memoryFs()
