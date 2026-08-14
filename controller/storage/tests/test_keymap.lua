@@ -33,6 +33,14 @@ return {
         T.equal(Keymap.command({"key",keys.f10},{mode="quantity"}).type,"CANCEL")
         T.equal(Keymap.command({"key",keys.escape},{mode="quantity"}),nil)
     end },
+    { name = "F10 reaches the reducer from both search boxes too, which now no-ops it at the root", run = function()
+        -- The old mode~="search" and mode~="craft_search" guard here existed only so F10
+        -- would not jump to Search from inside a search box. That jump is gone from the
+        -- reducer, so the guard would now just make F10 silently do nothing from a search
+        -- box instead of letting the reducer's own no-op decide -- remove it, not duplicate it.
+        T.equal(Keymap.command({"key",keys.f10},{mode="search"}).type,"CANCEL")
+        T.equal(Keymap.command({"key",keys.f10},{mode="craft_search"}).type,"CANCEL")
+    end },
     { name = "number keys open every secondary page from search", run = function()
         T.equal(Keymap.command({"key",keys.one},{mode="search"}).page,"search")
         T.equal(Keymap.command({"key",keys.two},{mode="search"}).page,"storage")

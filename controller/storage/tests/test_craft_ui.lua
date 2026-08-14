@@ -255,7 +255,8 @@ return {
         state = surface:reduce(state, {type="CANCEL"})
         T.equal(state.mode, "craft_search")
         state = surface:reduce(state, {type="CANCEL"})
-        T.equal(state.page, "search", "from the top level it leaves")
+        T.equal(state.mode, "craft_search", "no level left to pop, so F10 is a no-op here")
+        T.equal(state.page, "crafting", "the root of the Crafting page stays put, not Search")
     end},
     {name="C on a retrieval plans only the shortfall",run=function()
         local surface = ui()
