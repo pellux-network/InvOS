@@ -321,6 +321,7 @@ function UI:reduce(current, command)
         state.setup_choices = copy(command.choices or {})
         state.setup_choice_count = #state.setup_choices
         state.setup_issues = copy(command.issues or {})
+        state.setup_summary = copy(command.summary or {})
         if changedStep then
             state.selection = 1
         else
@@ -914,12 +915,19 @@ function UI:_setupWizard(state, model)
     Draw.text(surface, 2, regions.content.top + 1, prompts[state.setup_step or 1] or
         "Select the exact wired peripheral for this role.", regions.width - 3,
         Theme.role.muted, Theme.role.ground)
+    local summary = (state.setup_step == 10) and (state.setup_summary or {}) or {}
+    for index, row in ipairs(summary) do
+        Draw.text(surface, 2, regions.content.top + 3 + index - 1,
+            tostring(row.label) .. ": " .. tostring(row.detail), regions.width - 3,
+            Theme.role.text, Theme.role.ground)
+    end
+    local listTop = regions.content.top + 3 + #summary + (#summary > 0 and 1 or 0)
     local choices = state.setup_choices or {}
     if #choices == 0 then
-        Draw.text(surface, 2, regions.content.top + 3, "No choices on this step",
+        Draw.text(surface, 2, listTop, "No choices on this step",
             regions.width - 3, Theme.role.muted, Theme.role.ground)
     end
-    self:_list(regions.content.top + 3, regions.content.bottom - 1, #choices, state.selection,
+    self:_list(listTop, regions.content.bottom - 1, #choices, state.selection,
         function(index, y, selected)
             local choice = choices[index]
             local marker, markerColor

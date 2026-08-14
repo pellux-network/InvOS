@@ -127,4 +127,22 @@ return {
         end
         T.equal(stillSuspected, false, "the pair is no longer flagged as suspected after confirming")
     end},
+    {name="Review summarizes the bound roles before save",run=function()
+        local inventories = {drop=chestInventory(27), pick=chestInventory(27), a=chestInventory(3075)}
+        local coordinator, services = Main.build(environment(inventories))
+        local setup = services.setup
+        setup:assign("dropoff", "drop")
+        setup:assign("pickup", "pick")
+        setup:addStorage("a", "Vault A", 1)
+        coordinator:command({type="SYNC_SETUP", step=9, choices={}, issues={}})
+        coordinator:handle({"key", keys.enter}) -- run validation, advances to 10 (ok)
+        local model = coordinator:viewModel()
+        T.equal(model.ui.setup_step, 10)
+        local byLabel = {}
+        for _, row in ipairs(model.ui.setup_summary) do byLabel[row.label] = row.detail end
+        T.equal(byLabel["Drop-off"], "drop")
+        T.equal(byLabel["Pickup"], "pick")
+        T.equal(byLabel["Storage nodes"], "1 enabled / 1 total")
+        T.equal(byLabel["Craft buffer"], "not set")
+    end},
 }

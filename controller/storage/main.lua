@@ -227,9 +227,33 @@ local function setupChoices(service,step)
     return choices
 end
 
+local function setupSummary(service)
+    local draft=service:draft()
+    local function role(label,binding)
+        return {label=label,detail=binding and binding.peripheral_name or "not set"}
+    end
+    local enabled,total=0,0
+    for _,node in ipairs(draft.storage or {}) do
+        total=total+1
+        if node.enabled~=false then enabled=enabled+1 end
+    end
+    local monitors=draft.monitors or {}
+    return {
+        role("Drop-off",draft.dropoff),
+        role("Pickup",draft.pickup),
+        {label="Storage nodes",detail=enabled.." enabled / "..total.." total"},
+        role("Craft buffer",draft.craft_buffer),
+        role("Crafting turtle",draft.turtle),
+        {label="Main monitor",detail=monitors.main or "auto-detect"},
+        {label="Crafting monitor",detail=monitors.crafting or "not set"},
+    }
+end
+
 local function syncSetup(coordinator,service,step,issues)
-    coordinator:command({type="SYNC_SETUP",step=math.max(1,math.min(10,step)),
-        choices=setupChoices(service,step),issues=issues or {}})
+    local clamped=math.max(1,math.min(10,step))
+    coordinator:command({type="SYNC_SETUP",step=clamped,
+        choices=setupChoices(service,clamped),issues=issues or {},
+        summary=clamped==10 and setupSummary(service) or nil})
     coordinator:redraw()
 end
 

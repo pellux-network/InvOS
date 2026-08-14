@@ -140,4 +140,38 @@ return {
         T.equal(surface.foregroundAt(2, 7), Theme.role.alert)
         T.equal(surface.writesOutsideBounds(), 0)
     end},
+
+    {name="SYNC_SETUP carries the review summary alongside the step-10 choices",run=function()
+        local ui=UI.new(T.recordingSurface(51,19))
+        local state=UI.initialState()
+        state.mode,state.page,state.setup_step="setup","setup",9
+        state=ui:reduce(state,{type="SYNC_SETUP",step=10,
+            choices={{label="Save configuration and enable"}},
+            summary={{label="Drop-off",detail="drop"},{label="Pickup",detail="pick"}}})
+        T.equal(state.setup_step,10)
+        T.equal(state.selection,1) -- the only choice, still highlighted by Task 1's reset-on-change rule
+        T.equal(#state.setup_summary,2)
+        T.equal(state.setup_summary[1].label,"Drop-off")
+    end},
+    {name="Review step renders the bound roles before the Save choice",run=function()
+        local surface = T.recordingSurface(51, 19)
+        local ui = UI.new(surface)
+        local state = UI.initialState()
+        state.mode, state.page, state.setup_step = "setup", "setup", 10
+        state.setup_choices = {{label="Save configuration and enable", detail="starts immediately"}}
+        state.setup_choice_count = 1
+        state.selection = 1
+        state.setup_summary = {
+            {label="Drop-off", detail="drop"},
+            {label="Pickup", detail="pick"},
+            {label="Storage nodes", detail="2 enabled / 2 total"},
+        }
+        ui:render(state, {})
+        local text = surface.allText()
+        T.contains(text, "Drop-off: drop")
+        T.contains(text, "Pickup: pick")
+        T.contains(text, "Storage nodes: 2 enabled / 2 total")
+        T.contains(text, "Save configuration and enable")
+        T.equal(surface.writesOutsideBounds(), 0)
+    end},
 }
