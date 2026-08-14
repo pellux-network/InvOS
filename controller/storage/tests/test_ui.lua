@@ -42,15 +42,32 @@ return {
         T.equal(state.craft_selection,1)
         T.equal(state.query,"sto","clearing the recipe search must not touch the retrieval search")
     end },
-    { name = "CANCEL from a secondary page returns to the Search page", run = function()
+    { name = "CANCEL on a plain page is a no-op: '1' is the only way to Search", run = function()
         local ui=UI.new(T.recordingSurface(51,19))
         local state=UI.initialState()
         state=ui:reduce(state,{type="OPEN_PAGE",page="requests"})
         T.equal(state.page,"requests")
         T.equal(state.mode,"page")
         state=ui:reduce(state,{type="CANCEL"})
+        T.equal(state.mode,"page","F10 has no level to pop from a plain page")
+        T.equal(state.page,"requests")
+    end },
+    { name = "CANCEL on the Search page itself is a no-op", run = function()
+        local ui=UI.new(T.recordingSurface(51,19))
+        local state=UI.initialState()
+        T.equal(state.mode,"search")
+        state=ui:reduce(state,{type="CANCEL"})
         T.equal(state.mode,"search")
         T.equal(state.page,"search")
+    end },
+    { name = "CANCEL from the variant overlay pops to search", run = function()
+        local ui=UI.new(T.recordingSurface(51,19))
+        local state=UI.initialState()
+        state.mode="variant"
+        state.variants={{identity_key="a",display_name="A"}}
+        state=ui:reduce(state,{type="CANCEL"})
+        T.equal(state.mode,"search")
+        T.equal(state.variants,nil)
     end },
     { name = "UI reducer converts quantity shortcuts into exact request effects", run = function()
         local ui=UI.new(T.recordingSurface(51,19))

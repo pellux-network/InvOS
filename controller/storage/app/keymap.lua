@@ -77,7 +77,11 @@ function M.command(event, state)
         return {type="CANCEL_RECOVERY_RELEASE"}
     end
 
-    if key == keys.f10 and state.mode ~= "search" and state.mode ~= "craft_search" then
+    -- F10 used to double as "jump to Search" at every root, which this guard existed to
+    -- suppress inside the search boxes. Now the reducer's CANCEL handler is a no-op at
+    -- every root (state.mode == "page", "search", "craft_search"), so nothing needs
+    -- guarding here: let it fall through and let the reducer decide.
+    if key == keys.f10 then
         return {type="CANCEL"}
     end
 

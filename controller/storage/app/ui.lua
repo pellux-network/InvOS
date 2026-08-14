@@ -396,16 +396,19 @@ function UI:reduce(current, command)
         state.mode, state.page = "page", "setup"
         return state, {type="CANCEL_SETUP"}
     elseif kind == "CANCEL" then
-        -- Within the Crafting page F10 steps back one level rather than leaving the
-        -- page, so backing out of a plan does not lose the search that found it.
+        -- F10 pops exactly one level of the page it is pressed on rather than jumping
+        -- anywhere else, so backing out of a plan (or a quantity/variant prompt) never
+        -- loses the search that found it. At a root -- a plain page, or the Search/
+        -- Crafting search box itself -- there is no level left to pop, so F10 is a no-op:
+        -- pressing "1" is the only way to reach the Search page.
         if state.mode == "craft_plan" then
             state.mode, state.craft_plan = "craft_quantity", nil
         elseif state.mode == "craft_quantity" then
             state.mode, state.craft_quantity_text = "craft_search", ""
         elseif state.mode == "craft_jobs" then
             state.mode = "craft_search"
-        else
-            state.mode, state.page, state.quantity_text, state.variants = "search", "search", "", nil
+        elseif state.mode == "quantity" or state.mode == "variant" then
+            state.mode, state.quantity_text, state.variants = "search", "", nil
         end
     elseif kind == "OPEN_PAGE" then
         state.page = command.page
@@ -621,12 +624,12 @@ local function footerHelp(state, width)
         })
     end
     if state.page == "requests" then
-        return "Up/Down select  R retry  C cancel  P pause  F10 back"
+        return "Up/Down select  R retry  C cancel  P pause"
     end
     if state.page == "alerts" then
         return "Up/Down  A dismiss"
     end
-    if state.page == "storage" then return "Up/Down scroll  P pause  F10 back" end
+    if state.page == "storage" then return "Up/Down scroll  P pause" end
     if state.page == "crafting" then
         if state.mode == "craft_plan" then
             return "Enter craft  D destination  P pin choice  F10 back"
@@ -636,14 +639,13 @@ local function footerHelp(state, width)
             return "Up/Down select  R retry  C cancel  Enter confirm  Tab search"
         end
         return fittedLabel(width or math.huge, {
-            "Type to find a recipe  Enter choose  Tab jobs  Delete clear  F10 back",
-            "Enter choose  Tab jobs  Delete clear  F10 back",
-            "Enter choose  Delete clear  F10 back",
-            "Delete clear  F10 back",
+            "Type to find a recipe  Enter choose  Tab jobs  Delete clear",
+            "Enter choose  Tab jobs  Delete clear",
+            "Enter choose  Delete clear",
             "Delete clear",
         })
     end
-    return "1 Search  P pause  F10 back"
+    return "1 Search  P pause"
 end
 
 local function enrichmentText(enrichment)
