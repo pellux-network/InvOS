@@ -35,6 +35,10 @@ function Executor.new(deps)
     return setmetatable({
         turtle = assert(deps.turtle, "turtle API is required"),
         label = deps.label or "crafter",
+        -- Optional and dependency-injected so every existing caller and test is unaffected:
+        -- a status screen can watch progress without the executor knowing anything about
+        -- screens, and a caller that passes nothing gets a silent no-op.
+        notify = type(deps.notify) == "function" and deps.notify or function() end,
     }, Executor)
 end
 
@@ -90,6 +94,19 @@ function Executor:_stage(command)
     end
     if #order == 0 then return reply("EMPTY_STEP", "a craft step named no cells") end
 
+    local needTotal = 0
+    for _, cell in ipairs(order) do needTotal = needTotal + want[cell].need end
+
+    -- Item counts rather than cell counts, so a batched step (per_cell > 1) still reports
+    -- smooth progress instead of jumping straight from 0 to "done" on the last cell.
+    local function reportProgress()
+        local have = 0
+        for _, cell in ipairs(order) do
+            have = have + math.min(api.getItemCount(cell), want[cell].need)
+        end
+        self.notify("stage_progress", {filled = have, total = needTotal})
+    end
+
     local function outstanding()
         for _, cell in ipairs(order) do
             if api.getItemCount(cell) < want[cell].need then return true end
@@ -97,6 +114,7 @@ function Executor:_stage(command)
         return false
     end
 
+    reportProgress()
     local guard = 0
     while outstanding() do
         guard = guard + 1
@@ -119,6 +137,7 @@ function Executor:_stage(command)
                 end
             end
         end
+        if placed then reportProgress() end
 
         -- The controller asserts the buffer holds only this step's ingredients, so an
         -- item no cell names means that assertion was wrong. Refuse rather than craft.
@@ -165,24 +184,36 @@ function Executor:_stage(command)
     return nil
 end
 
+-- Notifies at each phase boundary only -- staging, crafting, purging -- rather than trying
+-- to describe the outcome here too. handle() already returns the outcome to the caller, and
+-- a status screen driven by the rednet reply cannot fall out of sync with one driven by a
+-- notify call that a mid-stage error might skip.
 function Executor:craft(command)
     local api = self.turtle
     if type(command.steps) ~= "table" or #command.steps == 0 then
         return reply("EMPTY_COMMAND", "a craft command needs at least one step")
     end
 
+    self.notify("staging", {job = command.job, item = command.result and command.result.name,
+        quantity = command.result and command.result.count})
+
     local failure = self:_stage(command)
     if failure then
+        self.notify("purging", {job = command.job})
         self:purge()
         return failure
     end
 
+    self.notify("crafting", {job = command.job, item = command.result and command.result.name,
+        quantity = command.result and command.result.count})
     local ok = api.craft()
     if not ok then
+        self.notify("purging", {job = command.job})
         self:purge()
         return reply("CRAFT_FAILED", "the grid did not form a valid recipe")
     end
 
+    self.notify("purging", {job = command.job})
     local dropped = self:purge()
     return {ok = true, job = command.job, dropped = dropped}
 end

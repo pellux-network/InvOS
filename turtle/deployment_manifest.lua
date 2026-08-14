@@ -4,6 +4,10 @@ local M={files={
     "startup.lua",
     "deployment_manifest.lua",
     "crafter/executor.lua",
+    "crafter/theme.lua",
+    "crafter/draw.lua",
+    "crafter/splash.lua",
+    "crafter/hud.lua",
 }}
 
 local listed={};for _,path in ipairs(M.files) do listed[path]=true end
