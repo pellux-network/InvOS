@@ -53,6 +53,7 @@ local defaultModules = {
     "tests.test_setup_recovery",
     "tests.test_setup_duplicates",
     "tests.test_setup_ui",
+    "tests.test_setup_wizard_flow",
     "tests.test_inventory_adapter",
     "tests.test_coordinator",
     "tests.test_coordinator_transfers",

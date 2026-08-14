@@ -332,9 +332,22 @@ function Main.build(environment)
         elseif effect.type=="CANCEL_SETUP" then setup:cancel()
         elseif effect.type=="SETUP_BACK" then syncSetup(active,setup,(effect.step or 1)-1)
         elseif effect.type=="SETUP_NEXT" then
-            local nextStep=math.min(10,(effect.step or 1)+1)
-            if nextStep==9 then report=setup:validate() end
-            syncSetup(active,setup,nextStep,report and report.issues)
+            local step=effect.step or 1
+            local draft=setup:draft()
+            if step==2 and not draft.dropoff then
+                syncSetup(active,setup,2,
+                    {{message="Select a Drop-off inventory, then press Enter",blocking=true}})
+            elseif step==3 and not draft.pickup then
+                syncSetup(active,setup,3,
+                    {{message="Select a Pickup inventory, then press Enter",blocking=true}})
+            elseif step==9 then
+                report=setup:validate()
+                syncSetup(active,setup,report.ok and 10 or 9,report.issues)
+            else
+                local nextStep=math.min(10,step+1)
+                if nextStep==9 then report=setup:validate() end
+                syncSetup(active,setup,nextStep,report and report.issues)
+            end
         elseif effect.type=="SETUP_SELECT" then
             local step=effect.step or 1
             local choices=setupChoices(setup,step)
