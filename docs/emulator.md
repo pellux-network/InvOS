@@ -18,8 +18,10 @@ python3 tools/emulator/craftos.py text            # print the Search page
 python3 tools/emulator/craftos.py shot --out /tmp/search.png
 ```
 
-The first run downloads a CraftOS-PC AppImage into `~/.cache/invos-emulator/`
-and extracts it. Nothing is installed system-wide and nothing needs root.
+The first run downloads a prebuilt CraftOS-PC release — the AppImage on Linux,
+the official portable zip on Windows — into a per-user cache (`~/.cache/invos-emulator/`
+on Linux, `%LOCALAPPDATA%\invos-emulator\` on Windows) and extracts it. Nothing
+is installed system-wide and nothing needs root or admin.
 
 On a minimal Linux install the AppImage needs two shared libraries that are not
 present by default. `doctor` reports them:
@@ -27,6 +29,32 @@ present by default. `doctor` reports them:
 ```bash
 sudo apt-get install -y libpulse0 libxss1
 ```
+
+## Windows: a real GUI window
+
+Everything above runs the same on Windows, driven headlessly over CraftOS-PC's
+`--raw` protocol exactly as on Linux — no display needed. For watching a
+scenario play out in an actual window instead, use `gui`:
+
+```powershell
+python tools/emulator/craftos.py gui
+python tools/emulator/craftos.py gui --scenario unconfigured
+```
+
+This installs the working tree from `storage/deployment_manifest.lua` and the
+chosen scenario into a scratch computer directory, same as every other
+subcommand, then launches CraftOS-PC's windowed build (`CraftOS-PC.exe`, not
+the `--raw`-piped console build the harness itself drives) pointed at that
+directory and detached from the launching shell. It boots straight to whatever
+the scenario would show headlessly — the Search page for `configured`, the
+setup wizard for `unconfigured` — except now it is a real SDL window you can
+type and click into by hand, and the one case in docs/emulator.md's
+"Other CraftOS-PC debugging tools" table that needs a display (the `debugger`
+peripheral) works here.
+
+`doctor` prints the GUI build's path alongside the console one when they
+differ, which is only on Windows — the Linux AppImage's `AppRun` serves both
+roles, opening a window itself whenever `--raw` is left off.
 
 ## Driving the terminal
 

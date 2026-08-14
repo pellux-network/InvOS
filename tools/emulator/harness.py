@@ -2,6 +2,7 @@
 
 import os
 import shutil
+import tempfile
 
 import provision
 import scenario as scenario_module
@@ -13,7 +14,8 @@ CONTROLLER_ROOT = os.path.abspath(os.path.join(HERE, "..", "..", "controller"))
 
 
 def default_workdir():
-    return os.path.join(os.environ.get("TMPDIR", "/tmp"), "invos-emulator-run")
+    base = os.environ.get("TMPDIR") or tempfile.gettempdir()
+    return os.path.join(base, "invos-emulator-run")
 
 
 class Harness(object):

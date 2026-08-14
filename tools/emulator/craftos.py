@@ -12,6 +12,7 @@ Examples::
 
 import argparse
 import os
+import subprocess
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -107,9 +108,44 @@ def command_doctor(args):
     executable = provisioner.ensure()
     font = provisioner.font_path()
     print("emulator: %s" % executable)
+    if provisioner.gui_executable != executable:
+        print("gui:      %s" % provisioner.gui_executable)
     print("font:     %s" % (font or "NOT FOUND -- screenshots will fail"))
     print("keys:     %d names available" % len(rawterm.KEYS))
     return 0 if font else 1
+
+
+def command_gui(args):
+    """Install the scenario and open it in a real, windowed CraftOS-PC.
+
+    Unlike every other subcommand this does not drive the terminal over the
+    `--raw` protocol: it hands the prepared computer directory to the GUI
+    build and leaves a human to type and click, the way one would run the
+    game outside of any test. Useful for watching a scenario play out, or for
+    the debugger peripheral and other tools that need a real SDL window
+    (see docs/emulator.md).
+    """
+    scenario = build_scenario(args.scenario)
+    harness = harness_module.Harness(workdir=args.workdir)
+    _executable, files = harness.prepare(scenario)
+    gui_executable = harness.provisioner.gui_executable
+    if not os.path.exists(gui_executable):
+        print("no GUI build at %s" % gui_executable, file=sys.stderr)
+        return 1
+
+    command = [gui_executable, "--directory", harness.data_dir, "--id", "0",
+               "--script", os.path.join(harness_module.SMOKE_DIR, "boot.lua")]
+    popen_kwargs = {"cwd": os.path.dirname(gui_executable)}
+    if sys.platform == "win32":
+        popen_kwargs["creationflags"] = (subprocess.DETACHED_PROCESS
+                                         | subprocess.CREATE_NEW_PROCESS_GROUP)
+    else:
+        popen_kwargs["start_new_session"] = True
+    process = subprocess.Popen(command, **popen_kwargs)
+
+    print("Installed %d files into %s" % (len(files), harness.computer_dir))
+    print("Launched %s (pid %d)" % (gui_executable, process.pid))
+    return 0
 
 
 def main(argv=None):
@@ -143,10 +179,13 @@ def main(argv=None):
                         help="count the peripheral calls a boot makes")
     commands.add_parser("doctor", parents=[common],
                         help="check the emulator is installable and runnable")
+    commands.add_parser("gui", parents=[common],
+                        help="install the scenario and open it in a windowed CraftOS-PC")
 
     args = parser.parse_args(argv)
     handlers = {"text": command_text, "shot": command_shot,
-                "profile": command_profile, "doctor": command_doctor}
+                "profile": command_profile, "doctor": command_doctor,
+                "gui": command_gui}
     return handlers[args.command](args)
 
 
