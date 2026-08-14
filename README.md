@@ -175,7 +175,14 @@ lua storage/tests/run.lua
 
 # Python suite (from tools/)
 python -m unittest test_recipe_pack test_recipe_import
+
+# Boot the real thing in an emulator and screenshot it, headlessly
+python3 tools/emulator/craftos.py shot --keys "type:vault" --out /tmp/search.png
 ```
+
+InvOS runs unmodified in [CraftOS-PC](https://www.craftos-pc.cc), so a change can be booted
+under the same Lua 5.2 ComputerCraft uses — the host suite runs on 5.4 — and its terminal
+read back as text or rendered to a PNG. See [`docs/emulator.md`](docs/emulator.md).
 
 See [`CONTRIBUTING.md`](CONTRIBUTING.md) for the full development workflow, testing
 expectations, and the live-deployment safety rules that apply to any change touching a real

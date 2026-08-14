@@ -28,6 +28,10 @@ lua storage/tests/run.lua tests.test_splash
 
 # Python suite, from tools/
 python -m unittest test_recipe_pack test_recipe_import
+
+# Emulator harness, from tools/emulator/
+python3 -m unittest test_rawterm test_scenario test_render test_session  # fast
+python3 -m unittest test_smoke                                          # boots CraftOS-PC
 ```
 
 Before committing or merging any runtime change, run the **complete** Lua suite (not a
@@ -37,6 +41,13 @@ through another command can mask a failing suite.
 If you add a new test module under `controller/storage/tests/`, register it in the
 `defaultModules` list in `storage/tests/run.lua`, or `lua storage/tests/run.lua` (no
 arguments) will silently skip it.
+
+The host suite runs on Lua 5.4; ComputerCraft runs Lua 5.2, so a green host suite does not
+prove the change runs in game. `tools/emulator/` boots the controller in the CraftOS-PC
+emulator under the real 5.2, installing from `deployment_manifest.lua`, and can screenshot
+the terminal headlessly — useful for checking a UI change actually looks right. See
+[`docs/emulator.md`](docs/emulator.md). It is optional: `INVOS_SKIP_EMULATOR=1` skips it
+where an emulator cannot be provisioned.
 
 ## Code conventions
 

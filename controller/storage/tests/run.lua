@@ -26,6 +26,7 @@ local defaultModules = {
     "tests.test_craft_turtle_hud",
     "tests.test_craft_turtle_startup",
     "tests.test_craft_buffer",
+    "tests.test_craft_nbt",
     "tests.test_craft_monitor",
     "tests.test_craft_ui",
     "tests.test_craft_integration",
