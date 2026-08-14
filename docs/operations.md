@@ -27,7 +27,7 @@ The first boot opens the full-screen setup wizard. Setup remains read-only until
 5. Run validation. It checks availability, required wired-inventory methods, role collisions, and suspicious duplicate storage interfaces without moving items.
 6. Review and save. The installation captures the controller computer ID and starts indexing immediately; no reboot is required.
 
-Use `5 SETUP` from the main interface to review or change configuration later. Arrow keys, Enter, Left/Right, and F10 control the wizard; Escape is intentionally not captured because Minecraft uses it to close the computer screen.
+Use `5 SETUP` from the main interface to review or change configuration later. Arrow keys, Enter, Left/Right, `R` (rename, on the storage step), and F10 control the wizard; Escape is intentionally not captured because Minecraft uses it to close the computer screen.
 
 ## Normal use
 
