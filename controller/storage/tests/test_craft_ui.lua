@@ -12,6 +12,7 @@ end
 
 local Keymap = require("app.keymap")
 local UI = require("app.ui")
+local Draw = require("app.draw")
 local T = require("tests.mock_cc")
 
 local function ui() return UI.new(T.recordingSurface(51, 19)) end
@@ -61,6 +62,50 @@ return {
         local text = surface.surface.allText()
         T.contains(text, "Chest")
         T.contains(text, "have 0")
+    end},
+    {name="only the selected recipe's name scrolls; unselected long names hold still",
+        run=function()
+        local longName = "A Very Long Recipe Name That Overflows Any Reasonable Column Width"
+        local prefix = longName:sub(1, 8)
+        local state = crafting({craft_results={
+            {item="minecraft:a", display_name=longName, quantity=0},
+            {item="minecraft:b", display_name=longName, quantity=5},
+        }, craft_result_count=2, craft_selection=1})
+        local surface = ui()
+        local now = (Draw.MARQUEE_HOLD_STEPS + 2) * Draw.MARQUEE_STEP_MS
+        surface:render(state, {lifecycle="READY", now=now})
+        local text = surface.surface.allText()
+        local occurrences, from = 0, 1
+        while true do
+            local found = text:find(prefix, from, true)
+            if not found then break end
+            occurrences = occurrences + 1
+            from = found + 1
+        end
+        T.equal(occurrences, 1,
+            "the literal prefix must appear exactly once, from the unselected row only")
+    end},
+    {name="the selected recipe's name and id scroll in the SELECTED pane",run=function()
+        local longName = "A Very Long Recipe Name That Overflows Any Reasonable Column Width"
+        local longId = "somemod:a_very_long_item_id_that_overflows_any_reasonable_column"
+        local state = crafting({craft_results={
+            {item=longId, display_name=longName, quantity=3},
+        }, craft_result_count=1, craft_selection=1})
+        local surface = ui()
+        local atStart = surface.surface
+        surface:render(state, {lifecycle="READY", now=0})
+        local startText = atStart.allText()
+        T.contains(startText, longName:sub(1, 8))
+        T.contains(startText, longId:sub(1, 8))
+
+        local later = ui()
+        local now = (Draw.MARQUEE_HOLD_STEPS + 2) * Draw.MARQUEE_STEP_MS
+        later:render(state, {lifecycle="READY", now=now})
+        local laterText = later.surface.allText()
+        T.equal(laterText:find(longName:sub(1, 8), 1, true), nil,
+            "the display name must have scrolled away from its starting position")
+        T.equal(laterText:find(longId:sub(1, 8), 1, true), nil,
+            "the item id must have scrolled away from its starting position")
     end},
     {name="choosing an item asks for a quantity",run=function()
         local surface = ui()

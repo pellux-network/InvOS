@@ -1,5 +1,6 @@
 local UI = require("app.ui")
 local Theme = require("app.theme")
+local Draw = require("app.draw")
 local T = require("tests.mock_cc")
 
 local function result(key, name, quantity, variants)
@@ -52,6 +53,31 @@ return {
         local text = surface.allText()
         T.contains(text, "Item30")
         T.equal(text:find("Item1 ", 1, true), nil)
+    end },
+    { name = "only the selected row's name scrolls; unselected long names hold still", run = function()
+        -- Both rows share the exact same overlong name. If the unselected row scrolled too,
+        -- its clipped prefix would coincidentally match the selected row's own starting
+        -- position at now=0 -- so the frame is rendered at a `now` well past the marquee's
+        -- opening hold, where a moving row is provably showing something other than the
+        -- literal start of the string.
+        local longName = "A Very Long Item Name That Overflows Any Reasonable Column Width"
+        local prefix = longName:sub(1, 8)
+        local state = UI.initialState()
+        state.results = {result("a", longName, 10), result("b", longName, 20)}
+        state.result_count, state.selection, state.query = 2, 1, "x"
+        local screen = UI.new(T.recordingSurface(51, 19))
+        local now = (Draw.MARQUEE_HOLD_STEPS + 2) * Draw.MARQUEE_STEP_MS
+        screen:render(state, {lifecycle="READY", search_results=state.results, now=now})
+        local text = screen.surface.allText()
+        local occurrences, from = 0, 1
+        while true do
+            local found = text:find(prefix, from, true)
+            if not found then break end
+            occurrences = occurrences + 1
+            from = found + 1
+        end
+        T.equal(occurrences, 1,
+            "the literal prefix must appear exactly once, from the unselected row only")
     end },
     { name = "an empty query explains itself rather than showing a blank list", run = function()
         local state = UI.initialState()

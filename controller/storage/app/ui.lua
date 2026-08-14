@@ -502,7 +502,14 @@ end
 -- to disagree, Search filling red and Crafting filling grey, which read as two products.
 -- `baseBg` lets a caller draw on something other than the ground colour (the setup wizard's
 -- panel-toned card) without changing the four pages that don't pass it.
-function UI:_row(y, selected, from, to, marker, markerColor, left, right, rightColor, baseBg)
+--
+-- `scrollOnlySelected` restricts marqueeing to the highlighted row: on Search and Craft, a
+-- whole screen of long names all sliding at once is noisy to read and every row wants your
+-- eye at a different moment. Every other list (Requests, Alerts, Nodes, craft jobs/plan,
+-- variant pickers) leaves it unset, so every row keeps scrolling regardless of selection --
+-- there is no "current" row on those pages the way there is on a search result.
+function UI:_row(y, selected, from, to, marker, markerColor, left, right, rightColor, baseBg,
+    scrollOnlySelected)
     local surface = self.surface
     local background = selected and Theme.role.focus or (baseBg or Theme.role.ground)
     local primary = selected and Theme.role.ground or Theme.role.text
@@ -513,7 +520,9 @@ function UI:_row(y, selected, from, to, marker, markerColor, left, right, rightC
     end
     right = right and tostring(right) or nil
     local nameWidth = math.max(1, (to - from + 1) - #(right or "") - 4)
-    if Draw.marqueeText(surface, from + 3, y, left, nameWidth, primary, background, self._now) then
+    if scrollOnlySelected and not selected then
+        Draw.text(surface, from + 3, y, left, nameWidth, primary, background)
+    elseif Draw.marqueeText(surface, from + 3, y, left, nameWidth, primary, background, self._now) then
         self._animating = true
     end
     if right then
@@ -692,7 +701,8 @@ function UI:_search(state, model, hitRegions)
         function(index, y, selected)
             local item = results[index]
             self:_row(y, selected, 1, listTo, selected and ">" or nil, nil,
-                tostring(item.display_name or item.name), formatNumber(item.quantity))
+                tostring(item.display_name or item.name), formatNumber(item.quantity),
+                nil, nil, true)
             hitRegions[#hitRegions + 1] = {x1=1, y1=y, x2=listTo, y2=y,
                 command={type="ACTIVATE", index=index}}
         end)
@@ -1273,7 +1283,8 @@ function UI:_crafting(state, model, hitRegions)
             self:_row(y, selected, 1, listTo, selected and ">" or nil, nil,
                 tostring(entry.display_name or entry.item),
                 "have " .. formatNumber(entry.quantity or 0),
-                (entry.quantity or 0) > 0 and Theme.role.ok or Theme.role.muted)
+                (entry.quantity or 0) > 0 and Theme.role.ok or Theme.role.muted,
+                nil, true)
             hitRegions[#hitRegions + 1] = {x1=1, y1=y, x2=listTo, y2=y,
                 command={type="ACTIVATE", index=index}}
         end)
@@ -1284,9 +1295,11 @@ function UI:_crafting(state, model, hitRegions)
         local item = state.craft_item or {}
         Draw.text(surface, paneFrom, bandRow + 1, "How many?", paneWidth,
             Theme.role.focus, Theme.role.ground)
-        Draw.text(surface, paneFrom, bandRow + 2,
+        if Draw.marqueeText(surface, paneFrom, bandRow + 2,
             tostring(item.display_name or item.item or ""), paneWidth,
-            Theme.role.text, Theme.role.ground)
+            Theme.role.text, Theme.role.ground, self._now) then
+            self._animating = true
+        end
         Draw.text(surface, paneFrom, bandRow + 4,
             (state.craft_quantity_text ~= "" and state.craft_quantity_text or "_"), paneWidth,
             Theme.role.text, Theme.role.ground)
@@ -1296,11 +1309,15 @@ function UI:_crafting(state, model, hitRegions)
             Theme.role.muted, Theme.role.ground)
     elseif paneFrom and chosen then
         local paneWidth = regions.width - paneFrom
-        Draw.text(surface, paneFrom, bandRow + 1,
+        if Draw.marqueeText(surface, paneFrom, bandRow + 1,
             tostring(chosen.display_name or chosen.item), paneWidth,
-            Theme.role.focus, Theme.role.ground)
-        Draw.text(surface, paneFrom, bandRow + 2, tostring(chosen.item), paneWidth,
-            Theme.role.muted, Theme.role.ground)
+            Theme.role.focus, Theme.role.ground, self._now) then
+            self._animating = true
+        end
+        if Draw.marqueeText(surface, paneFrom, bandRow + 2, tostring(chosen.item), paneWidth,
+            Theme.role.muted, Theme.role.ground, self._now) then
+            self._animating = true
+        end
         Draw.text(surface, paneFrom, bandRow + 4, "IN STOCK", paneWidth,
             Theme.role.muted, Theme.role.ground)
         Draw.text(surface, paneFrom, bandRow + 5, formatNumber(chosen.quantity or 0), paneWidth,
