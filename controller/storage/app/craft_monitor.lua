@@ -23,17 +23,27 @@ local function colorFor(state)
     return Theme.role.working
 end
 
-local function write(surface,width,height,x,y,text,color)
-    Draw.text(surface,x,y,text,math.max(0,width-x+1),color or Theme.role.text,Theme.role.ground)
+-- Set false at the top of every frame and raised by any write that actually scrolls; M.render
+-- reports it back so the coordinator only keeps asking for animation frames while something
+-- on this monitor is genuinely too long for its column. Module-local rather than threaded
+-- through every render* function -- CC is single-threaded, so one frame always finishes
+-- before the next starts. See app/monitor.lua, which does the same.
+local animating = false
+
+local function write(surface,width,height,x,y,text,color,now)
+    if Draw.marqueeText(surface,x,y,text,math.max(0,width-x+1),
+        color or Theme.role.text,Theme.role.ground,now) then
+        animating=true
+    end
 end
 
 -- Trim from the left of a namespaced ID so the meaningful part survives a narrow screen:
--- "minecraft:oak_planks" reads better clipped to "oak_planks" than to "minecraft:oak".
-local function shortName(value,width)
+-- "minecraft:oak_planks" reads better as "oak_planks" than as "minecraft:oak". Width-clipping
+-- used to happen here too, but that raced Draw.marqueeText's own clipping and defeated
+-- scrolling -- this only ever trims the namespace now.
+local function shortName(value)
     local text=tostring(value or "")
-    local stripped=text:match("^[%w_]+:(.+)$") or text
-    if #stripped<=width then return stripped end
-    return stripped:sub(1,width)
+    return text:match("^[%w_]+:(.+)$") or text
 end
 
 -- Five-row block glyphs are six columns wide per character (five painted, one gap), so the
@@ -55,54 +65,54 @@ end
 
 local function renderTiny(surface,model,width,height)
     local active=model.active
-    write(surface,width,height,1,1,"CRAFT",Theme.role.brand)
+    write(surface,width,height,1,1,"CRAFT",Theme.role.brand,model.now)
     if not active then
-        write(surface,width,height,1,2,"IDLE",Theme.role.muted)
+        write(surface,width,height,1,2,"IDLE",Theme.role.muted,model.now)
         return
     end
-    write(surface,width,height,1,2,shortName(active.display_name or active.item,width),Theme.role.text)
-    write(surface,width,height,1,3,tostring(active.state),colorFor(active.state))
+    write(surface,width,height,1,2,shortName(active.display_name or active.item),Theme.role.text,model.now)
+    write(surface,width,height,1,3,tostring(active.state),colorFor(active.state),model.now)
 end
 
 local function renderFull(surface,model,width,height)
     local active=model.active
     header(surface,width,active and active.state or nil)
     if not active then
-        write(surface,width,height,1,3,"IDLE",Theme.role.muted)
+        write(surface,width,height,1,3,"IDLE",Theme.role.muted,model.now)
         if model.craftable_types then
-            write(surface,width,height,1,5,tostring(model.craftable_types),Theme.role.focus)
-            write(surface,width,height,1,6,"recipes",Theme.role.muted)
+            write(surface,width,height,1,5,tostring(model.craftable_types),Theme.role.focus,model.now)
+            write(surface,width,height,1,6,"recipes",Theme.role.muted,model.now)
         end
         return
     end
 
-    write(surface,width,height,1,2,shortName(active.display_name or active.item,width),Theme.role.text)
+    write(surface,width,height,1,2,shortName(active.display_name or active.item),Theme.role.text,model.now)
     write(surface,width,height,1,3,tostring(active.produced or 0).." / "..tostring(active.quantity or 0),
-        Theme.role.focus)
+        Theme.role.focus,model.now)
 
     local row=4
     if active.steps and active.steps>0 then
         write(surface,width,height,1,row,"STEP "..tostring(active.step or 1).."/"..tostring(active.steps),
-            Theme.role.muted)
+            Theme.role.muted,model.now)
         row=row+1
         Draw.meter(surface,1,row,math.max(1,width-1),
             ((active.step or 1)-1)/active.steps,Theme.role.craft,Theme.role.track)
         row=row+1
     end
     if active.current_item then
-        write(surface,width,height,1,row,shortName(active.current_item,width),Theme.role.muted)
+        write(surface,width,height,1,row,shortName(active.current_item),Theme.role.muted,model.now)
         row=row+1
     end
-    write(surface,width,height,1,row,tostring(active.state),colorFor(active.state))
+    write(surface,width,height,1,row,tostring(active.state),colorFor(active.state),model.now)
     row=row+1
 
     -- Omitted entirely when nothing is waiting. On a 15x10 surface every line counts.
     if (model.queued or 0)>0 then
-        write(surface,width,height,1,row,"+"..tostring(model.queued).." queued",Theme.role.muted)
+        write(surface,width,height,1,row,"+"..tostring(model.queued).." queued",Theme.role.muted,model.now)
         row=row+1
     end
     if active.state=="BLOCKED" and active.reason then
-        write(surface,width,height,1,height,shortName(active.reason,width),Theme.role.focus)
+        write(surface,width,height,1,height,shortName(active.reason),Theme.role.focus,model.now)
     end
 end
 
@@ -128,8 +138,10 @@ local function renderLarge(surface,model,width,height)
         return
     end
 
-    Draw.text(surface,2,3,shortName(active.display_name or active.item,width-3),width-3,
-        Theme.role.text,Theme.role.ground)
+    if Draw.marqueeText(surface,2,3,shortName(active.display_name or active.item),width-3,
+        Theme.role.text,Theme.role.ground,model.now) then
+        animating=true
+    end
 
     local produced,quantity=active.produced or 0,active.quantity or 0
     Draw.text(surface,2,5,tostring(produced).." / "..tostring(quantity),width-2,
@@ -150,8 +162,14 @@ local function renderLarge(surface,model,width,height)
         row=row+1
     end
     if active.current_item then
-        Draw.text(surface,2,row,"Staging "..shortName(active.current_item,width-11),width-2,
-            Theme.role.muted,Theme.role.ground)
+        -- "Staging " stays put -- only the name after it scrolls -- rather than folding the
+        -- prefix into one marqueed string, which would carry "Staging " off-screen with it.
+        local prefix="Staging "
+        Draw.text(surface,2,row,prefix,#prefix,Theme.role.muted,Theme.role.ground)
+        if Draw.marqueeText(surface,2+#prefix,row,shortName(active.current_item),
+            math.max(1,width-2-#prefix),Theme.role.muted,Theme.role.ground,model.now) then
+            animating=true
+        end
         row=row+1
     end
 
@@ -160,8 +178,10 @@ local function renderLarge(surface,model,width,height)
     -- looking unfinished rather than spacious.
     if active.state=="BLOCKED" and active.reason then
         row=row+1
-        Draw.text(surface,2,row,shortName(active.reason,width-2),width-2,
-            Theme.role.warn,Theme.role.ground)
+        if Draw.marqueeText(surface,2,row,shortName(active.reason),width-2,
+            Theme.role.warn,Theme.role.ground,model.now) then
+            animating=true
+        end
         row=row+1
     end
     if (model.queued or 0)>0 then
@@ -172,6 +192,7 @@ local function renderLarge(surface,model,width,height)
 end
 
 local function frame(surface,model)
+    animating=false
     local width,height=surface.getSize()
     surface.setBackgroundColor(Theme.role.ground)
     surface.setTextColor(Theme.role.text)
@@ -191,6 +212,7 @@ function M.render(surface,model)
     local ok,reason=pcall(frame,surface,model or {})
     if surface.endFrame then surface.endFrame() end
     if not ok then error(reason,0) end
+    return animating
 end
 
 return M

@@ -981,11 +981,11 @@ end
 
 -- What the 1x1 crafting monitor renders. Deliberately a different model from the storage
 -- monitor's, which is why it is a separate renderer rather than another size tier.
-function Coordinator:_craftMonitorModel()
+function Coordinator:_craftMonitorModel(now)
     local service = self.deps.crafts
     local catalogue = #self:_craftCatalogue()
     if not service or type(service.list) ~= "function" then
-        return {active=nil, queued=0, craftable_types=catalogue}
+        return {active=nil, queued=0, craftable_types=catalogue, now=now or self.clock()}
     end
     local jobs, active, queued = service:list(), nil, 0
     for _, job in ipairs(jobs) do
@@ -995,7 +995,9 @@ function Coordinator:_craftMonitorModel()
             if not active then active = job else queued = queued + 1 end
         end
     end
-    if not active then return {active=nil, queued=0, craftable_types=catalogue} end
+    if not active then
+        return {active=nil, queued=0, craftable_types=catalogue, now=now or self.clock()}
+    end
     local steps = active.plan and #active.plan.steps or nil
     local current = active.plan and active.step_index and active.plan.steps[active.step_index]
     return {
@@ -1004,7 +1006,7 @@ function Coordinator:_craftMonitorModel()
             produced=current and current.produced or 0,
             current_item=current and current.item or nil,
             reason=active.reason and active.reason.code or nil},
-        queued = queued, craftable_types = catalogue,
+        queued = queued, craftable_types = catalogue, now = now or self.clock(),
     }
 end
 
@@ -1064,9 +1066,10 @@ function Coordinator:redraw(now)
         elseif monitorResult then animating=true end
     end
     if self.deps.craft_monitor and self.deps.craft_monitor_surface then
-        local craftOk, craftReason=pcall(self.deps.craft_monitor.render,
-            self.deps.craft_monitor_surface,self:_craftMonitorModel())
-        if not craftOk then self:_recordError("craft monitor",craftReason) end
+        local craftOk, craftResult=pcall(self.deps.craft_monitor.render,
+            self.deps.craft_monitor_surface,self:_craftMonitorModel(now))
+        if not craftOk then self:_recordError("craft monitor",craftResult)
+        elseif craftResult then animating=true end
     end
     self.animating=animating
     self.dirty=false
