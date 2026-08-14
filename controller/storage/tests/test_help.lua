@@ -9,14 +9,16 @@ for name, code in pairs({
     if keys[name] == nil then keys[name] = code end
 end
 
+local Draw = require("app.draw")
 local Help = require("app.help")
 local Keymap = require("app.keymap")
 local UI = require("app.ui")
 local T = require("tests.mock_cc")
 
 -- Maps a registry entry's display `key` to one synthetic input event keymap.command
--- accepts. Groups ("Up/Down", "0-9", "1-6") test one representative member -- the point is
--- that the binding exists and is not refused in this state, not that every member is tried.
+-- accepts. Groups ("Up/Down", "0-9", "1-6", "Left/Backspace", "Left/F10") test one
+-- representative member -- the point is that the binding exists and is not refused in this
+-- state, not that every member is tried.
 local EVENTS = {
     ["F10"] = {"key", keys.f10}, ["F1"] = {"key", keys.f1}, ["P"] = {"key", keys.p},
     ["1-6"] = {"key", keys.two}, ["Delete"] = {"key", keys.delete},
@@ -25,10 +27,14 @@ local EVENTS = {
     ["Tab"] = {"key", keys.tab}, ["D"] = {"key", keys.d}, ["Backspace"] = {"key", keys.backspace},
     ["F2"] = {"key", keys.f2},
     ["Left"] = {"key", keys.left}, ["R"] = {"key", keys.r}, ["Right"] = {"key", keys.right},
+    ["Left/Backspace"] = {"key", keys.left}, ["Left/F10"] = {"key", keys.left},
 }
 
 -- Every distinct context an operator can be in when F1 opens Help, with whatever extra
 -- state field that context's own `when` predicates key off (setup_step, recovery_confirm_armed).
+-- "help" itself is included: TOGGLE_HELP can fire from any mode, so being inside Help is
+-- itself a context an operator reaches, and its own registry entries deserve the same
+-- keymap.command scrutiny as every other mode's.
 local CONTEXTS = {
     {mode="search"}, {mode="quantity"}, {mode="variant"},
     {mode="craft_search"}, {mode="craft_quantity"}, {mode="craft_plan"},
@@ -37,7 +43,19 @@ local CONTEXTS = {
     {mode="page", page="alerts"},
     {mode="page", page="alerts", recovery_confirm_armed=true},
     {mode="page", page="setup"},
+    {mode="help"},
 }
+
+-- Every mode/page state.mode or state.page can actually take on, per ui.lua's reducer
+-- (TOGGLE_HELP, OPEN_PAGE, OPEN_QUANTITY, OPEN_CRAFT_QUANTITY, CANCEL, SETUP_*, RENAME_*).
+-- Kept separate from CONTEXTS above (which also carries `when`-predicate fields like
+-- setup_step) so this list stays a plain inventory of reachable modes to check registry
+-- coverage against, independent of any particular predicate state.
+local REACHABLE_MODES = {
+    "search", "quantity", "variant", "craft_search", "craft_quantity", "craft_plan",
+    "craft_jobs", "setup", "setup_rename", "help",
+}
+local REACHABLE_PAGES = {"storage", "requests", "alerts", "setup"}
 
 return {
     -- The invariant that makes the registry trustworthy: everything it lists must be
@@ -158,5 +176,128 @@ return {
         state.hit_regions = layout.hit_regions
         local command = Keymap.command({"mouse_click", 1, 5, 5}, state)
         T.equal(command.type, "TOGGLE_HELP")
+    end},
+
+    -- Draw.wrap: the fix for defect (a), a long detail sentence hard-truncated mid-word
+    -- because UI:_help drew it on exactly one row. Tested directly here rather than in
+    -- tests/test_draw.lua, which this task does not own.
+    {name="Draw.wrap: empty string yields one empty line", run=function()
+        T.arrayEqual(Draw.wrap("", 10), {""})
+        T.arrayEqual(Draw.wrap(nil, 10), {""})
+    end},
+    {name="Draw.wrap: a single word longer than width is hard-broken", run=function()
+        T.arrayEqual(Draw.wrap("abcdefghij", 4), {"abcd", "efgh", "ij"})
+    end},
+    {name="Draw.wrap: exact-fit boundaries never split early", run=function()
+        T.arrayEqual(Draw.wrap("ab cd", 5), {"ab cd"})
+        T.arrayEqual(Draw.wrap("abcde", 5), {"abcde"})
+        T.arrayEqual(Draw.wrap("abcdef", 5), {"abcde", "f"})
+    end},
+    {name="Draw.wrap: multiple spaces between words collapse to one", run=function()
+        T.arrayEqual(Draw.wrap("one    two", 20), {"one two"})
+    end},
+    {name="Draw.wrap: width of 1 puts one character per line", run=function()
+        T.arrayEqual(Draw.wrap("hi", 1), {"h", "i"})
+    end},
+    {name="Draw.wrap breaks only on whitespace and never drops a character", run=function()
+        local text = "Give up proof of what an interrupted transfer moved and release recovery"
+        local lines = Draw.wrap(text, 20)
+        for _, line in ipairs(lines) do T.truthy(#line <= 20, "line exceeds width: " .. line) end
+        T.equal(table.concat(lines, " "), text)
+    end},
+
+    -- Reproduces defect (a) directly: this is the exact detail string that used to be
+    -- hard-truncated mid-sentence by a single Draw.text call at the remaining width. Scroll
+    -- through a short terminal and confirm the whole sentence shows up somewhere, unclipped.
+    {name="a long detail sentence is never truncated, only wrapped across rows", run=function()
+        local surface = T.recordingSurface(30, 8)
+        local ui = UI.new(surface)
+        local state = UI.initialState()
+        state.page, state.mode, state.recovery_confirm_armed = "alerts", "page", true
+        state = ui:reduce(state, {type="TOGGLE_HELP"})
+        local seen = {}
+        for scroll = 1, 30 do
+            state.help_scroll = scroll
+            ui:render(state, {lifecycle="READY"})
+            seen[#seen + 1] = surface.allText()
+        end
+        local all = table.concat(seen, "\n")
+        local labelWidth = math.max(1, math.min(18, 30 - 3))
+        local detailWidth = 30 - (3 + labelWidth)
+        for _, line in ipairs(Draw.wrap(
+            "Give up proof of what an interrupted transfer moved and release recovery",
+            detailWidth)) do
+            T.contains(all, line, "wrapped line missing or truncated: " .. line)
+        end
+    end},
+
+    -- The flatten-then-window approach must never drop a row: every wrapped detail line and
+    -- every section header has to appear somewhere as the operator scrolls, even at a height
+    -- so small that no single section fits whole -- the old "show a section whole or not at
+    -- all, else break" degradation is exactly what this replaces.
+    {name="scrolling the help modal reveals every row without dropping any, even at a tiny height",
+     run=function()
+        for _, size in ipairs({{30, 8}, {30, 6}, {20, 8}}) do
+            local width, height = size[1], size[2]
+            local surface = T.recordingSurface(width, height)
+            local ui = UI.new(surface)
+            local state = UI.initialState()
+            state = ui:reduce(state, {type="TOGGLE_HELP"})
+            local seen = {}
+            for scroll = 1, 60 do
+                state.help_scroll = scroll
+                ui:render(state, {lifecycle="READY"})
+                seen[#seen + 1] = surface.allText()
+                T.equal(surface.writesOutsideBounds(), 0)
+            end
+            local all = table.concat(seen, "\n")
+
+            local labelWidth = math.max(1, math.min(18, width - 3))
+            local detailWidth = width - (3 + labelWidth)
+            local showDetail = detailWidth >= 6
+            local sections = Help.modalSections({mode="search"})
+            sections[#sections + 1] = {title = "This modal", entries = Help.per_mode.help}
+            for _, section in ipairs(sections) do
+                T.contains(all, section.title:upper(),
+                    ("%dx%d dropped section header %q"):format(width, height, section.title))
+                for _, entry in ipairs(section.entries) do
+                    local label = entry.key .. (entry.label and (" " .. entry.label) or "")
+                    T.contains(all, label,
+                        ("%dx%d dropped entry label %q"):format(width, height, label))
+                    if showDetail then
+                        for _, line in ipairs(Draw.wrap(entry.detail, detailWidth)) do
+                            T.contains(all, line, ("%dx%d dropped detail line %q"):
+                                format(width, height, line))
+                        end
+                    end
+                end
+            end
+        end
+    end},
+
+    -- Task 4: the modal must document its own controls, not just the page underneath it.
+    {name="the help mode's own registry entries close the modal and nothing else",
+     run=function()
+        local entries = Help.per_mode.help
+        T.truthy(#entries > 0, "help mode has no registry entries")
+        for _, entry in ipairs(entries) do
+            local event = EVENTS[entry.key]
+            T.truthy(event, "no synthetic event mapped for key " .. tostring(entry.key))
+            local command = Keymap.command(event, {mode="help"})
+            T.equal(command.type, "TOGGLE_HELP",
+                entry.key .. " in help mode did not close the modal")
+        end
+    end},
+
+    -- Catches a mode ui.lua's reducer can reach that nobody ever added to help.lua: without
+    -- this, a forgotten mode silently falls back to Help.contextEntries' empty-table
+    -- default and the modal just shows nothing for it, with no test failure anywhere.
+    {name="every mode and page reachable in the UI has a registry section", run=function()
+        for _, mode in ipairs(REACHABLE_MODES) do
+            T.truthy(Help.per_mode[mode], "no per_mode entry for mode=" .. mode)
+        end
+        for _, page in ipairs(REACHABLE_PAGES) do
+            T.truthy(Help.per_mode.page[page], "no per_mode.page entry for page=" .. page)
+        end
     end},
 }

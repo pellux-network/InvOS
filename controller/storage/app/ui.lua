@@ -1390,11 +1390,52 @@ function UI:render(state, model)
     return result
 end
 
+-- Flattens the modal's sections into one list of rows -- a header, a blank spacer, and one
+-- row per wrapped detail line -- so `UI:_windowed` can scroll across a section boundary for
+-- free instead of the old "show a section whole or not at all, else stop" degradation. That
+-- degradation is what this replaces: with wrapping in place a long section like Everywhere
+-- would essentially never fit whole on a 24-row terminal, so dropping it outright would mean
+-- it almost never rendered at all. The label sits only on an entry's first row, matching the
+-- approved mockup, so "Enter retrieve" prints once even though its detail wraps to two rows.
+local function helpRows(sections, width)
+    local labelWidth = math.max(1, math.min(18, width - 3))
+    local detailX = 3 + labelWidth
+    local detailWidth = width - detailX
+    local showDetail = detailWidth >= 6
+    local rows = {}
+    for _, section in ipairs(sections) do
+        local entries = section.entries
+        if #entries > 0 then
+            rows[#rows + 1] = {kind = "header", text = section.title:upper()}
+            for _, entry in ipairs(entries) do
+                local label = entry.key .. (entry.label and (" " .. entry.label) or "")
+                local lines = showDetail and Draw.wrap(entry.detail, detailWidth) or {}
+                if #lines == 0 then
+                    rows[#rows + 1] = {kind = "entry", label = label, labelWidth = labelWidth}
+                else
+                    for index, line in ipairs(lines) do
+                        rows[#rows + 1] = {kind = "entry", label = (index == 1) and label or nil,
+                            labelWidth = labelWidth, detail = line, detailX = detailX,
+                            detailWidth = detailWidth}
+                    end
+                end
+            end
+            rows[#rows + 1] = {kind = "blank"}
+        end
+    end
+    return rows
+end
+
 -- F1 toggles this from any mode, including from inside a search box, since letters and
 -- digits are query characters there and only the function row is free. Closing must restore
 -- the exact prior screen, so this never touches anything but state.mode/help_return_mode --
 -- the interrupted mode's own fields (query text, craft plan, selection...) are untouched and
 -- still there when TOGGLE_HELP flips mode back.
+--
+-- Scrolling reads `state.help_scroll` and clamps it locally through `_windowed`; it is never
+-- written back here, matching the same rule every other renderer follows (see
+-- tests/test_ui_purity.lua). The reducer is responsible for advancing help_scroll on MOVE
+-- while state.mode == "help" -- this render side only needs a number to clamp.
 function UI:_help(state, model)
     local surface = self.surface
     local width, height = surface.getSize()
@@ -1413,31 +1454,47 @@ function UI:_help(state, model)
     local contextState = copy(state)
     contextState.mode = state.help_return_mode or "search"
     local sections = Help.modalSections(contextState)
+    -- Appended, not folded into "Everywhere": those are the interrupted screen's globals,
+    -- these are the modal's own (close, and eventually scroll) -- Help.modalSections(state)
+    -- with the real state.mode == "help" resolves M.per_mode.help via M.contextEntries the
+    -- same way any other mode does, so this is no different from how "This page" is built.
+    local ownEntries = Help.modalSections(state)[1].entries
+    if #ownEntries > 0 then
+        sections[#sections + 1] = {title = "This modal", entries = ownEntries}
+    end
+    local rows = helpRows(sections, width)
 
-    local row, bottom = 3, height
-    for _, section in ipairs(sections) do
-        local entries = section.entries
-        -- A section is shown whole or not at all: a page that fits three of its five
-        -- controls before running out of room is worse than a page that names none and
-        -- leaves the rest to be discovered once the terminal is bigger.
-        if #entries > 0 and row + #entries > bottom then break end
-        if #entries > 0 then
-            self:_band(row)
-            self:_bandText(2, row, section.title:upper(), math.max(1, width - 2))
-            row = row + 1
-            for _, entry in ipairs(entries) do
-                local label = entry.key .. (entry.label and (" " .. entry.label) or "")
-                local labelWidth = math.max(1, math.min(18, width - 3))
-                Draw.text(surface, 2, row, label, labelWidth, Theme.role.focus, Theme.role.ground)
-                local detailX = 3 + labelWidth
-                if width - detailX >= 6 then
-                    Draw.text(surface, detailX, row, entry.detail, width - detailX,
-                        Theme.role.text, Theme.role.ground)
-                end
-                row = row + 1
+    -- Row 2 and the last row are reserved for the scroll affordance rather than shared with
+    -- content, so "[more v]" never overwrites a wrapped detail line the way it would if it
+    -- shared the last content row.
+    local top, bottom = 3, height - 1
+    local scroll = math.floor(tonumber(state.help_scroll) or 1)
+    local offset, visible = self:_windowed(top, bottom, #rows, scroll, function(index, y)
+        local entryRow = rows[index]
+        if entryRow.kind == "header" then
+            self:_band(y)
+            self:_bandText(2, y, entryRow.text, math.max(1, width - 2))
+        elseif entryRow.kind == "entry" then
+            if entryRow.label then
+                Draw.text(surface, 2, y, entryRow.label, entryRow.labelWidth,
+                    Theme.role.focus, Theme.role.ground)
             end
-            row = row + 1
+            if entryRow.detail then
+                Draw.text(surface, entryRow.detailX, y, entryRow.detail, entryRow.detailWidth,
+                    Theme.role.text, Theme.role.ground)
+            end
         end
+    end)
+
+    -- The affordance a marquee earns elsewhere for the same reason: a sign that content is
+    -- being hidden, not decoration, so it stays muted rather than competing with a control.
+    if offset > 1 then
+        local hint = "[more ^]"
+        Draw.text(surface, width - #hint, 2, hint, #hint, Theme.role.muted, Theme.role.ground)
+    end
+    if offset + visible - 1 < #rows then
+        local hint = "[more v]"
+        Draw.text(surface, width - #hint, height, hint, #hint, Theme.role.muted, Theme.role.ground)
     end
 
     surface.setCursorBlink(false)
