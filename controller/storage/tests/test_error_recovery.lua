@@ -1,4 +1,5 @@
 local Coordinator = require("app.coordinator")
+local Alerts = require("app.alerts")
 local T = require("tests.mock_cc")
 
 local function dependencies()
@@ -66,5 +67,23 @@ return {
         coordinator:notifyTransfer({rescan={"store"}})
         coordinator:tick(1); coordinator:tick(2)
         local scans=d.counts(); T.equal(scans,2)
+    end},
+    {name="a redraw crash from the tick loop is caught and recorded instead of killing workStep",run=function()
+        local d=dependencies()
+        d.alerts={active=function() error("boom") end}
+        local coordinator=Coordinator.new(d)
+        coordinator:workStep(1)
+        T.truthy(#coordinator.notices>0, "the crash must be recorded")
+        T.contains(coordinator.notices[#coordinator.notices].message,"boom")
+        coordinator:workStep(2)
+        T.truthy(#coordinator.notices>0, "workStep must still be callable afterward")
+    end},
+    {name="a redraw crash reached through handle is caught and recorded",run=function()
+        local d=dependencies()
+        d.alerts={active=function() error("boom") end}
+        local coordinator=Coordinator.new(d)
+        coordinator:handle({"term_resize"})
+        T.truthy(#coordinator.notices>0, "the crash must be recorded")
+        T.contains(coordinator.notices[#coordinator.notices].message,"boom")
     end},
 }

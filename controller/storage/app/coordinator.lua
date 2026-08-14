@@ -550,12 +550,15 @@ end
 
 function Coordinator:workStep(now)
     now = now or self.clock()
-    self:_scanStep(now)
-    self:_enrichStep()
-    self:_automationStep(now)
-    self:_stallStep(now)
-    self:_refreshLifecycle(now)
-    if self.dirty then self:redraw() end
+    local ok, reason = pcall(function()
+        self:_scanStep(now)
+        self:_enrichStep()
+        self:_automationStep(now)
+        self:_stallStep(now)
+        self:_refreshLifecycle(now)
+        if self.dirty then self:redraw() end
+    end)
+    if not ok then self:_recordError("coordinator", reason) end
 end
 
 function Coordinator:tick(now) self:workStep(now or self.clock()) end
@@ -671,42 +674,45 @@ function Coordinator:command(command)
 end
 
 function Coordinator:handle(event)
-    if type(event) ~= "table" then return end
-    local name, peripheralName = event[1], event[2]
-    if name == "peripheral_detach" or name == "peripheral" then
-        for _, node in ipairs(self.nodes) do
-            if node.peripheral_name == peripheralName then
-                self.snapshots[node.id] = nil
-                node.state = name == "peripheral_detach" and "OFFLINE" or "SCANNING"
-                if name == "peripheral" then self:requestRescan({peripheralName}) end
+    local ok, reason = pcall(function()
+        if type(event) ~= "table" then return end
+        local name, peripheralName = event[1], event[2]
+        if name == "peripheral_detach" or name == "peripheral" then
+            for _, node in ipairs(self.nodes) do
+                if node.peripheral_name == peripheralName then
+                    self.snapshots[node.id] = nil
+                    node.state = name == "peripheral_detach" and "OFFLINE" or "SCANNING"
+                    if name == "peripheral" then self:requestRescan({peripheralName}) end
+                end
+            end
+            self:_refreshLifecycle(); self.dirty=true
+        elseif name == "monitor_resize" or name == "term_resize" then
+            self.dirty=true; self:redraw()
+        elseif name == "rednet_message" then
+            -- The turtle's reply lands here, on the only loop that sees every event. The
+            -- craft service reads it from the link's inbox on its next tick.
+            local link = self.deps.turtle_link
+            if link and type(link.deliver) == "function" then
+                local deliverOk, deliverReason = pcall(link.deliver, link, event[2], event[3], event[4])
+                if not deliverOk then self:_recordError("turtle link", deliverReason) end
+                self.dirty = true
             end
         end
-        self:_refreshLifecycle(); self.dirty=true
-    elseif name == "monitor_resize" or name == "term_resize" then
-        self.dirty=true; self:redraw()
-    elseif name == "rednet_message" then
-        -- The turtle's reply lands here, on the only loop that sees every event. The
-        -- craft service reads it from the link's inbox on its next tick.
-        local link = self.deps.turtle_link
-        if link and type(link.deliver) == "function" then
-            local ok, reason = pcall(link.deliver, link, event[2], event[3], event[4])
-            if not ok then self:_recordError("turtle link", reason) end
-            self.dirty = true
+        local commandOk, command = pcall(self.keymap.command, event, self.uiState)
+        if not commandOk then self:_recordError("keymap", command); return end
+        if command then
+            self:command(command)
+            if command.type == "QUERY_APPEND" or command.type == "QUERY_BACKSPACE" or
+                command.type == "QUERY_CLEAR" then self:_rebuildIndex() end
+            if command.type == "CRAFT_QUERY_APPEND" or command.type == "CRAFT_QUERY_BACKSPACE" or
+                command.type == "CRAFT_QUERY_CLEAR" or
+                (command.type == "OPEN_PAGE" and command.page == "crafting") then
+                self:_syncCraft()
+            end
+            self:redraw()
         end
-    end
-    local ok, command = pcall(self.keymap.command, event, self.uiState)
-    if not ok then self:_recordError("keymap", command); return end
-    if command then
-        self:command(command)
-        if command.type == "QUERY_APPEND" or command.type == "QUERY_BACKSPACE" or
-            command.type == "QUERY_CLEAR" then self:_rebuildIndex() end
-        if command.type == "CRAFT_QUERY_APPEND" or command.type == "CRAFT_QUERY_BACKSPACE" or
-            command.type == "CRAFT_QUERY_CLEAR" or
-            (command.type == "OPEN_PAGE" and command.page == "crafting") then
-            self:_syncCraft()
-        end
-        self:redraw()
-    end
+    end)
+    if not ok then self:_recordError("input", reason) end
 end
 
 function Coordinator:requestRescan(names)
