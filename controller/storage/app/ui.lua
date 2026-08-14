@@ -109,6 +109,20 @@ local function selectedResult(state)
     return state.results and state.results[state.selection] or nil
 end
 
+-- The autocomplete ghost is computed fresh every frame from the query and the highlighted
+-- result, never stashed on state -- same discipline as scroll offsets. Only a literal
+-- case-insensitive prefix gets a tail: search.lua/match.lua also match on abbreviation,
+-- alias, registry name and edit distance, and none of those routes has a sensible tail to
+-- show, so a highlighted row reached through one of them simply gets no ghost.
+local function ghostTail(query, name)
+    if query == "" or not name or name == "" then return nil end
+    local queryLower, nameLower = query:lower(), name:lower()
+    if nameLower:sub(1, #queryLower) ~= queryLower then return nil end
+    local tail = name:sub(#query + 1)
+    if tail == "" then return nil end
+    return tail
+end
+
 local function enterQuantity(state, variant, parent)
     state.mode = "quantity"
     state.quantity_text = ""
@@ -202,6 +216,14 @@ function UI:reduce(current, command)
         if selected then
             state.craft_item = copy(selected)
             state.craft_quantity_text, state.mode = "", "craft_quantity"
+        end
+    elseif kind == "CRAFT_AUTOCOMPLETE" then
+        -- Same reasoning as AUTOCOMPLETE on the Search page: Tab accepts the highlighted
+        -- recipe exactly as Enter does, ghost or no ghost.
+        local selected = state.craft_results and state.craft_results[state.craft_selection]
+        if selected then
+            state.craft_query = tostring(selected.display_name or selected.item)
+            return self:reduce(state, {type="OPEN_CRAFT_QUANTITY"})
         end
     elseif kind == "SET_CRAFT_QUANTITY" then
         if #state.craft_quantity_text < 6 then
@@ -301,6 +323,15 @@ function UI:reduce(current, command)
             else
                 enterQuantity(state, (selected.variants or {})[1] or selected, selected)
             end
+        end
+    elseif kind == "AUTOCOMPLETE" then
+        -- Tab accepts the highlighted row exactly as Enter does: same target, same mode,
+        -- same fresh quantity text. The ghost is only a display affordance -- this fires
+        -- whether or not one is showing, so the fuzzy/alias/abbreviation case still works.
+        local selected = selectedResult(state)
+        if selected then
+            state.query = tostring(selected.display_name or selected.name)
+            return self:reduce(state, {type="OPEN_QUANTITY"})
         end
     elseif kind == "ACTIVATE" then
         if state.mode == "craft_jobs" then
@@ -633,11 +664,11 @@ local function footerHelp(state, width)
         end
         if state.mode == "craft_quantity" then return "Digits then Enter  A max  F10 back" end
         if state.mode == "craft_jobs" then
-            return "Up/Down select  R retry  C cancel  Enter confirm  Tab search"
+            return "Up/Down select  R retry  C cancel  Enter confirm  F2 search"
         end
         return fittedLabel(width or math.huge, {
-            "Type to find a recipe  Enter choose  Tab jobs  Delete clear  F10 back",
-            "Enter choose  Tab jobs  Delete clear  F10 back",
+            "Type to find a recipe  Enter choose  Tab complete  F2 jobs  Delete clear  F10 back",
+            "Enter choose  Tab complete  F2 jobs  Delete clear  F10 back",
             "Enter choose  Delete clear  F10 back",
             "Delete clear  F10 back",
             "Delete clear",
@@ -672,11 +703,24 @@ function UI:_search(state, model, hitRegions)
     local listTo = split and (split - 1) or regions.width
     local paneFrom = split and (split + 2) or nil
 
+    local results = model.search_results or state.results or {}
+
     local queryRow = regions.content.top + 1
+    local queryBoxWidth = regions.width - 4
+    local queryText = state.query .. (state.mode == "search" and "_" or "")
     Draw.band(surface, queryRow, Theme.role.ground)
     Draw.text(surface, 2, queryRow, ">", 1, Theme.role.focus, Theme.role.ground)
-    Draw.text(surface, 4, queryRow, state.query .. (state.mode == "search" and "_" or ""),
-        regions.width - 4, Theme.role.text, Theme.role.ground)
+    Draw.text(surface, 4, queryRow, queryText, queryBoxWidth, Theme.role.text, Theme.role.ground)
+    if state.mode == "search" then
+        local highlighted = results[state.selection]
+        local tail = highlighted and
+            ghostTail(state.query, tostring(highlighted.display_name or highlighted.name))
+        local ghostWidth = queryBoxWidth - #queryText
+        if tail and ghostWidth > 0 then
+            Draw.text(surface, 4 + #queryText, queryRow, tail, ghostWidth,
+                Theme.role.ghost, Theme.role.ground)
+        end
+    end
 
     local bandRow = queryRow + 2
     local bodyTop = bandRow + 1
@@ -688,7 +732,6 @@ function UI:_search(state, model, hitRegions)
         Draw.divider(surface, split, bandRow, regions.content.bottom, Theme.role.panel)
     end
 
-    local results = model.search_results or state.results or {}
     if #results == 0 then
         Draw.text(surface, 2, bodyTop,
             state.query == "" and "Start typing to search stored items" or "No matching items",
@@ -1259,11 +1302,22 @@ function UI:_crafting(state, model, hitRegions)
     local split = regions.split
     local listTo = split and (split - 1) or regions.width
     local paneFrom = split and (split + 2) or nil
+    local results = state.craft_results or {}
     local queryRow = regions.content.top
+    local queryBoxWidth = regions.width - 4
+    local queryText = state.craft_query .. (state.mode == "craft_search" and "_" or "")
     Draw.text(surface, 2, queryRow, ">", 1, Theme.role.focus, Theme.role.ground)
-    Draw.text(surface, 4, queryRow,
-        state.craft_query .. (state.mode == "craft_search" and "_" or ""),
-        regions.width - 4, Theme.role.text, Theme.role.ground)
+    Draw.text(surface, 4, queryRow, queryText, queryBoxWidth, Theme.role.text, Theme.role.ground)
+    if state.mode == "craft_search" then
+        local highlighted = results[state.craft_selection or 1]
+        local tail = highlighted and
+            ghostTail(state.craft_query, tostring(highlighted.display_name or highlighted.item))
+        local ghostWidth = queryBoxWidth - #queryText
+        if tail and ghostWidth > 0 then
+            Draw.text(surface, 4 + #queryText, queryRow, tail, ghostWidth,
+                Theme.role.ghost, Theme.role.ground)
+        end
+    end
     local bandRow = queryRow + 1
     self:_band(bandRow)
     self:_bandText(2, bandRow, "RECIPE", math.max(1, listTo - 2))
@@ -1272,7 +1326,6 @@ function UI:_crafting(state, model, hitRegions)
         self:_bandText(paneFrom, bandRow, "SELECTED", regions.width - paneFrom)
         Draw.divider(surface, split, bandRow, bottom, Theme.role.panel)
     end
-    local results = state.craft_results or {}
     if #results == 0 then
         Draw.text(surface, 2, bandRow + 1, "No matching recipes", math.max(1, listTo - 2),
             Theme.role.muted, Theme.role.ground)

@@ -1,7 +1,7 @@
 keys = {
     backspace=14, up=200, down=208, enter=28, s=31, a=30, f10=68,
     escape=1, one=2, two=3, three=4, four=5, five=6,
-    r=19, c=46, p=25, x=45, delete=211, left=203,
+    r=19, c=46, p=25, x=45, delete=211, left=203, tab=15, f2=60,
 }
 
 local Keymap = require("app.keymap")
@@ -102,6 +102,17 @@ return {
         local tab=Keymap.command({"key",keys.two},{mode="search",query="mod"})
         T.equal(tab and tab.page,"storage")
         T.equal(Keymap.command({"char","1"},{mode="search",query="mod"}).text,"1")
+    end },
+    { name = "Tab is autocomplete in both search boxes, not the jobs/search toggle", run = function()
+        T.equal(Keymap.command({"key",keys.tab},{mode="search"}).type,"AUTOCOMPLETE")
+        T.equal(Keymap.command({"key",keys.tab},{mode="craft_search"}).type,"CRAFT_AUTOCOMPLETE")
+        -- Letters are query characters and digits are page shortcuts on both search boxes,
+        -- so Tab has no other job left there; the old toggle moved to F2 instead.
+        T.equal(Keymap.command({"key",keys.tab},{mode="craft_jobs"}),nil)
+    end },
+    { name = "F2 toggles between the Crafting page's search and jobs modes", run = function()
+        T.equal(Keymap.command({"key",keys.f2},{mode="craft_search"}).type,"OPEN_CRAFT_JOBS")
+        T.equal(Keymap.command({"key",keys.f2},{mode="craft_jobs"}).type,"OPEN_CRAFT_SEARCH")
     end },
     { name = "setup_rename mode captures typing and confirm/cancel", run = function()
         local state = {mode="setup_rename"}

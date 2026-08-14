@@ -128,6 +128,67 @@ return {
         local surface = render(51, 19, stateWith(8, 1))
         T.contains(surface.allText(), "stacks")
     end },
+    { name = "the query box ghosts the unmatched tail of the highlighted item", run = function()
+        local state = UI.initialState()
+        state.results = {result("oak", "Oak Planks", 10)}
+        state.result_count, state.selection, state.query = 1, 1, "oak p"
+        local screen = UI.new(T.recordingSurface(51, 19))
+        screen:render(state, {lifecycle="READY", search_results=state.results})
+        local surface = screen.surface
+        T.contains(surface.line(4), "> oak p_lanks")
+        T.equal(surface.foregroundAt(10, 4), Theme.role.ghost,
+            "the unmatched tail must render in the ghost role")
+        T.notEqual(surface.foregroundAt(4, 4), Theme.role.ghost,
+            "typed text must not be dimmed")
+    end },
+    { name = "the ghost tail changes when the highlighted row changes", run = function()
+        local state = UI.initialState()
+        state.results = {result("oak", "Oak Planks", 10), result("spr", "Oak Spruce Fence", 5)}
+        state.result_count, state.query = 2, "oak "
+        local screen = UI.new(T.recordingSurface(51, 19))
+        state.selection = 1
+        screen:render(state, {lifecycle="READY", search_results=state.results})
+        T.contains(screen.surface.line(4), "Planks")
+        state.selection = 2
+        local screen2 = UI.new(T.recordingSurface(51, 19))
+        screen2:render(state, {lifecycle="READY", search_results=state.results})
+        T.contains(screen2.surface.line(4), "Spruce Fence")
+    end },
+    { name = "no ghost when the query is not a literal prefix of the highlighted item", run = function()
+        -- "ir" only matches Item1..8 via substring/abbreviation, not as a literal prefix, so
+        -- there is no sensible tail to show. Checked against the row's actual characters,
+        -- not colour: a blank cell's recorded foreground is leftover from whatever was drawn
+        -- there last, which is not evidence either way about a real ghost character.
+        local state = stateWith(8, 1)
+        local screen = UI.new(T.recordingSurface(51, 19))
+        screen:render(state, {lifecycle="READY", search_results=state.results})
+        T.equal(screen.surface.line(4):gsub("%s+$", ""), " > ir_")
+    end },
+    { name = "no ghost with an empty query", run = function()
+        local state = UI.initialState()
+        state.results = {result("oak", "Oak Planks", 10)}
+        state.result_count, state.selection, state.query = 1, 1, ""
+        local screen = UI.new(T.recordingSurface(51, 19))
+        screen:render(state, {lifecycle="READY", search_results=state.results})
+        T.equal(screen.surface.line(4):gsub("%s+$", ""), " > _")
+    end },
+    { name = "Tab accepts the highlighted row exactly like Enter would", run = function()
+        local state = stateWith(8, 3)
+        local screen = UI.new(T.recordingSurface(51, 19))
+        local expected = screen:reduce(state, {type="OPEN_QUANTITY"})
+        local actual = screen:reduce(state, {type="AUTOCOMPLETE"})
+        T.equal(actual.mode, expected.mode)
+        T.equal(actual.identity.identity_key, expected.identity.identity_key)
+        T.equal(actual.quantity_text, expected.quantity_text)
+        T.equal(actual.query, "Item3", "the query becomes the highlighted item's full name")
+    end },
+    { name = "Tab does nothing when the result list is empty", run = function()
+        local state = stateWith(0, 1)
+        local screen = UI.new(T.recordingSurface(51, 19))
+        local after = screen:reduce(state, {type="AUTOCOMPLETE"})
+        T.equal(after.mode, "search")
+        T.equal(after.query, state.query)
+    end },
     { name = "the retrieve prompt uses the pane, not a box over the list", run = function()
         local state = stateWith(8, 3)
         local screen = UI.new(T.recordingSurface(51, 19))

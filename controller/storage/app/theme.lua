@@ -49,6 +49,7 @@ M.role = {
     panel   = palette.gray,
     track   = palette.blue,
     muted   = palette.lightGray,
+    ghost   = palette.lightGray,
     text    = palette.white,
     brand   = palette.red,
     focus   = palette.pink,
