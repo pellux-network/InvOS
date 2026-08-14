@@ -3,3 +3,6 @@ controller/storage/data/
 *.tmp
 __pycache__/
 .deploy-backups/
+docs/superpowers/
+.claude/
+.remember/
