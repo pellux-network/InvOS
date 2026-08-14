@@ -162,12 +162,11 @@ M.per_mode = {
         {key="Left/F10", label="cancel", detail="Cancel the rename", important=true},
     },
     -- The modal's own controls -- documented so F1 opens Help onto a screen that explains
-    -- itself, not just the page underneath it. Up/Down is deliberately absent: keymap.lua
-    -- does not yet accept it while state.mode == "help" (only mouse_scroll does, since that
-    -- check runs before the mode dispatch), so listing it here would advertise a key that
-    -- keymap.command refuses -- exactly the drift tests.test_help exists to catch. Add it
-    -- once keymap.lua grows a case for Up/Down under state.mode == "help".
+    -- itself, not just the page underneath it. Scrolling leads, because it is the one control
+    -- here an operator cannot guess: closing is already spelled out in the header hint, while
+    -- the fact that there is more below the fold is only evident from the "[more v]" marker.
     help = {
+        {key="Up/Down", label="scroll", detail="Scroll this help screen", important=true},
         {key="F1", label="close", detail="Close this help screen", important=true},
         {key="F10", label="close", detail="Close this help screen", important=true},
     },

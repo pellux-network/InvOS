@@ -57,6 +57,13 @@ function M.command(event, state)
     -- reading it should never accidentally fire the command underneath it.
     if state.mode == "help" then
         if key == keys.f1 or key == keys.f10 then return {type="TOGGLE_HELP"} end
+        -- The modal wraps its details and scrolls rather than dropping whole sections, so on
+        -- a short terminal there is content below the fold and Up/Down has to reach it. MOVE
+        -- is deliberately the same command a mouse_scroll already produces here -- the
+        -- reducer routes MOVE to state.help_scroll while this mode is open -- so the wheel
+        -- and the arrow keys cannot drift apart.
+        if key == keys.up then return {type="MOVE",delta=-1} end
+        if key == keys.down then return {type="MOVE",delta=1} end
         return nil
     end
 

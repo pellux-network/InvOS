@@ -276,17 +276,78 @@ return {
     end},
 
     -- Task 4: the modal must document its own controls, not just the page underneath it.
-    {name="the help mode's own registry entries close the modal and nothing else",
+    -- Help mode accepts exactly two things -- close, and scroll -- so every registry entry
+    -- must map to one of them and nothing else may slip through.
+    {name="the help mode's own registry entries close or scroll the modal, nothing else",
      run=function()
         local entries = Help.per_mode.help
         T.truthy(#entries > 0, "help mode has no registry entries")
+        local expected = {["Up/Down"]="MOVE", ["F1"]="TOGGLE_HELP", ["F10"]="TOGGLE_HELP"}
         for _, entry in ipairs(entries) do
             local event = EVENTS[entry.key]
             T.truthy(event, "no synthetic event mapped for key " .. tostring(entry.key))
             local command = Keymap.command(event, {mode="help"})
-            T.equal(command.type, "TOGGLE_HELP",
-                entry.key .. " in help mode did not close the modal")
+            T.truthy(command, entry.key .. " in help mode was refused outright")
+            T.equal(command.type, expected[entry.key] or "TOGGLE_HELP",
+                entry.key .. " in help mode produced the wrong command")
         end
+    end},
+
+    -- The modal scrolls, so both ways of asking it to must actually reach help_scroll. The
+    -- keyboard half did not exist at all until the registry advertised it.
+    {name="Up and Down scroll the help modal", run=function()
+        local up = Keymap.command({"key", keys.up}, {mode="help"})
+        local down = Keymap.command({"key", keys.down}, {mode="help"})
+        T.equal(up.type, "MOVE", "Up in help mode is not a MOVE")
+        T.equal(up.delta, -1, "Up in help mode scrolls the wrong way")
+        T.equal(down.type, "MOVE", "Down in help mode is not a MOVE")
+        T.equal(down.delta, 1, "Down in help mode scrolls the wrong way")
+
+        local ui = UI.new(T.recordingSurface(51, 19))
+        local state = UI.initialState()
+        state.results, state.result_count, state.selection = {{}, {}, {}}, 3, 2
+        state = ui:reduce(state, {type="TOGGLE_HELP"})
+        state = ui:reduce(state, {type="MOVE", delta=1})
+        T.equal(state.help_scroll, 2, "MOVE in help mode did not advance help_scroll")
+    end},
+
+    -- The live bug this fixes: mouse_scroll produces MOVE before keymap.command ever reaches
+    -- its state.mode == "help" block, so with the modal open a wheel scroll used to fall
+    -- through the reducer to the Search page's own branch and move a selection the operator
+    -- could not see, under a modal that gave no sign anything had happened.
+    {name="scrolling the help modal never moves the selection underneath it", run=function()
+        local ui = UI.new(T.recordingSurface(51, 19))
+        local state = UI.initialState()
+        state.results, state.result_count, state.selection = {{}, {}, {}, {}}, 4, 2
+        state = ui:reduce(state, {type="TOGGLE_HELP"})
+        for _ = 1, 5 do state = ui:reduce(state, {type="MOVE", delta=1}) end
+        T.equal(state.selection, 2, "help scrolling moved the hidden search selection")
+        state = ui:reduce(state, {type="TOGGLE_HELP"})
+        T.equal(state.mode, "search", "closing help did not restore the interrupted mode")
+        T.equal(state.selection, 2, "the selection did not survive the help modal")
+    end},
+
+    -- Different modes have very different numbers of controls, so a stale offset from a long
+    -- page's help would open a short page's help scrolled past everything it has to say.
+    {name="opening help always starts at the top", run=function()
+        local ui = UI.new(T.recordingSurface(51, 19))
+        local state = UI.initialState()
+        state = ui:reduce(state, {type="TOGGLE_HELP"})
+        for _ = 1, 4 do state = ui:reduce(state, {type="MOVE", delta=1}) end
+        T.truthy(state.help_scroll > 1, "help_scroll never advanced")
+        state = ui:reduce(state, {type="TOGGLE_HELP"})
+        state = ui:reduce(state, {type="TOGGLE_HELP"})
+        T.equal(state.help_scroll, 1, "reopening help kept a stale scroll offset")
+    end},
+
+    -- help_scroll must never go below 1: _windowed clamps the top end against the row count
+    -- it just built, but a negative offset is the reducer's own to prevent.
+    {name="scrolling up past the top of the help modal clamps", run=function()
+        local ui = UI.new(T.recordingSurface(51, 19))
+        local state = UI.initialState()
+        state = ui:reduce(state, {type="TOGGLE_HELP"})
+        for _ = 1, 5 do state = ui:reduce(state, {type="MOVE", delta=-1}) end
+        T.equal(state.help_scroll, 1, "help_scroll fell below the first row")
     end},
 
     -- Catches a mode ui.lua's reducer can reach that nobody ever added to help.lua: without

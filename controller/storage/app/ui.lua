@@ -169,7 +169,17 @@ function UI:reduce(current, command)
         state.selection, state.scroll, state.notice = 1, 1, nil
         state.armed_selection = nil
     elseif kind == "MOVE" then
-        if state.mode == "craft_search" then
+        -- Help is checked first because it is a modal drawn over whichever mode is underneath
+        -- it: state.mode is "help", but every other field (craft_selection, selection, the
+        -- page) still describes the screen it interrupted. Without this branch a MOVE while
+        -- the modal is open falls through to whichever of those the returning mode matches
+        -- and silently moves a selection the operator cannot see. That was already live via
+        -- mouse_scroll, which produces MOVE before keymap's mode dispatch is ever reached.
+        -- UI:_help clamps the offset against the row count it just built, so nothing here
+        -- needs to know how tall the content is.
+        if state.mode == "help" then
+            state.help_scroll = math.max(1, (state.help_scroll or 1) + command.delta)
+        elseif state.mode == "craft_search" then
             state.craft_selection = math.max(1, math.min(math.max(1, state.craft_result_count or 0),
                 (state.craft_selection or 1) + command.delta))
         elseif state.mode == "craft_jobs" then
@@ -472,6 +482,10 @@ function UI:reduce(current, command)
         else
             state.help_return_mode = state.mode
             state.mode = "help"
+            -- Every open starts at the top. Modes have very different numbers of controls,
+            -- so an offset left over from scrolling a long page's help would otherwise open
+            -- a short page's help already scrolled past everything it has to say.
+            state.help_scroll = 1
         end
     elseif kind == "OPEN_PAGE" then
         state.page = command.page
