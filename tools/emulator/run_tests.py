@@ -45,9 +45,13 @@ CATEGORIES = {
         ["test_smoke_nbt.NbtVariantTests"],
         "NBT-distinct item variants surviving scan, index and search",
     ),
+    "install": (
+        ["test_install.InstallTests"],
+        "install.lua fetch/verify/write against a local fixture server",
+    ),
 }
 
-EMULATOR_CATEGORIES = ["smoke", "setup-wizard", "manifest", "keys", "nbt"]
+EMULATOR_CATEGORIES = ["smoke", "setup-wizard", "manifest", "keys", "nbt", "install"]
 
 
 def targets_for(names):
