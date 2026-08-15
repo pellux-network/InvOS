@@ -100,6 +100,20 @@ local function main()
                 status.last = {ok = reply.ok, item = result.name, quantity = result.count,
                     code = reply.code, message = reply.message}
                 if reply.ok then status.jobs_done = status.jobs_done + 1 end
+            elseif type(message) == "table" and message.op == "update" then
+                -- Already acked above (executor:handle returned {ok=true}).
+                -- A successful run ends in os.reboot(), which in production
+                -- never returns here.
+                local handle = http.get(
+                    "https://raw.githubusercontent.com/pellux-network/InvOS/main/install.lua")
+                if handle then
+                    local source = handle.readAll()
+                    handle.close()
+                    local file = fs.open("/install_update.lua", "w")
+                    file.write(source)
+                    file.close()
+                    shell.run("/install_update.lua", "update", message.ref)
+                end
             end
             status.state, status.job = "IDLE", nil
         end

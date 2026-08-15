@@ -86,8 +86,9 @@ end
 local function runTurtleStartup(options)
     options = options or {}
     local previous = {rednet = rednet, turtle = _G.turtle, peripheral = peripheral, term = term,
-        sleep = sleep, printError = printError,
-        getComputerID = os.getComputerID, getComputerLabel = os.getComputerLabel}
+        sleep = sleep, printError = printError, http = _G.http, shell = _G.shell, fs = _G.fs,
+        getComputerID = os.getComputerID, getComputerLabel = os.getComputerLabel,
+        reboot = os.reboot}
 
     local sent, printed, receiveCalls = {}, {}, 0
     local surface = T.recordingSurface(39, 13)
@@ -110,16 +111,22 @@ local function runTurtleStartup(options)
     _G.term = surface
     _G.sleep = function() end
     _G.printError = function(message) printed[#printed + 1] = tostring(message) end
+    _G.http = options.httpApi or {get = function() return nil end}
+    _G.shell = options.shellApi or {run = function() end}
+    _G.fs = options.fsApi or T.memoryFs()
     os.getComputerID = function() return 5 end
     os.getComputerLabel = function() return "Crafter" end
+    os.reboot = options.reboot or function() end
 
     local chunk, loadReason = loadfile("../turtle/startup.lua")
     local ok, runReason = false, loadReason
     if chunk then ok, runReason = pcall(chunk) end
 
     _G.rednet, _G.turtle, _G.peripheral, _G.term = previous.rednet, previous.turtle, previous.peripheral, previous.term
-    _G.sleep, _G.printError = previous.sleep, previous.printError
-    os.getComputerID, os.getComputerLabel = previous.getComputerID, previous.getComputerLabel
+    _G.sleep, _G.printError, _G.http, _G.shell, _G.fs =
+        previous.sleep, previous.printError, previous.http, previous.shell, previous.fs
+    os.getComputerID, os.getComputerLabel, os.reboot =
+        previous.getComputerID, previous.getComputerLabel, previous.reboot
 
     if not ok then error(runReason, 0) end
     return {sent = sent, printed = printed, surface = surface}
@@ -162,5 +169,31 @@ return {
         T.equal(result.sent[1].reply.ok, true)
         T.equal(result.sent[1].reply.label, "Crafter")
         T.contains(result.surface.allText(), "IDLE")
+    end},
+    {name = "an update message fetches install.lua and hands it off after acking", run = function()
+        -- turtle/startup.lua does not reboot directly -- it delegates to
+        -- shell.run("/install_update.lua", ...), and that script (a real
+        -- install.lua fetched fresh) is what calls os.reboot() on success,
+        -- already proven separately (install_test.lua, test_install.py).
+        -- This test only proves the handoff: fetch, save, and invoke with
+        -- the controller-resolved ref, after acking.
+        local fetched = {}
+        local ran = {}
+        local result = runTurtleStartup({
+            steps = {{sender = 42, message = {op = "update", ref = "v1.2.3"}}},
+            httpApi = {get = function(url)
+                fetched[#fetched + 1] = url
+                return {readAll = function() return "-- fixture install.lua" end, close = function() end}
+            end},
+            shellApi = {run = function(...) ran[#ran + 1] = {...} end},
+        })
+        T.equal(#result.sent, 1)
+        T.equal(result.sent[1].id, 42)
+        T.equal(result.sent[1].reply.ok, true)
+        T.equal(#fetched, 1)
+        T.contains(fetched[1], "raw.githubusercontent.com/pellux-network/InvOS/main/install.lua")
+        T.equal(#ran, 1)
+        T.equal(ran[1][2], "update")
+        T.equal(ran[1][3], "v1.2.3")
     end},
 }
