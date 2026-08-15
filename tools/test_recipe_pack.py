@@ -14,16 +14,12 @@ from recipe_pack import (
     render_pack,
 )
 
-# Prefer whatever "luac" resolves to on PATH; fall back to the known install
-# location on this machine so the suite keeps working here without setup, but
-# degrade to a skip (see HAVE_LUAC below) rather than a hard error anywhere
-# else -- a test suite that only runs on one machine has stopped being a
-# safety net.
-LUAC = (
-    shutil.which("luac")
-    or r"C:\Users\Pellux\AppData\Local\Programs\Lua\bin\luac.exe"
-)
-HAVE_LUAC = os.path.exists(LUAC)
+# Prefer whatever "luac" resolves to on PATH, or an explicit override via
+# INVOS_LUAC for a machine that doesn't have it on PATH; degrade to a skip
+# (see HAVE_LUAC below) rather than a hard error where neither is set -- a
+# test suite that only runs on one machine has stopped being a safety net.
+LUAC = os.environ.get("INVOS_LUAC") or shutil.which("luac")
+HAVE_LUAC = bool(LUAC and os.path.exists(LUAC))
 
 
 class FlattenTagsTest(unittest.TestCase):
@@ -520,7 +516,7 @@ class BuildPackTest(unittest.TestCase):
         self.assertIn("othermod:unknown_tag", str(caught.warning))
         self.assertEqual(pack["tags"]["tags"]["othermod:unknown_tag"], [])
 
-    @unittest.skipUnless(HAVE_LUAC, "luac not found on PATH or at the known install location")
+    @unittest.skipUnless(HAVE_LUAC, "luac not found on PATH or via INVOS_LUAC")
     def test_rendered_files_are_syntactically_valid_lua(self):
         # This only proves the output parses, not that it parses under Lua 5.2
         # specifically -- the available luac reports "Lua 5.4.6", and a 5.4 parser
@@ -550,7 +546,7 @@ class BuildPackTest(unittest.TestCase):
                     "%s failed to parse: %s" % (name, result.stderr),
                 )
 
-    @unittest.skipUnless(HAVE_LUAC, "luac not found on PATH or at the known install location")
+    @unittest.skipUnless(HAVE_LUAC, "luac not found on PATH or via INVOS_LUAC")
     def test_control_characters_in_display_names_still_parse_as_lua(self):
         lang = dict(self.lang)
         # Includes a NUL immediately followed by a digit ("\x005"): with an

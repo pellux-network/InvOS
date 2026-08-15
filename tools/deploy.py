@@ -3,11 +3,11 @@
 This is the whole deployment gate in one command. It refuses rather than guesses at every
 step, because the target is a running Minecraft world with real player items in it.
 
-    python tools/deploy.py --computers "G:/world/computercraft/computer"
+    python tools/deploy.py --computers "/path/to/world/computercraft/computer"
 
-The server is remote; its filesystem is mounted over sshfs as drive "G:". Every path below
-is a network round trip, so the backup and verify passes are slower than they look like they
-should be, and a dropped mount presents as an absent tree rather than an error.
+If the target lives on a network mount (sshfs, SMB, etc.), every path below is a round
+trip, so the backup and verify passes are slower than they look like they should be, and a
+dropped mount presents as an absent tree rather than an error.
 
 What it enforces, in order:
 
@@ -24,8 +24,13 @@ What it enforces, in order:
 
 Exit status is 0 only if every check passed.
 
-Requires the controller to be shut down. Confirm that with the operator first; an mtime
-sample corroborates it but is not evidence on its own.
+The controller does not need to be powered off: booting a computer loads its filesystem
+into the host's memory, and nothing touches disk again except the computer's own writes,
+which never land outside storage/data -- a directory this gate never writes to. The one
+real hazard is racing an in-flight write to storage/data (a mid-transfer journal, an
+in-progress config save), so the gate refuses outright if a journal is present and samples
+file mtimes across a short window to confirm nothing else is actively changing before it
+backs anything up.
 """
 import argparse
 import filecmp
@@ -40,7 +45,6 @@ import time
 
 PRESERVED = ("storage/data",)
 LUAC_FALLBACKS = (
-    r"C:\Users\Pellux\AppData\Local\Programs\Lua\bin\luac.exe",
     "luac",
     "luac5.4",
     "luac5.3",
@@ -295,8 +299,11 @@ def main(argv=None):
                         help='the world\'s computercraft/computer directory')
     parser.add_argument("--repo", default=str(pathlib.Path(__file__).resolve().parent.parent),
                         help="repository root (default: this script's repository)")
-    parser.add_argument("--controller-id", type=int, default=4)
-    parser.add_argument("--turtle-id", type=int, default=5)
+    parser.add_argument("--controller-id", type=int, required=True,
+                        help="numeric computer id of the live controller")
+    parser.add_argument("--turtle-id", type=int, default=None,
+                        help="numeric computer id of the crafting turtle "
+                             "(required unless --no-turtle)")
     parser.add_argument("--backup-root", default=None,
                         help="where to write the pre-deployment backup "
                              "(default: <repo>/.deploy-backups, which is git-ignored)")
@@ -306,6 +313,8 @@ def main(argv=None):
     parser.add_argument("--no-turtle", action="store_true",
                         help="deploy the controller only")
     args = parser.parse_args(argv)
+    if not args.no_turtle and args.turtle_id is None:
+        parser.error("--turtle-id is required unless --no-turtle is given")
 
     repo = pathlib.Path(args.repo).resolve()
     computers = pathlib.Path(args.computers).resolve()

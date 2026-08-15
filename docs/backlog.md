@@ -84,9 +84,9 @@ than predicting how long the real computer takes:
 
 ## UI polish
 
-The visual system in `specs/2026-08-12-ui-visual-system-design.md` is built: shared palette,
-drawing primitives and layout, all six pages and both monitors, double buffering, and a
-clickable terminal. What follows is what it did not address.
+The visual system is built: shared palette, drawing primitives and layout, all six pages and
+both monitors, double buffering, and a clickable terminal. What follows is what it did not
+address.
 
 - **Nothing distinguishes "no such item" from "exists but is not grid-craftable".** An
   operator searching for something a machine makes gets an empty list and no explanation.

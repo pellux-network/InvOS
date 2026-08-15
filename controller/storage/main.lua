@@ -318,9 +318,9 @@ function Main.build(environment)
     -- drain several Drop-off slots. The cap bounds how much a single ambiguous window can
     -- span; every item type in the batch is still measured against its own storage total.
     --
-    -- Raised from 8 per docs/superpowers/plans/2026-08-03-batch-limit-tuning.md: live
-    -- measurement with slot_batch_limit=8 showed 6 of 7 batches hitting the steps=8 cap
-    -- exactly, meaning batch_limit -- not slot_batch_limit -- was the binding constraint.
+    -- Raised from 8: live measurement with slot_batch_limit=8 showed 6 of 7 batches hitting
+    -- the steps=8 cap exactly, meaning batch_limit -- not slot_batch_limit -- was the
+    -- binding constraint.
     local imports=ImportService.new({planner=Planner,transfer=transfer,alerts=alerts,
         transition=Lifecycle.transition,clock=now,
         slot_batch_limit=env.slot_batch_limit or 8, batch_limit=env.batch_limit or 16})

@@ -187,24 +187,30 @@ cd tools/emulator && python3 -m unittest test_smoke
 This is a cheap pre-flight, not a substitute for the gate below or for the host suite. See
 [`emulator.md`](emulator.md).
 
-**Shut both computers down first, and confirm it.** The script samples file mtimes as
-corroboration, but an idle controller can sit still for a few seconds; the sample is not
-evidence on its own.
+**The controller does not need to be powered off.** Booting a ComputerCraft computer loads
+its filesystem into the host's memory; nothing on disk is touched again except the
+computer's own writes, and those never land outside `storage/data/` — a directory this gate
+never writes to. The real hazard is racing an in-flight write to `storage/data/` (a
+mid-transfer journal, an in-progress config save), which is exactly what step 3 below
+catches: it refuses outright if a journal is present, and samples file mtimes across a short
+window to confirm nothing else is actively changing before backing anything up.
 
-The server does not run on this machine. Its filesystem is mounted over sshfs as drive `G:`,
-so `G:\` is the server root and the computer tree is `G:\world\computercraft\computer`:
+If your target computer's files live on a network mount (sshfs and similar), point
+`--computers` at it directly:
 
 ```bash
-python tools/deploy.py --computers "G:/world/computercraft/computer"
+python tools/deploy.py --computers "/path/to/world/computercraft/computer" \
+  --controller-id <id> --turtle-id <id>
 ```
 
-Every path there is a network round trip, so the backup and verify passes take noticeably
-longer than a local deployment; that is the mount, not a hang. If the mount has dropped, the
-tree simply looks absent and the script refuses at step 1 — remount rather than retry.
+Every path there is then a network round trip, so the backup and verify passes take
+noticeably longer than a local deployment; that is the mount, not a hang. If the mount has
+dropped, the tree simply looks absent and the script refuses at step 1 — remount rather than
+retry.
 
-Defaults are `--controller-id 4` and `--turtle-id 5`; pass `--no-turtle` for an
-installation without crafting. Backups go to `.deploy-backups/` in the repository, which is
-git-ignored.
+`--controller-id` is required; `--turtle-id` is required unless you pass `--no-turtle` for
+an installation without crafting. Backups go to `.deploy-backups/` in the repository, which
+is git-ignored.
 
 The gate runs in this order and stops at the first refusal:
 
@@ -228,22 +234,22 @@ The gate runs in this order and stops at the first refusal:
 Exit status is 0 only if every check passed. On any problem the live tree is in an unknown
 state; restore from the printed backup path before booting.
 
-Three traps worth knowing, because each has caused real damage or wasted a debug cycle:
+Three traps worth knowing if you're deploying from WSL or Git Bash to a Windows-side target,
+because each has caused real damage or wasted a debug cycle on a setup like that:
 
-- `luac.exe` and Python are Windows binaries. They cannot open Git Bash `/c/...` or `/g/...`
-  paths. `luac` reports "cannot open", which reads exactly like a syntax error at a glance.
+- `luac.exe` and a Windows Python are Windows binaries. They cannot open Git Bash `/c/...`
+  or similar paths. `luac` reports "cannot open", which reads exactly like a syntax error at
+  a glance — pass Windows-form paths (`C:/...`) instead.
 - `storage/data/*.lua` are serialized tables, not Lua chunks. They are correctly not
   parseable, which is why the parse check covers manifest files only.
-- **From WSL, don't run `python`/`python3` off `PATH`.** That's the Linux interpreter, and
-  this machine's `G:` (an sshfs-win mapped network drive) does not auto-mount under `/mnt/g`
-  the way local drives do — a WSL process cannot reach it as a filesystem at all, regardless
-  of path style, so the "Git Bash" symptom above doesn't even apply; it just looks like the
-  live tree is missing. Invoke the Windows Python launcher by its full path instead, e.g.
-  `/mnt/c/Users/Pellux/AppData/Local/Programs/Python/Launcher/py.exe`, so the process is a
-  genuine Windows process with native access to `G:\`. Run it with a working directory under
-  `/mnt/c/...` (e.g. the repo root) so WSL's interop path translation resolves a relative
-  script path and the `--repo` default correctly; `luac.exe`'s hardcoded fallback path in
-  `deploy.py` already assumes the same Windows-process model.
+- **From WSL, `python`/`python3` off `PATH` is the Linux interpreter**, which cannot reach a
+  Windows-side network mount (e.g. an sshfs-mapped drive) that doesn't auto-mount under
+  `/mnt/*` the way local drives do — the tree just looks missing, not merely at the wrong
+  path. Invoke the Windows Python launcher by its full path instead (typically under
+  `%LOCALAPPDATA%\Programs\Python\Launcher\py.exe`, translated to its WSL-visible path) so
+  the process is a genuine Windows process with native access to the drive. Run it with a
+  working directory under `/mnt/c/...` (e.g. the repo root) so WSL's interop path translation
+  resolves a relative script path and the `--repo` default correctly.
 
 After booting, exercise one ordinary import and one retrieval before trusting a release.
 Most defects in this system have surfaced as a service quietly not starting rather than as
