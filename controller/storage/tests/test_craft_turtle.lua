@@ -184,6 +184,12 @@ return {
         T.equal(result.label, "crafter")
         T.equal(#api.dropped, 0)
     end},
+    {name="update is acked without touching the inventory",run=function()
+        local api = fakeTurtle({{name="minecraft:oak_planks", count=8}})
+        local result = Executor.new({turtle=api}):handle({op="update", ref="v1.2.3"})
+        T.equal(result.ok, true)
+        T.equal(#api.dropped, 0)
+    end},
     {name="purge is available as its own command",run=function()
         local api = fakeTurtle({})
         api.slots[1] = {name="minecraft:oak_planks", count=4}

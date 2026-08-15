@@ -228,6 +228,12 @@ function Executor:handle(command)
     if command.op == "purge" then
         return {ok = true, dropped = self:purge()}
     end
+    if command.op == "update" then
+        -- Acks only. turtle/startup.lua's main loop does the actual
+        -- fetch-and-reboot after this reply goes out, keeping the executor
+        -- itself craft-only.
+        return {ok = true}
+    end
     if command.op == "craft" then
         local ok, result = pcall(function() return self:craft(command) end)
         if not ok then
