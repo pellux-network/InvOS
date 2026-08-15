@@ -27,11 +27,14 @@ lua storage/tests/run.lua
 lua storage/tests/run.lua tests.test_splash
 
 # Python suite, from tools/
-python -m unittest test_recipe_pack test_recipe_import
+python -m unittest test_recipe_pack test_recipe_import test_deploy
+
+# install.lua's pure functions, from the repo root
+lua install_test.lua
 
 # Emulator harness, from tools/emulator/
 python3 -m unittest test_rawterm test_scenario test_render test_session  # fast
-python3 -m unittest test_smoke test_smoke_nbt                           # boots CraftOS-PC, ~6-7 min
+python3 -m unittest test_smoke test_smoke_nbt test_install              # boots CraftOS-PC, ~6-7 min
 
 # Or pick just the emulator category your change affects (see run_tests.py --list)
 python3 run_tests.py smoke

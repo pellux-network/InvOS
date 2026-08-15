@@ -187,11 +187,14 @@ system is built against — the reasoning behind the design, not just the shape 
 lua storage/tests/run.lua
 
 # Python suite (from tools/)
-python -m unittest test_recipe_pack test_recipe_import
+python -m unittest test_recipe_pack test_recipe_import test_deploy
+
+# install.lua's pure functions (from the repo root)
+lua install_test.lua
 
 # Emulator harness (from tools/emulator/) — the second command boots CraftOS-PC
 python3 -m unittest test_rawterm test_scenario test_render test_session
-python3 -m unittest test_smoke test_smoke_nbt
+python3 -m unittest test_smoke test_smoke_nbt test_install
 
 # Boot the real thing in an emulator and screenshot it, headlessly
 python3 tools/emulator/craftos.py shot --keys "type:vault" --out /tmp/search.png

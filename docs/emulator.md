@@ -165,10 +165,12 @@ computer's GUI frame. Everything inside that frame matches.
 ```bash
 cd tools/emulator
 python3 -m unittest test_rawterm test_scenario test_render test_session   # fast, no emulator
-python3 -m unittest test_smoke test_smoke_nbt                             # boots the emulator, ~6-7 minutes
+python3 -m unittest test_smoke test_smoke_nbt test_install                # boots the emulator, ~6-7 minutes
 ```
 
-`test_smoke` and `test_smoke_nbt` boot InvOS and assert on what it draws. They
+`test_smoke` and `test_smoke_nbt` boot InvOS and assert on what it draws. `test_install`
+boots a fresh, unprovisioned computer against a local fixture HTTP server and asserts on
+what `install.lua` fetches and writes. They
 are slow — most classes start an emulator, and `ManifestTests`/`KeyTableTests`
 start a fresh one per test — so running the whole thing on every change is not
 worth it. They skip entirely with `INVOS_SKIP_EMULATOR=1` where one cannot be
