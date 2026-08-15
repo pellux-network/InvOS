@@ -138,7 +138,7 @@ return {
         state = screen:reduce(state, {type="CYCLE_SORT"}) -- name -> quantity
         screen:render(state, {lifecycle="READY", search_results=state.results})
         T.contains(screen.surface.allText(), "SORT")
-        T.contains(screen.surface.allText(), "Most stock")
+        T.contains(screen.surface.allText(), "Stock")
         T.equal(screen.surface.writesOutsideBounds(), 0)
     end},
 
@@ -151,7 +151,7 @@ return {
         state = screen:reduce(state, {type="CYCLE_SORT"}) -- default -> name
         screen:render(state, {lifecycle="READY"})
         T.contains(screen.surface.allText(), "SORT")
-        T.contains(screen.surface.allText(), "Name A-Z")
+        T.contains(screen.surface.allText(), "Name")
         T.equal(screen.surface.writesOutsideBounds(), 0)
     end},
 
@@ -169,6 +169,24 @@ return {
                 size[1] .. "x" .. size[2] .. " drew outside")
             T.contains(screen.surface.allText(), "ITEM",
                 size[1] .. "x" .. size[2] .. " lost its column header")
+        end
+    end},
+
+    -- The bounds test above proves a long label never overlaps anything; this proves it never
+    -- solves that by disappearing. "Recently requested" was 23 characters against a 23-column
+    -- band on the 51-wide terminal, so the indicator silently vanished in the two longest
+    -- modes -- cycling sort then gave no feedback at all about which mode you had landed in.
+    {name="every sort mode's indicator still fits the 51-column list band", run=function()
+        for _, mode in ipairs(UI.SEARCH_SORT_MODES) do
+            local screen = UI.new(T.recordingSurface(51, 19))
+            local state = UI.initialState()
+            state.results, state.result_count, state.query = {result("a","Apple",1)}, 1, "a"
+            state.sort_mode = mode
+            screen:render(state, {lifecycle="READY", search_results=state.results})
+            T.contains(screen.surface.allText(), "SORT",
+                "sort mode " .. mode .. " lost its indicator at 51 columns")
+            T.contains(screen.surface.allText(), UI.SORT_MODE_LABELS[mode],
+                "sort mode " .. mode .. " lost its label at 51 columns")
         end
     end},
 

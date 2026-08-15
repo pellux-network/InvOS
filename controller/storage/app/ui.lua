@@ -102,9 +102,16 @@ local SEARCH_SORT_MODES = {"name", "quantity", "recent", "requests"}
 -- Coordinator:_craftMaterializeWindow exists to avoid. "default" is catalogue order for an
 -- empty query and relevance order for a non-empty one, both unchanged from before this task.
 local CRAFT_SORT_MODES = {"default", "name"}
+-- Short on purpose. These sit in the list band between the ITEM and STOCK column headers,
+-- which on a 51-column terminal is 23 columns wide in total -- "SORT Recently requested" is
+-- 23 by itself, so the longer wording did not merely crowd the band, it failed to fit and
+-- the indicator vanished outright in exactly the two modes whose names were longest. Losing
+-- the label is the worst outcome available: cycling sort is invisible without it. The F1
+-- help carries the full wording, so these only have to be distinguishable, not self-
+-- explanatory.
 local SORT_MODE_LABELS = {
-    name="Name A-Z", quantity="Most stock", recent="Recently requested",
-    requests="Most requested", default="Default",
+    name="Name", quantity="Stock", recent="Recent",
+    requests="Requested", default="Default",
 }
 
 local function nextSortMode(modes, current)
@@ -607,12 +614,25 @@ end
 -- indicator is only drawn when it fits between them with a one-column gap on each side, so a
 -- narrow terminal simply loses the indicator rather than overlapping either label (the same
 -- "drop a section rather than overlap" discipline AGENTS.md requires everywhere else).
+-- Prefer two blank columns each side, accept one, draw nothing rather than crowd further.
+-- A single space left "SORT Most stock" butting straight against the "STOCK" column header,
+-- which reads as one run-on phrase rather than two labels -- the indicator ends in a word
+-- that is itself a column name, so the boundary has to be visible or the eye slides past it.
+-- But a 51-column terminal only has room for the tight spacing, and a cramped indicator
+-- still beats no indicator, so the wider gap is a preference rather than a requirement.
+local BAND_SORT_GAPS = {2, 1}
+
 function UI:_bandSort(leftBound, rightBound, y, label)
     local text = "SORT " .. tostring(label or "")
-    local endX = rightBound - 2
-    local startX = endX - #text + 1
-    if startX > leftBound + 1 then
-        Draw.rightText(self.surface, endX, y, text, Theme.role.muted, Theme.role.panel)
+    for _, gap in ipairs(BAND_SORT_GAPS) do
+        -- rightBound is the first column of the label to the right, so `gap` blank columns
+        -- means ending one further left than that again.
+        local endX = rightBound - gap - 1
+        local startX = endX - #text + 1
+        if startX >= leftBound + gap + 1 then
+            Draw.rightText(self.surface, endX, y, text, Theme.role.muted, Theme.role.panel)
+            return
+        end
     end
 end
 
