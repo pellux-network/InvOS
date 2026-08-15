@@ -129,10 +129,17 @@ are both bound in configuration. Leave them unbound and nothing else changes.
 1. Wire one advanced computer, a dedicated Drop-off inventory, a dedicated Pickup
    inventory, every storage container interface, and (optionally) a crafty turtle with its
    buffer chest, all onto one wired modem network.
-2. Copy only the paths listed in
-   [`controller/storage/deployment_manifest.lua`](controller/storage/deployment_manifest.lua),
-   relative to `controller/`, onto the computer. Never copy tests, docs, or development
-   helpers — they're excluded by design.
+2. On the computer, run:
+
+   ```
+   wget run https://raw.githubusercontent.com/pellux-network/InvOS/main/install.lua
+   ```
+
+   For the turtle, run the exact same command on it — the installer detects which one
+   it's running on. This needs `http` enabled in the server's ComputerCraft config. Without
+   it, copy the paths listed in
+   [`controller/storage/deployment_manifest.lua`](controller/storage/deployment_manifest.lua)
+   by hand instead — see [`docs/operations.md`](docs/operations.md).
 3. Boot the computer. `startup.lua` launches `/storage/main.lua` automatically and opens
    the full-screen setup wizard on first run. Setup stays read-only until you explicitly
    save.

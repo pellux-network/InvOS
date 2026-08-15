@@ -66,6 +66,12 @@ deployment manifest, indexing and stock aggregation across eight containers, sea
 page navigation, the setup wizard's discovery step, and NBT variants staying distinct through
 scanning and indexing. Emulated, not played — but no longer only host fakes.
 
+**`install.lua`'s turtle-side auto-detection.** The emulator has no crafting turtle (above),
+so `tools/emulator/test_install.py` only exercises the controller branch of
+`install.lua`'s `turtle ~= nil` check. The turtle branch itself is proven only by that same
+logic being read correctly, not by actually booting a turtle against it — same limitation,
+same reason, as the crafting paths above.
+
 ## Performance
 
 Measured on the host, never on a ComputerCraft computer, where everything is far slower.

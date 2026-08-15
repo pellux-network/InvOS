@@ -10,13 +10,24 @@ The Drop-off and Pickup must be separate inventories and must not be pooled stor
 
 ## Fresh install
 
+On the computer itself, run:
+
+```
+wget run https://raw.githubusercontent.com/pellux-network/InvOS/main/install.lua
+```
+
+The same command works on the crafting turtle too — it detects which side it's running on.
+This needs `http` enabled in the server's ComputerCraft config; if it isn't, install by hand
+instead:
+
 1. Shut down the target ComputerCraft computer.
 2. Confirm its numeric computer ID and label.
 3. Copy only the files listed in `controller/storage/deployment_manifest.lua`, preserving paths relative to `controller/`.
 4. Do not copy tests, documentation, Git files, development helpers, or any `storage/data` directory.
 5. Boot the computer. Root `startup.lua` launches `/storage/main.lua` automatically.
 
-The first boot opens the full-screen setup wizard. Setup remains read-only until the final save.
+Either way, the first boot opens the full-screen setup wizard. Setup remains read-only until
+the final save.
 
 ## First setup
 
@@ -158,6 +169,14 @@ Backups contain only validated configuration and item aliases. They intentionall
 Insert a writable floppy in a connected disk drive and use the backup action. On a fresh installation, choose recovery in setup, review every discovered binding, run validation, and explicitly save. Recovery never enables automation automatically.
 
 ## Upgrade and rollback
+
+From inside the app: open Alerts, and if an `update_available` alert is present, press `A`
+twice to confirm — this updates both the controller and (if reachable) the crafting turtle,
+and reboots automatically. `wget run .../install.lua update` on the computer does the same
+from outside the app. Both preserve `storage/data/` exactly like a manual upgrade does, since
+neither ever touches anything outside the deployment manifest.
+
+Manual upgrade:
 
 1. Pause automation and wait until no transfer is in `TRANSFERRING` or `VERIFYING`.
 2. Make a configuration/alias floppy backup.

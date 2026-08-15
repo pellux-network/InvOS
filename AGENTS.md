@@ -40,6 +40,13 @@ Operators drive recovery from the terminal: retry and cancel on the Requests pag
 - `docs/assets/wordmark.svg` is the project wordmark used in `README.md`.
 - `CONTRIBUTING.md` is the developer-facing onboarding doc: workflow, test commands, code
   conventions, and a condensed pointer into this file's live-deployment safety rules.
+- `install.lua` is the on-device installer/updater, fetched standalone via `wget run` on
+  either the controller or the turtle (auto-detected via the `turtle` global). It is the
+  only thing that actually writes files during an install or update: the manual bootstrap,
+  manual reinstall/update, and the in-app "update now" trigger (`app/updater.lua`) all
+  invoke this same script rather than duplicating its logic. `install_test.lua` and
+  `tools/emulator/test_install.py` cover it — the pure pieces on the host, the real
+  fetch/write/reboot flow against a fixture server in the emulator.
 
 ## Rendering
 
