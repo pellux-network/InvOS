@@ -1,0 +1,23 @@
+name: release-please
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
+        with:
+          # Must be a PAT (not the default GITHUB_TOKEN): resources created by
+          # GITHUB_TOKEN don't trigger other workflow runs, so the CI workflow
+          # would never run on this bot's own release PRs, and merging the
+          # release PR wouldn't fire anything listening for a published release.
+          # See CONTRIBUTING.md's "Releasing" section for the required PAT scopes.
+          token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
