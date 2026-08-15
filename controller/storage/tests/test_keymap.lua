@@ -1,7 +1,7 @@
 keys = {
     backspace=14, up=200, down=208, enter=28, s=31, a=30, f10=68,
     escape=1, one=2, two=3, three=4, four=5, five=6,
-    r=19, c=46, p=25, x=45, delete=211, left=203, tab=15, f2=60,
+    r=19, c=46, p=25, x=45, delete=211, left=203, tab=15, f2=60, f3=61,
 }
 
 local Keymap = require("app.keymap")
@@ -121,6 +121,30 @@ return {
     { name = "F2 toggles between the Crafting page's search and jobs modes", run = function()
         T.equal(Keymap.command({"key",keys.f2},{mode="craft_search"}).type,"OPEN_CRAFT_JOBS")
         T.equal(Keymap.command({"key",keys.f2},{mode="craft_jobs"}).type,"OPEN_CRAFT_SEARCH")
+    end },
+    { name = "F3 cycles sort only where a sortable list is actually on screen", run = function()
+        T.equal(Keymap.command({"key",keys.f3},{mode="search"}).type,"CYCLE_SORT")
+        T.equal(Keymap.command({"key",keys.f3},{mode="craft_search"}).type,"CYCLE_SORT")
+        -- Every other reachable mode either has no sortable list on screen at all, or is a
+        -- text box that would otherwise treat a letter key as input -- F3 is a function key
+        -- so it can never collide with typing, but it still has nothing to sort there.
+        for _, state in ipairs({
+            {mode="quantity"}, {mode="variant"}, {mode="craft_quantity"},
+            {mode="craft_plan"}, {mode="craft_jobs"}, {mode="setup", setup_step=4},
+            {mode="setup_rename"}, {mode="help"},
+            {mode="page", page="storage"}, {mode="page", page="requests"},
+            {mode="page", page="alerts"}, {mode="page", page="setup"},
+        }) do
+            T.equal(Keymap.command({"key",keys.f3},state), nil,
+                "F3 unexpectedly did something in mode=" .. tostring(state.mode) ..
+                    " page=" .. tostring(state.page))
+        end
+        -- The one exception: an armed recovery release claims every key as confirm, re-arm
+        -- or cancel (never a no-op), so F3 there falls into "every other key cancels" -- it
+        -- is still never CYCLE_SORT.
+        local armed = Keymap.command({"key",keys.f3},
+            {mode="page", page="alerts", recovery_confirm_armed=true})
+        T.equal(armed.type, "CANCEL_RECOVERY_RELEASE")
     end },
     { name = "setup_rename mode captures typing and confirm/cancel", run = function()
         local state = {mode="setup_rename"}

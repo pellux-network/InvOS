@@ -3,7 +3,7 @@
 keys = keys or {}
 for name, code in pairs({
     backspace=14, up=200, down=208, enter=28, tab=15, s=31, a=30, d=32, f10=68, f1=59,
-    escape=1, one=2, two=3, three=4, four=5, five=6, six=7,
+    f2=60, f3=61, escape=1, one=2, two=3, three=4, four=5, five=6, six=7,
     r=19, c=46, p=25, left=203, right=205, delete=211,
 }) do
     if keys[name] == nil then keys[name] = code end
@@ -25,7 +25,7 @@ local EVENTS = {
     ["Enter"] = {"key", keys.enter}, ["Up/Down"] = {"key", keys.up}, ["S"] = {"key", keys.s},
     ["A"] = {"key", keys.a}, ["0-9"] = {"char", "5"}, ["C"] = {"key", keys.c},
     ["Tab"] = {"key", keys.tab}, ["D"] = {"key", keys.d}, ["Backspace"] = {"key", keys.backspace},
-    ["F2"] = {"key", keys.f2},
+    ["F2"] = {"key", keys.f2}, ["F3"] = {"key", keys.f3},
     ["Left"] = {"key", keys.left}, ["R"] = {"key", keys.r}, ["Right"] = {"key", keys.right},
     ["Left/Backspace"] = {"key", keys.left}, ["Left/F10"] = {"key", keys.left},
 }

@@ -51,6 +51,12 @@ function Coordinator.new(deps)
         scanRetryBase=deps.scan_retry_base or 500, scanRetryCap=deps.scan_retry_cap or 10000,
         stallAfter=deps.stall_after or 60000, inFlightSince={}, stalled={},
         metadata=copy(deps.metadata or {}), notices={}, dirty=true, animating=false,
+        -- The seam for a future setting that turns frequency-first Search ranking off
+        -- entirely: search.lua's M.query defaults this same flag to true on its own, so
+        -- omitting it here (every existing deps table) behaves exactly as before this
+        -- existed. Flipping it off is meant to be this one line at the call site, not a
+        -- rewrite -- see app/search.lua's M.query doc comment for what the flag controls.
+        frequencyPriority = deps.frequency_priority ~= false,
     }, Coordinator)
     self:_replaceNodes(deps.nodes or {})
     self:_refreshLifecycle()
@@ -227,7 +233,8 @@ function Coordinator:_rebuildIndex()
         self:_clearError("index")
         self.index, self.enrichment = result, nil
         local queryOk, results = pcall(self.deps.search, result, self.uiState.query or "",
-            self.deps.aliases or {}, self.deps.search_limit)
+            self.deps.aliases or {}, self.deps.search_limit,
+            {sort_mode=self.uiState.sort_mode, frequency_priority=self.frequencyPriority})
         if queryOk then
             self:_clearError("search")
             local reduced, effect = self.ui:reduce(self.uiState,
@@ -731,10 +738,14 @@ function Coordinator:handle(event)
         if command then
             self:command(command)
             if command.type == "QUERY_APPEND" or command.type == "QUERY_BACKSPACE" or
-                command.type == "QUERY_CLEAR" then self:_rebuildIndex() end
+                command.type == "QUERY_CLEAR" or
+                (command.type == "CYCLE_SORT" and self.uiState.mode == "search") then
+                self:_rebuildIndex()
+            end
             if command.type == "CRAFT_QUERY_APPEND" or command.type == "CRAFT_QUERY_BACKSPACE" or
                 command.type == "CRAFT_QUERY_CLEAR" or
-                (command.type == "OPEN_PAGE" and command.page == "crafting") then
+                (command.type == "OPEN_PAGE" and command.page == "crafting") or
+                (command.type == "CYCLE_SORT" and self.uiState.mode == "craft_search") then
                 self:_syncCraft()
             elseif command.type == "MOVE" or command.type == "ACTIVATE" then
                 -- Neither changes the query, so the ranked order is unaffected; only the
@@ -923,22 +934,42 @@ local CRAFT_FALLBACK_VISIBLE = 10
 -- work -- how many entries get materialized into full result tables with a stock lookup each
 -- -- is now the caller's job in _craftMaterializeWindow, over this order, not over the
 -- catalogue.
-function Coordinator:_craftOrder(query)
+-- `sortMode` is Crafting's own seam, independent of Search's: "default" (the historical
+-- behavior, catalogue order for an empty query and relevance-bucket order for a non-empty
+-- one) or "name". Name-sorting compares the same lowercased display_name label
+-- `_craftSearchIndex` already built for matching, so it costs one table.sort over integer
+-- positions and zero extra `_craftStock` calls -- exactly the constraint that made every other
+-- usage-based mode (quantity, recency, request count) impossible here, since the catalogue has
+-- no usage stats and stock is only knowable per entry. Relevance bucketing still comes first
+-- for a non-empty query; name only reorders *within* each score bucket, matching how the
+-- default mode already lists positions catalogue-order within a bucket.
+function Coordinator:_craftOrder(query, sortMode)
     query = query or ""
-    if self.craftOrder and self.craftOrderQuery == query then return self.craftOrder end
+    sortMode = sortMode or "default"
+    if self.craftOrder and self.craftOrderQuery == query and self.craftOrderSort == sortMode then
+        return self.craftOrder
+    end
     local needle = query:lower()
     local catalogue = self:_craftCatalogue()
+    local index = self:_craftSearchIndex()
+    local labels = index.labels
+    local function byName(left, right)
+        if labels[left] ~= labels[right] then return labels[left] < labels[right] end
+        -- Deterministic tiebreak for entries that share a display name (distinct mods can
+        -- name two different outputs the same thing): table.sort is not guaranteed stable.
+        return tostring(catalogue[left].item) < tostring(catalogue[right].item)
+    end
     local positions = {}
 
     -- Nothing to rank by: catalogue order is as good as anything, and needs no scoring pass.
     if needle == "" then
         for position = 1, #catalogue do positions[position] = position end
-        self.craftOrder, self.craftOrderQuery = positions, query
+        if sortMode == "name" then table.sort(positions, byName) end
+        self.craftOrder, self.craftOrderQuery, self.craftOrderSort = positions, query, sortMode
         return positions
     end
 
-    local index = self:_craftSearchIndex()
-    local labels, paths, words = index.labels, index.paths, index.words
+    local paths, words = index.paths, index.words
     local tokens = Match.words(needle)
     local buckets = {}
     local matched = false
@@ -955,11 +986,13 @@ function Coordinator:_craftOrder(query)
 
     if matched then
         for score = CRAFT_BEST_SCORE, 1, -1 do
-            for _, position in ipairs(buckets[score] or {}) do
-                positions[#positions + 1] = position
+            local bucket = buckets[score]
+            if bucket then
+                if sortMode == "name" then table.sort(bucket, byName) end
+                for _, position in ipairs(bucket) do positions[#positions + 1] = position end
             end
         end
-        self.craftOrder, self.craftOrderQuery = positions, query
+        self.craftOrder, self.craftOrderQuery, self.craftOrderSort = positions, query, sortMode
         return positions
     end
 
@@ -972,7 +1005,8 @@ function Coordinator:_craftOrder(query)
             positions[#positions + 1] = position
         end
     end
-    self.craftOrder, self.craftOrderQuery = positions, query
+    if sortMode == "name" then table.sort(positions, byName) end
+    self.craftOrder, self.craftOrderQuery, self.craftOrderSort = positions, query, sortMode
     return positions
 end
 
@@ -1044,7 +1078,7 @@ end
 -- path. It also re-materializes the window, since a fresh query means a fresh selection
 -- (the reducer resets craft_selection to 1 on every query edit).
 function Coordinator:_syncCraft()
-    local order = self:_craftOrder(self.uiState.craft_query)
+    local order = self:_craftOrder(self.uiState.craft_query, self.uiState.craft_sort_mode)
     local results, windowStart, total = self:_craftMaterializeWindow(order, self.uiState.craft_selection)
     local reduced = self.ui:reduce(self.uiState,
         {type="SYNC_CRAFT_RESULTS", results=results, window_start=windowStart, total=total})
@@ -1059,7 +1093,8 @@ end
 function Coordinator:_syncCraftWindow()
     if self.uiState.mode ~= "craft_search" then return end
     local query = self.uiState.craft_query or ""
-    if not self.craftOrder or self.craftOrderQuery ~= query then
+    local sortMode = self.uiState.craft_sort_mode or "default"
+    if not self.craftOrder or self.craftOrderQuery ~= query or self.craftOrderSort ~= sortMode then
         self:_syncCraft()
         return
     end

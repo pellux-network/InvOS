@@ -90,10 +90,28 @@ end
 -- limit is optional: the Search page is bounded only by the number of distinct stocked
 -- item groups (hundreds, not thousands), so its UI path leaves limit unset and gets every
 -- match back. Passing a number still truncates, for any caller or test that wants a page.
-function M.query(index, rawQuery, aliases, limit)
+--
+-- `options.sort_mode` selects among the four Search sort modes ("name", "quantity", "recent",
+-- "requests"); "name" (the default) reduces to plain alphabetical, exactly what the code did
+-- before sort modes existed. `options.frequency_priority` (default true) is the seam for a
+-- future setting: while true, request_count then last_requested rank results that the query
+-- matched equally well. Flipping it to false is meant to be a one-line change at the call
+-- site, not a rewrite: no setting or UI exists yet to do that, this is only the seam.
+--
+-- Frequency sits *under* match score, not over it. On an empty query every result scores 0,
+-- so score drops out of the comparison and frequency becomes the top-level order -- the old
+-- empty-query behavior exactly, with no need to branch on the query being empty. Putting
+-- frequency above score instead would reproduce that same empty-query order while quietly
+-- breaking every non-empty one, by letting anything previously requested outrank an exact
+-- match for what was just typed.
+function M.query(index, rawQuery, aliases, limit, options)
     local query = normalize(rawQuery)
     local tokens = Match.words(rawQuery)
     if limit ~= nil then limit = math.max(1, math.floor(limit)) end
+    options = options or {}
+    local sortMode = options.sort_mode or "name"
+    local frequencyPriority = options.frequency_priority
+    if frequencyPriority == nil then frequencyPriority = true end
     local results = {}
     for _, group in ipairs(groups(index)) do
         local score
@@ -112,19 +130,34 @@ function M.query(index, rawQuery, aliases, limit)
         end
     end
     table.sort(results, function(left, right)
-        if query == "" then
+        -- Match quality is the outermost key, always. On an empty query every result scores
+        -- 0, so this drops out and frequency below becomes the top-level order -- which is
+        -- exactly the old empty-query behavior, reproduced without needing to branch on the
+        -- query being empty. On a non-empty query it is what stops a stocked favourite from
+        -- burying the thing actually being searched for: typing "stone" must surface Stone,
+        -- not whichever item happens to have been requested most.
+        if left.score ~= right.score then return left.score > right.score end
+        if frequencyPriority then
             if left.request_count ~= right.request_count then
                 return left.request_count > right.request_count
             end
             if left.last_requested ~= right.last_requested then
                 return left.last_requested > right.last_requested
             end
-            -- Once usage stats tie (often 0/0, never requested), alphabetical is a more
-            -- useful default than quantity: it makes the list scannable and stable.
-        else
-            if left.score ~= right.score then return left.score > right.score end
-            if left.quantity ~= right.quantity then return left.quantity > right.quantity end
         end
+        if sortMode == "quantity" then
+            if left.quantity ~= right.quantity then return left.quantity > right.quantity end
+        elseif sortMode == "recent" then
+            if left.last_requested ~= right.last_requested then
+                return left.last_requested > right.last_requested
+            end
+        elseif sortMode == "requests" then
+            if left.request_count ~= right.request_count then
+                return left.request_count > right.request_count
+            end
+        end
+        -- sortMode == "name" (or a tie above) falls straight through to alphabetical, which
+        -- is also the fallback every other mode ties into once its own key is exhausted.
         local leftName, rightName = normalize(left.display_name), normalize(right.display_name)
         if leftName ~= rightName then return leftName < rightName end
         return left.name < right.name

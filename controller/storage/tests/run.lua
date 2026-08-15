@@ -41,6 +41,7 @@ local defaultModules = {
     "tests.test_requests",
     "tests.test_service_recovery",
     "tests.test_search",
+    "tests.test_list_sorting",
     "tests.test_keymap",
     "tests.test_help",
     "tests.test_ui",
