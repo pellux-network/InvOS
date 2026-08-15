@@ -790,6 +790,16 @@ function UI:_header(state, model, hitRegions)
     local regions = Layout.regions(surface.getSize())
     Draw.band(surface, regions.header, Theme.role.panel)
     Draw.text(surface, 2, regions.header, "INVOS", 20, Theme.role.brand, Theme.role.panel)
+    -- Dropped entirely below this width rather than truncated: a partial
+    -- version number ("v1.0" instead of "v1.0.0") is worse than none, and
+    -- this codebase's rule is that nothing gets hardcoded for one screen
+    -- size -- the pocket-computer tier (26 wide) already has no room to
+    -- spare next to the centered "F1 help" and the right-aligned lifecycle
+    -- badge.
+    if model.version and regions.width >= 40 then
+        Draw.text(surface, 8, regions.header, "v" .. model.version, 12,
+            Theme.role.muted, Theme.role.panel)
+    end
     local lifecycle = model.lifecycle or "BOOTING"
     Draw.rightText(surface, regions.width - 1, regions.header, lifecycle,
         Theme.statusColor(lifecycle), Theme.role.panel)

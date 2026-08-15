@@ -25,6 +25,7 @@ local M={files={
     "storage/app/splash.lua",
     "storage/app/theme.lua",
     "storage/app/ui.lua",
+    "storage/app/updater.lua",
     "storage/core/craft_planner.lua",
     "storage/core/craft_prefs.lua",
     "storage/core/identity.lua",

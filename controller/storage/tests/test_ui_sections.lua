@@ -83,6 +83,34 @@ return {
             end
         end
     end },
+    { name = "the header shows the version on a wide enough terminal", run = function()
+        local surface = T.recordingSurface(51, 19)
+        local screen = UI.new(surface)
+        local state = UI.initialState()
+        state.page, state.mode = "search", "search"
+        screen:render(state, {lifecycle="READY", version="1.2.3", nodes=storageModel().nodes})
+        local text = surface.allText()
+        T.contains(text, "INVOS")
+        T.contains(text, "1.2.3")
+    end },
+    { name = "the header omits the version on a pocket-sized terminal", run = function()
+        local surface = T.recordingSurface(26, 12)
+        local screen = UI.new(surface)
+        local state = UI.initialState()
+        state.page, state.mode = "search", "search"
+        screen:render(state, {lifecycle="READY", version="1.2.3", nodes=storageModel().nodes})
+        local text = surface.allText()
+        T.contains(text, "INVOS")
+        T.equal(text:find("1.2.3", 1, true), nil)
+    end },
+    { name = "the header does not error with no version at all", run = function()
+        local surface = T.recordingSurface(51, 19)
+        local screen = UI.new(surface)
+        local state = UI.initialState()
+        state.page, state.mode = "search", "search"
+        screen:render(state, {lifecycle="READY", nodes=storageModel().nodes})
+        T.contains(surface.allText(), "INVOS")
+    end },
     { name = "the search page keeps its list and its pane wherever the pane exists",
       run = function()
         for _, size in ipairs({{51,19},{80,24},{40,14},{62,18}}) do
