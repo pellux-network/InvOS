@@ -441,80 +441,14 @@ function Coordinator:_requestDestinationRole()
     return "pickup"
 end
 
--- The active retrieval, or nil when there is none. Same "first non-terminal request wins"
--- rule _requestDestinationRole uses, because both questions are about the same request.
-function Coordinator:_activeRequest()
-    local service=self.deps.requests
-    if not service or type(service.list)~="function" then return nil end
-    local ok,listed=pcall(service.list,service)
-    if not ok then return nil end
-    for _,request in ipairs(listed) do
-        if request.state~="COMPLETE" and request.state~="CANCELLED" and
-            request.state~="FAILED" then
-            return request
-        end
-    end
-    return nil
-end
-
--- Which storage nodes a retrieval actually needs scanned, as a node-id set, or nil meaning
--- "every storage node" whenever that cannot be established confidently.
---
--- Rescanning the whole installation before every batch is O(number of storage nodes) work to
--- plan a draw from one or two of them, and it is the fixed cost per batch that makes pickup
--- feel slower the more storage is added. index:sources already names the nodes holding the
--- identity, so the gate can ask for exactly those.
---
--- Leaving the rest stale is safe for reconciliation, which measures an aggregate per-identity
--- delta across the storage scope: a node nobody touched contributes an identical amount to
--- the baseline and to the after-total, so it cancels. Scanning it would if anything be worse,
--- since a player pulling the same item out of an unrelated chest mid-transfer would then be
--- measured as part of what this request moved.
---
--- The guard is the shortfall case. If the index cannot already account for the whole
--- remaining quantity, the missing stock may be sitting in a node whose snapshot is stale, and
--- a narrow scan can never discover it -- the request would replan against the same incomplete
--- picture and partial-fill in a loop. So a shortfall widens the scan rather than narrowing it.
-function Coordinator:_retrievalStorageScope()
-    local index=self.index
-    if not index or type(index.sources)~="function" then return nil end
-    local request=self:_activeRequest()
-    local key=request and request.identity and request.identity.key
-    if type(key)~="string" then return nil end
-    local ok,sources=pcall(index.sources,index,key)
-    if not ok or type(sources)~="table" then return nil end
-
-    local nodeIdFor={}
-    for _,node in ipairs(self.nodes) do
-        if node.role=="storage" then nodeIdFor[node.peripheral_name]=node.id end
-    end
-    local scope,available={},0
-    for _,source in ipairs(sources) do
-        if not source.owned then
-            local id=nodeIdFor[source.peripheral_name]
-            if not id then return nil end
-            scope[id]=true
-            available=available+(tonumber(source.count) or 0)
-        end
-    end
-    local remaining=(tonumber(request.requested) or 0)-(tonumber(request.delivered) or 0)
-    if remaining<=0 or available<remaining then return nil end
-    return scope
-end
-
 function Coordinator:_preflightNames(serviceName)
     local names={}
     local destination=serviceName=="requests" and self:_requestDestinationRole() or nil
-    local storageScope=serviceName=="requests" and self:_retrievalStorageScope() or nil
     for _,node in ipairs(self.nodes) do
-        local relevant
-        if node.role=="storage" then
-            relevant=storageScope==nil or storageScope[node.id]==true
-        else
-            relevant=serviceName=="requests" and node.role==destination or
-                serviceName=="imports" and node.role=="dropoff" or
-                serviceName=="crafts" and node.role=="craft_buffer"
-        end
+        local relevant=node.role=="storage" or
+            serviceName=="requests" and node.role==destination or
+            serviceName=="imports" and node.role=="dropoff" or
+            serviceName=="crafts" and node.role=="craft_buffer"
         if node.state~="DISABLED" and relevant then names[#names+1]=node.id end
     end
     return names
