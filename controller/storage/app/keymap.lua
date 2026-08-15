@@ -155,6 +155,11 @@ function M.command(event, state)
         -- shortcuts, so only a function key was free); the jobs/search toggle moved to F2.
         if key == keys.tab then return {type="CRAFT_AUTOCOMPLETE"} end
         if key == keys.f2 then return {type="OPEN_CRAFT_JOBS"} end
+        -- F3 cycles the Crafting list's sort mode. Only meaningful while the recipe list
+        -- itself is on screen -- craft_quantity, craft_plan and craft_jobs show a single
+        -- item or a different list entirely, so F3 is refused there rather than silently
+        -- resorting something the operator cannot see.
+        if key == keys.f3 then return {type="CYCLE_SORT"} end
     elseif state.mode == "craft_quantity" then
         if key == keys.a then return {type="CRAFT_QUANTITY_MAX",char="a"} end
         if key == keys.backspace then return {type="CRAFT_QUANTITY_BACKSPACE"} end
@@ -189,6 +194,9 @@ function M.command(event, state)
         if key == keys.down then return {type="MOVE",delta=1} end
         if key == keys.enter then return {type="OPEN_QUANTITY"} end
         if key == keys.tab then return {type="AUTOCOMPLETE"} end
+        -- F3 cycles the Search list's sort mode, same reasoning as craft_search below: only
+        -- meaningful while the result list itself is on screen.
+        if key == keys.f3 then return {type="CYCLE_SORT"} end
     elseif state.mode == "quantity" then
         -- A REQUEST here drops mode back to "search" before the char event that
         -- shares this keypress arrives, so name it for suppression there.

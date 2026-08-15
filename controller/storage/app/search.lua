@@ -90,10 +90,25 @@ end
 -- limit is optional: the Search page is bounded only by the number of distinct stocked
 -- item groups (hundreds, not thousands), so its UI path leaves limit unset and gets every
 -- match back. Passing a number still truncates, for any caller or test that wants a page.
-function M.query(index, rawQuery, aliases, limit)
+--
+-- `options.sort_mode` selects among the four Search sort modes ("name", "quantity", "recent",
+-- "requests"); "name" (the default) reduces to plain alphabetical, exactly what the code did
+-- before sort modes existed. `options.frequency_priority` (default true) is the seam for a
+-- future setting: while true, request_count then last_requested sit as the outer sort key
+-- ahead of everything else, including match quality, on both an empty and a non-empty query --
+-- for an empty query `score` is always 0 for every result, so it drops out of the comparison
+-- and this reproduces the old frequency-first empty-query order exactly; for a non-empty query
+-- it makes "requested often" outrank "matches slightly better", which is the point of the flag.
+-- Flipping it to false is meant to be a one-line change at the call site, not a rewrite: no
+-- setting or UI exists yet to do that, this is only the seam.
+function M.query(index, rawQuery, aliases, limit, options)
     local query = normalize(rawQuery)
     local tokens = Match.words(rawQuery)
     if limit ~= nil then limit = math.max(1, math.floor(limit)) end
+    options = options or {}
+    local sortMode = options.sort_mode or "name"
+    local frequencyPriority = options.frequency_priority
+    if frequencyPriority == nil then frequencyPriority = true end
     local results = {}
     for _, group in ipairs(groups(index)) do
         local score
@@ -112,19 +127,28 @@ function M.query(index, rawQuery, aliases, limit)
         end
     end
     table.sort(results, function(left, right)
-        if query == "" then
+        if frequencyPriority then
             if left.request_count ~= right.request_count then
                 return left.request_count > right.request_count
             end
             if left.last_requested ~= right.last_requested then
                 return left.last_requested > right.last_requested
             end
-            -- Once usage stats tie (often 0/0, never requested), alphabetical is a more
-            -- useful default than quantity: it makes the list scannable and stable.
-        else
-            if left.score ~= right.score then return left.score > right.score end
-            if left.quantity ~= right.quantity then return left.quantity > right.quantity end
         end
+        if left.score ~= right.score then return left.score > right.score end
+        if sortMode == "quantity" then
+            if left.quantity ~= right.quantity then return left.quantity > right.quantity end
+        elseif sortMode == "recent" then
+            if left.last_requested ~= right.last_requested then
+                return left.last_requested > right.last_requested
+            end
+        elseif sortMode == "requests" then
+            if left.request_count ~= right.request_count then
+                return left.request_count > right.request_count
+            end
+        end
+        -- sortMode == "name" (or a tie above) falls straight through to alphabetical, which
+        -- is also the fallback every other mode ties into once its own key is exhausted.
         local leftName, rightName = normalize(left.display_name), normalize(right.display_name)
         if leftName ~= rightName then return leftName < rightName end
         return left.name < right.name

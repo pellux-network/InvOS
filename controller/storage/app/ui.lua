@@ -91,6 +91,34 @@ function UI.new(surface)
     return setmetatable({ surface=surface }, UI)
 end
 
+-- Sort modes are per-page and session-only: cycled with F3, read at sync time (search.lua's
+-- M.query, coordinator.lua's _craftOrder) and at render time for the indicator, never
+-- persisted -- UI.initialState() is the only place either field is ever set to a default,
+-- and nothing in main.lua's config/metadata persistence path touches them.
+local SEARCH_SORT_MODES = {"name", "quantity", "recent", "requests"}
+-- Crafting has no usage stats at all and stock is only knowable per entry via _craftStock, so
+-- it deliberately does not offer "quantity"/"recent"/"requests": sorting the full catalogue by
+-- stock would mean a stock lookup per entry on every keystroke, exactly what the windowing in
+-- Coordinator:_craftMaterializeWindow exists to avoid. "default" is catalogue order for an
+-- empty query and relevance order for a non-empty one, both unchanged from before this task.
+local CRAFT_SORT_MODES = {"default", "name"}
+local SORT_MODE_LABELS = {
+    name="Name A-Z", quantity="Most stock", recent="Recently requested",
+    requests="Most requested", default="Default",
+}
+
+local function nextSortMode(modes, current)
+    local at = 1
+    for index, mode in ipairs(modes) do
+        if mode == current then at = index; break end
+    end
+    return modes[(at % #modes) + 1]
+end
+
+UI.SEARCH_SORT_MODES = SEARCH_SORT_MODES
+UI.CRAFT_SORT_MODES = CRAFT_SORT_MODES
+UI.SORT_MODE_LABELS = SORT_MODE_LABELS
+
 function UI.initialState()
     return {
         page="search", mode="search", query="", selection=1, scroll=1,
@@ -98,10 +126,12 @@ function UI.initialState()
         notice=nil, hit_regions={}, armed_selection=nil,
         request_selection=1, request_count=0, alert_selection=1, alert_count=0,
         storage_scroll=1, recovery_confirm_armed=false,
+        sort_mode=SEARCH_SORT_MODES[1],
         craft_query="", craft_results={}, craft_result_count=0, craft_window_start=1,
         craft_selection=1, craft_armed_selection=nil,
         craft_scroll=1, craft_quantity_text="", craft_item=nil, craft_plan=nil,
         craft_destination="pickup", craft_plan_selection=1,
+        craft_sort_mode=CRAFT_SORT_MODES[1],
         craft_jobs={}, craft_job_count=0, craft_job_selection=1,
     }
 end
@@ -471,6 +501,20 @@ function UI:reduce(current, command)
         elseif state.mode == "quantity" or state.mode == "variant" then
             state.mode, state.quantity_text, state.variants = "search", "", nil
         end
+    elseif kind == "CYCLE_SORT" then
+        -- Per-page: which field cycles depends on which list is actually on screen, mirroring
+        -- keymap.lua's own suppression (F3 only produces CYCLE_SORT in mode=="search" or
+        -- mode=="craft_search", so this is reached in no other mode). Resetting the selection
+        -- to 1 is deliberate: a re-sort can move the previously-selected item anywhere in the
+        -- list, so keeping the old index would land the highlight on an unrelated row rather
+        -- than visibly "losing" the old selection to a jump nobody asked for.
+        if state.mode == "search" then
+            state.sort_mode = nextSortMode(SEARCH_SORT_MODES, state.sort_mode)
+            state.selection, state.scroll = 1, 1
+        elseif state.mode == "craft_search" then
+            state.craft_sort_mode = nextSortMode(CRAFT_SORT_MODES, state.craft_sort_mode)
+            state.craft_selection, state.craft_scroll = 1, 1
+        end
     elseif kind == "TOGGLE_HELP" then
         -- F1 opens Help from wherever the operator is and closing it must land back on the
         -- exact same screen, not just the same page -- a search mid-query or a craft plan
@@ -552,6 +596,24 @@ function UI:_band(y) Draw.band(self.surface, y, Theme.role.panel) end
 
 function UI:_bandText(x, y, text, width)
     Draw.text(self.surface, x, y, text, width, Theme.role.muted, Theme.role.panel)
+end
+
+-- The current sort mode, right-aligned in the list's own column band between its left label
+-- ("ITEM"/"RECIPE") and its right one ("STOCK"). The band is the natural home for it: it is
+-- part of describing what the list below is showing, exactly like the column headers either
+-- side of it, and unlike the footer it never has to compete for space with unrelated hints or
+-- get silently dropped when the footer runs out of width. `leftBound` is the last column the
+-- left label may occupy and `rightBound` is the first column the right label starts at -- the
+-- indicator is only drawn when it fits between them with a one-column gap on each side, so a
+-- narrow terminal simply loses the indicator rather than overlapping either label (the same
+-- "drop a section rather than overlap" discipline AGENTS.md requires everywhere else).
+function UI:_bandSort(leftBound, rightBound, y, label)
+    local text = "SORT " .. tostring(label or "")
+    local endX = rightBound - 2
+    local startX = endX - #text + 1
+    if startX > leftBound + 1 then
+        Draw.rightText(self.surface, endX, y, text, Theme.role.muted, Theme.role.panel)
+    end
 end
 
 -- Draws a scrolling selectable list into rows `top` through `bottom`, calling
@@ -736,6 +798,7 @@ function UI:_search(state, model, hitRegions)
     self:_band(bandRow)
     self:_bandText(2, bandRow, "ITEM", math.max(1, listTo - 2))
     Draw.rightText(surface, listTo - 1, bandRow, "STOCK", Theme.role.muted, Theme.role.panel)
+    self:_bandSort(5, listTo - 5, bandRow, SORT_MODE_LABELS[state.sort_mode])
     if paneFrom then
         self:_bandText(paneFrom, bandRow, "SELECTED", regions.width - paneFrom)
         Draw.divider(surface, split, bandRow, regions.content.bottom, Theme.role.panel)
@@ -1337,6 +1400,7 @@ function UI:_crafting(state, model, hitRegions)
     self:_band(bandRow)
     self:_bandText(2, bandRow, "RECIPE", math.max(1, listTo - 2))
     Draw.rightText(surface, listTo - 1, bandRow, "STOCK", Theme.role.muted, Theme.role.panel)
+    self:_bandSort(7, listTo - 5, bandRow, SORT_MODE_LABELS[state.craft_sort_mode])
     if paneFrom then
         self:_bandText(paneFrom, bandRow, "SELECTED", regions.width - paneFrom)
         Draw.divider(surface, split, bandRow, bottom, Theme.role.panel)
