@@ -201,4 +201,4 @@ installation. Known gaps and untested paths are tracked openly in
 
 ## License
 
-MIT — see [`LICENSE`](LICENSE).
+MIT — see [`LICENSE.md`](LICENSE.md).
