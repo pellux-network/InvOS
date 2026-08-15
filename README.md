@@ -201,6 +201,4 @@ installation. Known gaps and untested paths are tracked openly in
 
 ## License
 
-No license has been chosen for this repository yet. Until one is added, all rights are
-reserved by default — open an issue if you'd like to use this code and a license hasn't
-shown up.
+MIT — see [`LICENSE`](LICENSE).
