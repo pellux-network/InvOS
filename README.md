@@ -8,8 +8,8 @@
 
   <p>
     <img alt="status" src="https://img.shields.io/badge/status-deployed%20%26%20live-B91C2E">
-    <img alt="lua tests" src="https://img.shields.io/badge/lua%20tests-816%20passing-B91C2E">
-    <img alt="python tests" src="https://img.shields.io/badge/python%20tests-149%20passing-B91C2E">
+    <img alt="lua tests" src="https://img.shields.io/badge/lua%20tests-890%20passing-B91C2E">
+    <img alt="python tests" src="https://img.shields.io/badge/python%20tests-157%20passing-B91C2E">
     <img alt="runtime" src="https://img.shields.io/badge/runtime-CC%3ATweaked%20%2F%20CraftOS-2b2b2b">
   </p>
 </div>
@@ -21,7 +21,7 @@ back. InvOS indexes every storage container you give it, takes deposits through 
 Drop-off, fulfills exact item-and-quantity requests into a dedicated Pickup, and — if you
 give it a spare turtle — plans and executes multi-step crafting against your own live
 recipe set. No mainframe, no external database: it's one advanced computer, some wired
-modems, and over 950 tests standing behind it.
+modems, and over 1,000 tests standing behind it.
 
 ## Why InvOS
 
