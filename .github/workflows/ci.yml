@@ -1,0 +1,48 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Lua 5.4
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y lua5.4
+          sudo ln -sf /usr/bin/lua5.4 /usr/local/bin/lua
+          sudo ln -sf /usr/bin/luac5.4 /usr/local/bin/luac
+
+      - name: Install CraftOS-PC AppImage runtime dependencies
+        run: sudo apt-get install -y libpulse0 libxss1
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.x'
+
+      - name: Cache CraftOS-PC download
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/invos-emulator
+          key: craftos-pc-${{ runner.os }}-${{ hashFiles('tools/emulator/provision.py') }}
+
+      - name: Run host Lua suite (controller/storage/tests)
+        working-directory: controller
+        run: lua storage/tests/run.lua
+
+      - name: Run tools/ Python suite
+        working-directory: tools
+        run: python3 -m unittest test_recipe_pack test_recipe_import
+
+      - name: Run emulator suite (host Lua 5.2 + CraftOS-PC)
+        working-directory: tools/emulator
+        run: python3 run_tests.py all
