@@ -190,22 +190,11 @@ return {
         T.equal(first[1].display_name, "Another Stone Item")
         T.equal(first[2].display_name, "Very Stone Item")
     end },
-    { name = "frequency_priority true keeps request_count/last_requested as the outer key " ..
-        "even over a non-empty query's match score", run = function()
-        local recent = {
-            {key="stone", name="minecraft:stone", display_name="Stone", quantity=1,
-                request_count=0},
-            {key="cobble", name="minecraft:cobblestone", display_name="Cobblestone",
-                quantity=1, request_count=5},
-        }
-        -- "stone" matches Stone exactly (the far higher score) and Cobblestone only as a
-        -- substring, but Cobblestone has been requested and Stone never has.
-        local results = Search.query(index(recent), "stone", {}, nil,
-            {sort_mode="name", frequency_priority=true})
-        T.equal(results[1].display_name, "Cobblestone",
-            "frequency must outrank match score while the flag is on")
-    end },
-    { name = "frequency_priority false lets match score decide instead of request_count",
+    -- Frequency ranks results the query matched *equally well*; it never overrides the match
+    -- itself. Ranking it above score would still reproduce the empty-query order (every score
+    -- is 0 there, so the two orderings are indistinguishable on an empty query) while making
+    -- a typed query return whatever has been requested most instead of what was typed.
+    { name = "frequency_priority never outranks a better match on a non-empty query",
         run = function()
         local recent = {
             {key="stone", name="minecraft:stone", display_name="Stone", quantity=1,
@@ -213,10 +202,58 @@ return {
             {key="cobble", name="minecraft:cobblestone", display_name="Cobblestone",
                 quantity=1, request_count=5},
         }
-        local results = Search.query(index(recent), "stone", {}, nil,
+        -- "stone" matches Stone exactly and Cobblestone only as a substring, so their scores
+        -- differ; Cobblestone's request history must not promote it over the exact match.
+        for _, flag in ipairs({true, false}) do
+            local results = Search.query(index(recent), "stone", {}, nil,
+                {sort_mode="name", frequency_priority=flag})
+            T.equal(results[1].display_name, "Stone",
+                "an exact match lost to request_count with frequency_priority=" ..
+                tostring(flag))
+        end
+    end },
+    { name = "frequency_priority true breaks a score tie by request history", run = function()
+        -- Both match "stone" as a plain mid-string substring, so scores tie and frequency is
+        -- the only thing that can separate them.
+        local tied = {
+            {key="a", name="mod:a_stone_item", display_name="Another Stone Item", quantity=1,
+                request_count=0},
+            {key="b", name="mod:b_stone_item", display_name="Very Stone Item", quantity=1,
+                request_count=5},
+        }
+        local results = Search.query(index(tied), "stone", {}, nil,
+            {sort_mode="name", frequency_priority=true})
+        T.equal(results[1].score, results[2].score,
+            "the fixture must tie on score for this test to prove anything")
+        T.equal(results[1].display_name, "Very Stone Item",
+            "frequency must break a score tie while the flag is on")
+    end },
+    { name = "frequency_priority false ignores request history entirely", run = function()
+        local tied = {
+            {key="a", name="mod:a_stone_item", display_name="Another Stone Item", quantity=1,
+                request_count=0},
+            {key="b", name="mod:b_stone_item", display_name="Very Stone Item", quantity=1,
+                request_count=5},
+        }
+        local results = Search.query(index(tied), "stone", {}, nil,
             {sort_mode="name", frequency_priority=false})
-        T.equal(results[1].display_name, "Stone",
-            "with the flag off, the exact match must outrank an unrelated frequency edge")
+        T.equal(results[1].display_name, "Another Stone Item",
+            "with the flag off, a score tie must fall through to the sort mode, not frequency")
+    end },
+    -- The empty-query list is where frequency genuinely leads, and the flag has to be able to
+    -- turn that off -- that is the whole point of the seam.
+    { name = "frequency_priority governs the empty-query default order", run = function()
+        local ranked = {
+            {key="a", name="mod:a", display_name="Aaa", quantity=1, request_count=0},
+            {key="b", name="mod:b", display_name="Zzz", quantity=1, request_count=5},
+        }
+        local on = Search.query(index(ranked), "", {}, nil,
+            {sort_mode="name", frequency_priority=true})
+        T.equal(on[1].display_name, "Zzz", "most-requested must lead the default list")
+        local off = Search.query(index(ranked), "", {}, nil,
+            {sort_mode="name", frequency_priority=false})
+        T.equal(off[1].display_name, "Aaa",
+            "with the flag off the default list must fall through to the sort mode")
     end },
     { name = "omitting options behaves exactly as the pre-sort-modes default", run = function()
         -- Locks in that sort_mode defaults to "name" (a no-op past frequency/score) and

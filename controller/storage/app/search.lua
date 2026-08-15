@@ -94,13 +94,16 @@ end
 -- `options.sort_mode` selects among the four Search sort modes ("name", "quantity", "recent",
 -- "requests"); "name" (the default) reduces to plain alphabetical, exactly what the code did
 -- before sort modes existed. `options.frequency_priority` (default true) is the seam for a
--- future setting: while true, request_count then last_requested sit as the outer sort key
--- ahead of everything else, including match quality, on both an empty and a non-empty query --
--- for an empty query `score` is always 0 for every result, so it drops out of the comparison
--- and this reproduces the old frequency-first empty-query order exactly; for a non-empty query
--- it makes "requested often" outrank "matches slightly better", which is the point of the flag.
--- Flipping it to false is meant to be a one-line change at the call site, not a rewrite: no
--- setting or UI exists yet to do that, this is only the seam.
+-- future setting: while true, request_count then last_requested rank results that the query
+-- matched equally well. Flipping it to false is meant to be a one-line change at the call
+-- site, not a rewrite: no setting or UI exists yet to do that, this is only the seam.
+--
+-- Frequency sits *under* match score, not over it. On an empty query every result scores 0,
+-- so score drops out of the comparison and frequency becomes the top-level order -- the old
+-- empty-query behavior exactly, with no need to branch on the query being empty. Putting
+-- frequency above score instead would reproduce that same empty-query order while quietly
+-- breaking every non-empty one, by letting anything previously requested outrank an exact
+-- match for what was just typed.
 function M.query(index, rawQuery, aliases, limit, options)
     local query = normalize(rawQuery)
     local tokens = Match.words(rawQuery)
@@ -127,6 +130,13 @@ function M.query(index, rawQuery, aliases, limit, options)
         end
     end
     table.sort(results, function(left, right)
+        -- Match quality is the outermost key, always. On an empty query every result scores
+        -- 0, so this drops out and frequency below becomes the top-level order -- which is
+        -- exactly the old empty-query behavior, reproduced without needing to branch on the
+        -- query being empty. On a non-empty query it is what stops a stocked favourite from
+        -- burying the thing actually being searched for: typing "stone" must surface Stone,
+        -- not whichever item happens to have been requested most.
+        if left.score ~= right.score then return left.score > right.score end
         if frequencyPriority then
             if left.request_count ~= right.request_count then
                 return left.request_count > right.request_count
@@ -135,7 +145,6 @@ function M.query(index, rawQuery, aliases, limit, options)
                 return left.last_requested > right.last_requested
             end
         end
-        if left.score ~= right.score then return left.score > right.score end
         if sortMode == "quantity" then
             if left.quantity ~= right.quantity then return left.quantity > right.quantity end
         elseif sortMode == "recent" then
