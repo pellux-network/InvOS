@@ -42,7 +42,7 @@ end
 
 -- Turns an executor notify event into a status mutation and an immediate redraw. Kept
 -- separate from the receive loop below so a render failure (pcall'd here) can never take
--- down a craft in progress -- the HUD is a spectator, never load-bearing.
+-- down a craft in progress -- the HUD only displays status, it never gates one.
 local function makeNotify(status)
     return function(event, data)
         data = data or {}

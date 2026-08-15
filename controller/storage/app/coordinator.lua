@@ -928,7 +928,7 @@ local CRAFT_FALLBACK_VISIBLE = 10
 -- work -- how many entries get materialized into full result tables with a stock lookup each
 -- -- is now the caller's job in _craftMaterializeWindow, over this order, not over the
 -- catalogue.
--- `sortMode` is Crafting's own seam, independent of Search's: "default" (the historical
+-- `sortMode` is a setting private to Crafting, independent of Search's: "default" (the historical
 -- behavior, catalogue order for an empty query and relevance-bucket order for a non-empty
 -- one) or "name". Name-sorting compares the same lowercased display_name label
 -- `_craftSearchIndex` already built for matching, so it costs one table.sort over integer

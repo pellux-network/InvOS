@@ -14,13 +14,12 @@ import unittest
 import zlib
 
 import png as pnglib
+import provision
 import rawterm
 import render
 
-FONT_ATLAS = ("/tmp/claude-1000/-mnt-c-Users-Pellux-Coding-InvOS/"
-              "4e8cb7c3-3b50-4159-8e34-e79b6129e1f1/scratchpad/"
-              "squashfs-root/usr/share/craftos/hdfont.bmp")
-HAVE_FONT = os.path.isfile(FONT_ATLAS)
+FONT_ATLAS = provision.Provisioner().font_path()
+HAVE_FONT = FONT_ATLAS is not None
 
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 

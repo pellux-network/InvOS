@@ -204,10 +204,9 @@ return {
         T.equal(active[1].severity, "critical")
     end},
     -- The Search list is bounded only by the number of distinct stocked item groups, which is
-    -- cheap to materialize in full, so the coordinator no longer derives a display limit from
-    -- terminal height at all: it leaves the limit unset regardless of surface size, and the
-    -- UI scrolls the whole thing. This replaces three tests that pinned the old capped
-    -- behavior (a limit derived from a tall/short/absent terminal).
+    -- cheap to materialize in full, so the coordinator derives no display limit from terminal
+    -- height at all: it leaves the limit unset regardless of surface size, and the UI scrolls
+    -- the whole thing.
     {name="a tall terminal still gets every search result, not a height-derived cap", run=function()
         local d = baseDeps()
         d.ui = UI.new(T.recordingSurface(51, 40))

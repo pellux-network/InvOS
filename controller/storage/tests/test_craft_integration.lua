@@ -7,9 +7,9 @@ local UI = require("app.ui")
 local T = require("tests.mock_cc")
 
 -- End to end from a keypress to a queued job, against the real generated recipe pack.
--- The point is the seam between the UI, the coordinator and the planner: each has its
--- own tests, and this is where the wiring between them can be wrong while all of those
--- still pass.
+-- The point is the interaction between the UI, the coordinator and the planner: each has
+-- its own tests, and this is where the connections between them can be wrong while all of
+-- those still pass.
 local realRepo = RecipeRepo.new({})
 
 local function scanner()

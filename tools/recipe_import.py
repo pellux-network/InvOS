@@ -346,9 +346,9 @@ def prune_stale_shards(out_dir, shard_count):
     """Remove pack_NN.lua files left behind by a previous run with more shards.
 
     Regenerating with a smaller --shards would otherwise leave e.g. pack_05.lua
-    behind even though index.lua now declares a lower shard_count. Task 10
-    deploys everything under this directory from a manifest, so an orphaned
-    shard would ship to the live game computer. Returns the paths removed.
+    behind even though index.lua now declares a lower shard_count. Everything
+    under this directory deploys from a manifest, so an orphaned shard would
+    ship to the live game computer. Returns the paths removed.
     """
     removed = []
     for name in sorted(os.listdir(out_dir)):

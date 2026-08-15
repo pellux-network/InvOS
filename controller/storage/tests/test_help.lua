@@ -83,10 +83,10 @@ return {
             end
         end
     end},
-    -- The specific drift this task was written to fix: craft_search's footer used to claim
-    -- "F10 back" even though keymap.lua refuses CANCEL in craft_search (the same exclusion
-    -- as the Search page itself, since letters are query characters in both). The registry
-    -- must not repeat that mistake now that it is the source of truth.
+    -- craft_search's footer used to claim "F10 back" even though keymap.lua refuses CANCEL
+    -- in craft_search (the same exclusion as the Search page itself, since letters are
+    -- query characters in both). The registry must not repeat that mistake now that it is
+    -- the source of truth.
     {name="craft_search's footer does not advertise F10, matching keymap's refusal", run=function()
         local text = Help.footerText({mode="craft_search"}, 200)
         T.equal(text:find("F10", 1, true), nil, "craft_search footer claims F10 back: " .. text)
@@ -178,9 +178,9 @@ return {
         T.equal(command.type, "TOGGLE_HELP")
     end},
 
-    -- Draw.wrap: the fix for defect (a), a long detail sentence hard-truncated mid-word
-    -- because UI:_help drew it on exactly one row. Tested directly here rather than in
-    -- tests/test_draw.lua, which this task does not own.
+    -- Draw.wrap: a long detail sentence hard-truncated mid-word because UI:_help drew it
+    -- on exactly one row. Tested directly here, specific to UI:_help's wrapping, rather
+    -- than in tests/test_draw.lua.
     {name="Draw.wrap: empty string yields one empty line", run=function()
         T.arrayEqual(Draw.wrap("", 10), {""})
         T.arrayEqual(Draw.wrap(nil, 10), {""})
@@ -275,7 +275,7 @@ return {
         end
     end},
 
-    -- Task 4: the modal must document its own controls, not just the page underneath it.
+    -- The modal must document its own controls, not just the page underneath it.
     -- Help mode accepts exactly two things -- close, and scroll -- so every registry entry
     -- must map to one of them and nothing else may slip through.
     {name="the help mode's own registry entries close or scroll the modal, nothing else",

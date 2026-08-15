@@ -1,4 +1,4 @@
--- Task: list sorting, F3-cycled and session-only per page. Search's own sort-mode behavior
+-- List sorting, F3-cycled and session-only per page. Search's own sort-mode behavior
 -- lives in tests/test_search.lua; F3's keymap suppression lives in
 -- tests/test_keymap.lua (and its footer/help registry coverage in tests/test_help.lua). This
 -- module covers the rest: the UI reducer's CYCLE_SORT case (cycling, wrapping, per-page
