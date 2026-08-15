@@ -85,6 +85,7 @@ local defaultModules = {
     "tests.test_reconciliation_many",
     "tests.test_transfer_multibatch",
     "tests.test_import_multisource",
+    "tests.test_updater",
 }
 
 local modules = {}
