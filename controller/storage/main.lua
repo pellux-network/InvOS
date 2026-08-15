@@ -18,6 +18,7 @@ local Buffer = require("app.buffer")
 local Setup = require("app.setup")
 local Theme = require("app.theme")
 local UI = require("app.ui")
+local Updater = require("app.updater")
 local CraftPlanner = require("core.craft_planner")
 local CraftPrefs = require("core.craft_prefs")
 local Identity = require("core.identity")
@@ -88,6 +89,18 @@ end
 local function existsEither(fsApi,root,name)
     return fsApi.exists(fsApi.combine(root,name..".lua")) or
         fsApi.exists(fsApi.combine(root,name..".previous.lua"))
+end
+
+-- Not under data_root: /version.txt is a manifest-listed deployed file (both
+-- tools/deploy.py and install.lua write it there), not runtime data, so it
+-- lives at the computer's actual root rather than under storage/data/.
+local function readVersion(fsApi)
+    if not fsApi.exists("/version.txt") then return nil end
+    local handle = fsApi.open("/version.txt", "r")
+    if not handle then return nil end
+    local text = handle.readAll()
+    handle.close()
+    return text and text:gsub("%s+$", "") or nil
 end
 
 local function load(store,fsApi,root,name,validator,fallback)
@@ -270,6 +283,7 @@ function Main.build(environment)
     local termApi=env.term or term
     local now=env.clock or clock(osApi)
     local root=env.data_root or "/storage/data"
+    local version=readVersion(fsApi)
     local store=Store.new(fsApi,Codec.new(env.textutils or textutils),root)
     local config,configReason=load(store,fsApi,root,"config",Setup.validateConfig,configDefault())
     local aliases,aliasReason=load(store,fsApi,root,"aliases",Setup.validateAliases,aliasesDefault())
@@ -384,6 +398,8 @@ function Main.build(environment)
                 return details and details.max_count or 64
             end})
     end
+    local updater=Updater.new({http=env.http or http,os=osApi,clock=now,alerts=alerts,
+        turtle_link=link,shell=env.shell or shell,fs=fsApi,local_version=version})
     local report
     local function onEffect(effect,active)
         if effect.type=="OPEN_SETUP" then syncSetup(active,setup,1)
@@ -506,7 +522,7 @@ function Main.build(environment)
         scan_refresh_interval=env.scan_refresh_interval,
         lifecycle=Lifecycle,recovery=recovery,imports=imports,requests=requests,alerts=alerts,
         crafts=crafts,recipes=recipes,craft_prefs=craftPrefs,craft_planner=CraftPlanner,
-        turtle_link=link,
+        turtle_link=link,version=version,updater=updater,
         craft_monitor=CraftMonitor,
         monitor=Monitor,monitor_surface=monitorSurface,
         craft_monitor_surface=craftMonitorSurface,on_effect=onEffect,

@@ -255,4 +255,16 @@ return {
         T.equal(buffered,true,"the buffer is scanned like any other node")
     end},
 
+    {name="Main.build reads /version.txt and threads it to the coordinator", run=function()
+        local env = environment({fs = T.memoryFs({["/version.txt"] = "1.2.3\n"})})
+        local coordinator = Main.build(env)
+        T.equal(coordinator:viewModel().version, "1.2.3", "version should be trimmed and threaded through")
+    end},
+
+    {name="Main.build tolerates a missing version.txt", run=function()
+        local env = environment({fs = T.memoryFs()})
+        local coordinator = Main.build(env)
+        T.equal(coordinator:viewModel().version, nil, "missing version.txt should not error")
+    end},
+
 }
