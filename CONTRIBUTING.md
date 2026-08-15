@@ -104,6 +104,29 @@ full before touching anything. In short:
    for a host test; the two catch different classes of mistake.
 4. In the PR description, say what you tested and how, and call out anything you
    deliberately left untested and why.
+5. Title the PR as a [Conventional Commit](https://www.conventionalcommits.org/) (`fix: ...`,
+   `feat: ...`, `docs: ...`, etc.) — PRs are squash-merged, and the PR title becomes the one
+   commit release-please sees on `main`. See "Releasing" below.
+
+## Releasing
+
+Releases are automated by [release-please](https://github.com/googleapis/release-please):
+on every push to `main` it maintains an open "release PR" that bumps `version.txt`, updates
+`CHANGELOG.md`, and tags/publishes a GitHub Release once merged. It works entirely from
+Conventional Commit messages on `main`, which is why PRs must be squash-merged with a
+conventional-commit-formatted title (see `AGENTS.md`'s "Git and integration" section) — a
+squash merge collapses a whole PR into the one commit release-please actually reads.
+
+- `fix:` → patch release. `feat:` → minor release. `fix!:`/`feat!:`/any `!` → major release.
+- `release-please-config.json` / `.release-please-manifest.json` are release-please's own
+  config; don't hand-edit `version.txt` or `CHANGELOG.md` outside of merging its PR.
+- The workflow (`.github/workflows/release-please.yml`) needs a personal access token in
+  the `RELEASE_PLEASE_TOKEN` repository secret, not the default `GITHUB_TOKEN` — GitHub
+  blocks the default token's own commits/PRs/tags from triggering other workflow runs
+  (anti-recursion), which would otherwise mean CI never runs on release-please's PRs and
+  merging one never fires anything listening for a published release. The token needs
+  Contents (read/write), Pull requests (read/write) and Issues (read/write) scopes on this
+  repository.
 
 ## Reporting issues
 
