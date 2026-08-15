@@ -192,6 +192,26 @@ def deploy(source_root, target_root, manifest_path, label):
     return hashes
 
 
+def deploy_version_file(repo, target_root, hashes):
+    """Copy repo-root version.txt to target_root, outside any manifest.
+
+    version.txt lives above both controller/ and turtle/, so it is never a
+    manifest-listed path; this mirrors deploy()'s own write behavior (LF
+    normalize, hash, unlink-first) for the one extra file every installed
+    tree needs so the running app and the update checker can read their own
+    installed version without caring whether they got here via this tool or
+    install.lua.
+    """
+    payload = lf((pathlib.Path(repo) / "version.txt").read_bytes())
+    digest = hashlib.sha256(payload).hexdigest()
+    dst = pathlib.Path(target_root) / "version.txt"
+    if dst.is_file():
+        dst.unlink()
+    dst.write_bytes(payload)
+    hashes["version.txt"] = digest
+    return digest
+
+
 # ---------------------------------------------------------------- verify
 
 
@@ -348,6 +368,7 @@ def main(argv=None):
     for name, target, source, manifest, _ in targets:
         deployed[name] = deploy(source, target, manifest,
                                 "%s -> #%s" % (name, target.name))
+        deploy_version_file(repo, target, deployed[name])
     say("")
 
     problems = 0
