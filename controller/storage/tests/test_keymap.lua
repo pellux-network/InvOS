@@ -91,6 +91,21 @@ return {
         T.equal(Keymap.command({"key",keys.f10},armedState).type,"CANCEL_RECOVERY_RELEASE")
         T.equal(Keymap.command({"key",keys.x},armedState).type,"CANCEL_RECOVERY_RELEASE")
     end },
+    { name = "update confirm on the alerts page requires a deliberate two key confirm", run = function()
+        local armedState={mode="page",page="alerts",update_confirm_armed=true}
+        T.equal(Keymap.command({"key",keys.a},armedState).type,"CONFIRM_UPDATE")
+        T.equal(Keymap.command({"key",keys.enter},armedState).type,"CANCEL_UPDATE_CONFIRM")
+        T.equal(Keymap.command({"key",keys.up},armedState).type,"CANCEL_UPDATE_CONFIRM")
+        T.equal(Keymap.command({"key",keys.f10},armedState).type,"CANCEL_UPDATE_CONFIRM")
+        local unarmedState={mode="page",page="alerts"}
+        T.equal(Keymap.command({"key",keys.a},unarmedState).type,"DISMISS_ALERT")
+    end },
+    { name = "an unreachable turtle offers to proceed controller-only, on the same A/anything-else split", run = function()
+        local unreachableState={mode="page",page="alerts",update_turtle_unreachable=true}
+        T.equal(Keymap.command({"key",keys.a},unreachableState).type,"PROCEED_WITHOUT_TURTLE")
+        T.equal(Keymap.command({"key",keys.enter},unreachableState).type,"CANCEL_UPDATE_CONFIRM")
+        T.equal(Keymap.command({"key",keys.f10},unreachableState).type,"CANCEL_UPDATE_CONFIRM")
+    end },
     { name = "P toggles pause outside the search text box but never while typing", run = function()
         T.equal(Keymap.command({"key",keys.p},{mode="page",page="requests"}).type,"TOGGLE_PAUSE")
         T.equal(Keymap.command({"key",keys.p},{mode="quantity"}).type,"TOGGLE_PAUSE")

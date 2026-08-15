@@ -102,6 +102,19 @@ function M.command(event, state)
         return {type="CANCEL_RECOVERY_RELEASE"}
     end
 
+    -- update_turtle_unreachable can only become true after update_confirm_armed
+    -- has already been cleared by trigger() (app/updater.lua), so the two never
+    -- overlap -- checking the more specific/later one first keeps that
+    -- invariant visible here rather than relying on it silently.
+    if state.mode == "page" and state.page == "alerts" and state.update_turtle_unreachable then
+        if key == keys.a then return {type="PROCEED_WITHOUT_TURTLE"} end
+        return {type="CANCEL_UPDATE_CONFIRM"}
+    end
+    if state.mode == "page" and state.page == "alerts" and state.update_confirm_armed then
+        if key == keys.a then return {type="CONFIRM_UPDATE"} end
+        return {type="CANCEL_UPDATE_CONFIRM"}
+    end
+
     -- F10 used to double as "jump to Search" at every root, which this guard existed to
     -- suppress inside the search boxes. Now the reducer's CANCEL handler is a no-op at
     -- every root (state.mode == "page", "search", "craft_search"), so nothing needs

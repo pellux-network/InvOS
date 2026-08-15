@@ -225,6 +225,33 @@ return {
         T.equal(confirmedState.recovery_confirm_armed,false)
         T.equal(effect.type,"RESOLVE_RECOVERY")
     end },
+    { name = "update confirm requires an explicit arm and confirm", run = function()
+        local ui=UI.new(T.recordingSurface(51,19))
+        local state=UI.initialState()
+        state=ui:reduce(state,{type="ARM_UPDATE_CONFIRM"})
+        T.equal(state.update_confirm_armed,true)
+        T.contains(state.notice,"reboots")
+        local cancelled,cancelEffect=ui:reduce(state,{type="CANCEL_UPDATE_CONFIRM"})
+        T.equal(cancelled.update_confirm_armed,false)
+        T.equal(cancelled.notice,nil)
+        T.equal(cancelEffect.type,"CANCEL_UPDATE")
+        local confirmedState,effect=ui:reduce(state,{type="CONFIRM_UPDATE"})
+        T.equal(confirmedState.update_confirm_armed,false)
+        T.equal(effect.type,"TRIGGER_UPDATE")
+    end },
+    { name = "CONFIRM_UPDATE does nothing unless armed", run = function()
+        local ui=UI.new(T.recordingSurface(51,19))
+        local _,effect=ui:reduce(UI.initialState(),{type="CONFIRM_UPDATE"})
+        T.equal(effect,nil)
+    end },
+    { name = "PROCEED_WITHOUT_TURTLE clears turtle_unreachable and produces its own effect", run=function()
+        local ui=UI.new(T.recordingSurface(51,19))
+        local state=UI.initialState()
+        state.update_turtle_unreachable=true
+        local nextState,effect=ui:reduce(state,{type="PROCEED_WITHOUT_TURTLE"})
+        T.equal(nextState.update_turtle_unreachable,false)
+        T.equal(effect.type,"PROCEED_WITHOUT_TURTLE")
+    end },
     { name = "UI consumes a page shortcut character exactly once", run = function()
         local ui=UI.new(T.recordingSurface(51,19))
         local state=UI.initialState()

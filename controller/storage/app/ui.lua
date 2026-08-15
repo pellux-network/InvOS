@@ -137,6 +137,7 @@ function UI.initialState()
         notice=nil, hit_regions={}, armed_selection=nil,
         request_selection=1, request_count=0, alert_selection=1, alert_count=0,
         storage_scroll=1, recovery_confirm_armed=false,
+        update_confirm_armed=false, update_turtle_unreachable=false,
         sort_mode=SEARCH_SORT_MODES[1],
         craft_query="", craft_results={}, craft_result_count=0, craft_window_start=1,
         craft_selection=1, craft_armed_selection=nil,
@@ -385,6 +386,24 @@ function UI:reduce(current, command)
         state.recovery_confirm_armed = false
         state.notice = "Recovery released"
         return state, {type="RESOLVE_RECOVERY"}
+    elseif kind == "ARM_UPDATE_CONFIRM" then
+        state.update_confirm_armed = true
+        state.notice = "Press A again to update: fetches the latest release and reboots " ..
+            "this computer, and the crafting turtle if reachable. Any other key cancels."
+    elseif kind == "CANCEL_UPDATE_CONFIRM" then
+        state.update_confirm_armed = false
+        state.update_turtle_unreachable = false
+        state.notice = nil
+        return state, {type="CANCEL_UPDATE"}
+    elseif kind == "CONFIRM_UPDATE" then
+        if not state.update_confirm_armed then return state end
+        state.update_confirm_armed = false
+        state.notice = "Updating..."
+        return state, {type="TRIGGER_UPDATE"}
+    elseif kind == "PROCEED_WITHOUT_TURTLE" then
+        state.update_turtle_unreachable = false
+        state.notice = "Updating the controller only..."
+        return state, {type="PROCEED_WITHOUT_TURTLE"}
     elseif kind == "OPEN_QUANTITY" then
         local selected = selectedResult(state)
         if selected then
