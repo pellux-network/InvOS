@@ -26,8 +26,8 @@ return {
         local layout=ui:render(state,view())
         T.contains(surface.line(1),"INVOS")
         T.contains(surface.line(2),"1 SEARCH")
-        -- The query sits below the nav rather than directly under it since the Panelled
-        -- redesign put a blank row between the chrome and the content.
+        -- A blank row separates the query from the nav above it, and another separates it
+        -- from the list band below -- consistent with the Craft page's recipe search bar.
         T.contains(surface.line(4),"> sto")
         T.contains(surface.allText(),"Stone")
         T.contains(surface.allText(),"1,248")

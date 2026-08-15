@@ -145,8 +145,8 @@ return {
         local surface = ui()
         local state = crafting({craft_query="ch"})
         surface:render(state, {lifecycle="READY"})
-        T.contains(surface.surface.line(3), "> ch_est")
-        T.equal(surface.surface.foregroundAt(8, 3), Theme.role.ghost,
+        T.contains(surface.surface.line(4), "> ch_est")
+        T.equal(surface.surface.foregroundAt(8, 4), Theme.role.ghost,
             "the unmatched tail must render in the ghost role")
     end},
     {name="no recipe ghost when the query is not a literal prefix of the highlighted recipe",
@@ -155,7 +155,7 @@ return {
         -- "stick" is not a prefix of "Chest", the highlighted (first) recipe.
         local state = crafting({craft_query="stick"})
         surface:render(state, {lifecycle="READY"})
-        T.equal(surface.surface.line(3):gsub("%s+$", ""), " > stick_")
+        T.equal(surface.surface.line(4):gsub("%s+$", ""), " > stick_")
     end},
     {name="Tab accepts the highlighted recipe exactly like a second click does",run=function()
         local surface = ui()

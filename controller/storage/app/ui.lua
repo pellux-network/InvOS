@@ -676,15 +676,21 @@ function UI:_row(y, selected, from, to, marker, markerColor, left, right, rightC
     local background = selected and Theme.role.focus or (baseBg or Theme.role.ground)
     local primary = selected and Theme.role.ground or Theme.role.text
     Draw.band(surface, y, background, from, to)
+    -- The marker column is only reserved when this row actually has one: Search and Craft
+    -- only pass a marker on the selected row, so every other row's name gets that column
+    -- back instead of leaving it as permanent dead space in front of text nobody needs an
+    -- arrow next to. Rows that always carry a marker (Requests' status dot, Alerts' "!")
+    -- keep the same fixed indent as before, since `marker` is non-nil on every one of them.
+    local textFrom = marker and (from + 3) or (from + 1)
     if marker then
         Draw.text(surface, from + 1, y, marker, 1,
             selected and Theme.role.ground or (markerColor or Theme.role.muted), background)
     end
     right = right and tostring(right) or nil
-    local nameWidth = math.max(1, (to - from + 1) - #(right or "") - 4)
+    local nameWidth = math.max(1, (to - from + 1) - #(right or "") - (textFrom - from + 1))
     if scrollOnlySelected and not selected then
-        Draw.text(surface, from + 3, y, left, nameWidth, primary, background)
-    elseif Draw.marqueeText(surface, from + 3, y, left, nameWidth, primary, background, self._now) then
+        Draw.text(surface, textFrom, y, left, nameWidth, primary, background)
+    elseif Draw.marqueeText(surface, textFrom, y, left, nameWidth, primary, background, self._now) then
         self._animating = true
     end
     if right then
@@ -1401,7 +1407,7 @@ function UI:_crafting(state, model, hitRegions)
     -- operator, and the scrollable range, must use the true count so the list never appears
     -- to end at the window boundary.
     local totalResults = state.craft_result_count or #results
-    local queryRow = regions.content.top
+    local queryRow = regions.content.top + 1
     local queryBoxWidth = regions.width - 4
     local queryText = state.craft_query .. (state.mode == "craft_search" and "_" or "")
     Draw.text(surface, 2, queryRow, ">", 1, Theme.role.focus, Theme.role.ground)
@@ -1416,7 +1422,7 @@ function UI:_crafting(state, model, hitRegions)
                 Theme.role.ghost, Theme.role.ground)
         end
     end
-    local bandRow = queryRow + 1
+    local bandRow = queryRow + 2
     self:_band(bandRow)
     self:_bandText(2, bandRow, "RECIPE", math.max(1, listTo - 2))
     Draw.rightText(surface, listTo - 1, bandRow, "STOCK", Theme.role.muted, Theme.role.panel)
@@ -1482,7 +1488,10 @@ function UI:_crafting(state, model, hitRegions)
             (chosen.quantity or 0) > 0 and Theme.role.ok or Theme.role.muted, Theme.role.ground)
         local button = fittedLabel(paneWidth,
             {"  ENTER  CHOOSE  ", " ENTER CHOOSE ", " CHOOSE ", "CHOOSE"})
-        local buttonRow = math.min(bottom, bandRow + 8)
+        -- Same row as Search's RETRIEVE button: bandRow + 11 there (bodyTop + 10, and
+        -- bodyTop is bandRow + 1), matched here so the two pages don't disagree about where
+        -- the primary action sits.
+        local buttonRow = math.min(bottom, bandRow + 11)
         Draw.text(surface, paneFrom, buttonRow, button,
             math.min(#button, paneWidth), Theme.role.text, Theme.role.brand)
         hitRegions[#hitRegions + 1] = {x1=paneFrom, y1=buttonRow,
