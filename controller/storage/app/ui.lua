@@ -774,6 +774,8 @@ function UI:_header(state, model, hitRegions)
     local lifecycle = model.lifecycle or "BOOTING"
     Draw.rightText(surface, regions.width - 1, regions.header, lifecycle,
         Theme.statusColor(lifecycle), Theme.role.panel)
+    Draw.centerText(surface, math.floor(regions.width / 2), regions.header, "F1 help",
+        Theme.role.muted, Theme.role.panel)
     Draw.band(surface, regions.nav, Theme.role.ground)
     self:_nav(state, regions, hitRegions)
 end
