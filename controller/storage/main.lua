@@ -490,7 +490,20 @@ function Main.build(environment)
         configured=config.configured,ui=ui,keymap=Keymap,initial_ui=uiState,
         build_index=Index.build,search=Search.query,aliases=aliases.items,
         enrich_step=enrichStep,registry=adapter,metadata_budget=1,metadata=metadata.items,
-        scan_budget=512,dropoff_scan_budget=32,scan_refresh_interval=env.scan_refresh_interval,
+        -- Storage scanning is pure Lua: Scanner:begin makes the one list() call and step()
+        -- only walks the table it returned, so this budget is not bounding peripheral work,
+        -- it is bounding how many slots are examined per work-loop tick -- and every tick
+        -- costs a sleep. On a Colossal Chest holding thousands of occupied slots, 512 turned
+        -- one scan into tens of ticks, and a Drop-off import pays two scans per batch (the
+        -- planning gate and the verification gate). That fixed cost, not batch_limit, is what
+        -- bounded import throughput: raising batch_limit only stretched the gap between
+        -- batches because each batch paid the same full-chest scan regardless.
+        --
+        -- dropoff_scan_budget stays small on purpose. Drop-off scans DO make a getItemDetail
+        -- call per occupied slot, so that budget bounds real peripheral work and raising it
+        -- would cost a server tick per extra slot.
+        scan_budget=env.scan_budget or 4096,dropoff_scan_budget=32,
+        scan_refresh_interval=env.scan_refresh_interval,
         lifecycle=Lifecycle,recovery=recovery,imports=imports,requests=requests,alerts=alerts,
         crafts=crafts,recipes=recipes,craft_prefs=craftPrefs,craft_planner=CraftPlanner,
         turtle_link=link,
