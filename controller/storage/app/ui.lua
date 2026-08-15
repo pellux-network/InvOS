@@ -95,7 +95,11 @@ end
 -- M.query, coordinator.lua's _craftOrder) and at render time for the indicator, never
 -- persisted -- UI.initialState() is the only place either field is ever set to a default,
 -- and nothing in main.lua's config/metadata persistence path touches them.
-local SEARCH_SORT_MODES = {"name", "quantity", "recent", "requests"}
+-- "requests" leads the list because it is the default sort (UI.initialState() below picks
+-- modes[1]): most-frequently-requested first is the useful order for an empty query, and
+-- ties into alphabetical -- the same fallback every other mode ties into -- for anything
+-- never requested.
+local SEARCH_SORT_MODES = {"requests", "name", "quantity", "recent"}
 -- Crafting has no usage stats at all and stock is only knowable per entry via _craftStock, so
 -- it deliberately does not offer "quantity"/"recent"/"requests": sorting the full catalogue by
 -- stock would mean a stock lookup per entry on every keystroke, exactly what the windowing in

@@ -1,5 +1,5 @@
--- Task: list sorting, F3-cycled and session-only per page. Search's own sort-mode/
--- frequency_priority behavior lives in tests/test_search.lua; F3's keymap suppression lives in
+-- Task: list sorting, F3-cycled and session-only per page. Search's own sort-mode behavior
+-- lives in tests/test_search.lua; F3's keymap suppression lives in
 -- tests/test_keymap.lua (and its footer/help registry coverage in tests/test_help.lua). This
 -- module covers the rest: the UI reducer's CYCLE_SORT case (cycling, wrapping, per-page
 -- independence, selection reset, session-only lifetime), the sort indicator actually
@@ -28,14 +28,14 @@ return {
      run=function()
         local ui = UI.new(T.recordingSurface(51, 19))
         local state = UI.initialState()
-        T.equal(state.sort_mode, "name", "Search must start on Name A-Z")
+        T.equal(state.sort_mode, "requests", "Search must start on most-requested")
         local seen = {state.sort_mode}
         for _ = 1, #UI.SEARCH_SORT_MODES do
             state = ui:reduce(state, {type="CYCLE_SORT"})
             seen[#seen + 1] = state.sort_mode
         end
         T.equal(#seen, #UI.SEARCH_SORT_MODES + 1)
-        T.equal(seen[#seen], "name", "cycling all the way around must land back on the start")
+        T.equal(seen[#seen], "requests", "cycling all the way around must land back on the start")
         -- No mode repeats before the wrap.
         local unique = {}
         for index = 1, #UI.SEARCH_SORT_MODES do unique[seen[index]] = true end
@@ -70,13 +70,13 @@ return {
     {name="Search and Crafting sort modes cycle independently of each other", run=function()
         local ui = UI.new(T.recordingSurface(51, 19))
         local state = UI.initialState()
-        state = ui:reduce(state, {type="CYCLE_SORT"}) -- search: name -> quantity
-        T.equal(state.sort_mode, "quantity")
+        state = ui:reduce(state, {type="CYCLE_SORT"}) -- search: requests -> name
+        T.equal(state.sort_mode, "name")
         T.equal(state.craft_sort_mode, "default", "cycling Search must not touch Crafting")
         state.page, state.mode = "crafting", "craft_search"
         state = ui:reduce(state, {type="CYCLE_SORT"}) -- crafting: default -> name
         T.equal(state.craft_sort_mode, "name")
-        T.equal(state.sort_mode, "quantity", "cycling Crafting must not touch Search's own mode")
+        T.equal(state.sort_mode, "name", "cycling Crafting must not touch Search's own mode")
     end},
 
     {name="CYCLE_SORT does nothing outside the two list-viewing modes", run=function()
@@ -116,16 +116,16 @@ return {
      run=function()
         local ui = UI.new(T.recordingSurface(51, 19))
         local state = UI.initialState()
-        state = ui:reduce(state, {type="CYCLE_SORT"}) -- name -> quantity
-        T.equal(state.sort_mode, "quantity")
+        state = ui:reduce(state, {type="CYCLE_SORT"}) -- requests -> name
+        T.equal(state.sort_mode, "name")
         state = ui:reduce(state, {type="OPEN_PAGE", page="storage"})
         state = ui:reduce(state, {type="OPEN_PAGE", page="search"})
-        T.equal(state.sort_mode, "quantity",
+        T.equal(state.sort_mode, "name",
             "switching pages and back must not reset an already-chosen sort mode")
         -- Session-only: nothing persists it, so a fresh boot (a fresh UI.initialState()) is
         -- always back at the default -- the only place either field is ever assigned besides
         -- CYCLE_SORT itself.
-        T.equal(UI.initialState().sort_mode, "name")
+        T.equal(UI.initialState().sort_mode, "requests")
         T.equal(UI.initialState().craft_sort_mode, "default")
     end},
 
@@ -135,6 +135,7 @@ return {
         local screen = UI.new(T.recordingSurface(51, 19))
         local state = UI.initialState()
         state.results, state.result_count, state.query = {result("a","Apple",1)}, 1, "a"
+        state = screen:reduce(state, {type="CYCLE_SORT"}) -- requests -> name
         state = screen:reduce(state, {type="CYCLE_SORT"}) -- name -> quantity
         screen:render(state, {lifecycle="READY", search_results=state.results})
         T.contains(screen.surface.allText(), "SORT")
@@ -161,9 +162,8 @@ return {
             local screen = UI.new(T.recordingSurface(size[1], size[2]))
             local state = UI.initialState()
             state.results, state.result_count, state.query = {result("a","Apple",1)}, 1, "a"
-            state = screen:reduce(state, {type="CYCLE_SORT"})
-            state = screen:reduce(state, {type="CYCLE_SORT"})
-            state = screen:reduce(state, {type="CYCLE_SORT"}) -- land on "requests", a long label
+            -- "requests" is the default sort mode and its label, "Requested", is the longest
+            -- of the four -- no cycling needed to land on it.
             screen:render(state, {lifecycle="READY", search_results=state.results})
             T.equal(screen.surface.writesOutsideBounds(), 0,
                 size[1] .. "x" .. size[2] .. " drew outside")
@@ -210,7 +210,7 @@ return {
         local coordinator = Coordinator.new(deps)
         coordinator:handle({"key", keys.f3})
         T.truthy(#seenOptions >= 1, "CYCLE_SORT must trigger a fresh search")
-        T.equal(seenOptions[#seenOptions].sort_mode, "quantity",
+        T.equal(seenOptions[#seenOptions].sort_mode, "name",
             "the coordinator must hand the newly cycled mode to deps.search")
     end},
 

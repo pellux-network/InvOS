@@ -81,8 +81,8 @@ M.per_mode = {
             "retrieve prompt", important=true},
         {key="Up/Down", label="select", detail="Move the selection up or down the result list",
             important=true},
-        {key="F3", label="sort", detail="Cycle the sort order: name, stock, recently " ..
-            "requested, most requested", important=true},
+        {key="F3", label="sort", detail="Cycle the sort order: most requested (default), " ..
+            "name, stock, recently requested", important=true},
         -- keymap.command handles Backspace in "search" as QUERY_BACKSPACE, the same as
         -- every other one-character-at-a-time text box; Delete above clears the whole box.
         {key="Backspace", label=nil, detail="Delete the last character of the search",

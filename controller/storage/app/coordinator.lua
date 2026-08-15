@@ -51,12 +51,6 @@ function Coordinator.new(deps)
         scanRetryBase=deps.scan_retry_base or 500, scanRetryCap=deps.scan_retry_cap or 10000,
         stallAfter=deps.stall_after or 60000, inFlightSince={}, stalled={},
         metadata=copy(deps.metadata or {}), notices={}, dirty=true, animating=false,
-        -- The seam for a future setting that turns frequency-first Search ranking off
-        -- entirely: search.lua's M.query defaults this same flag to true on its own, so
-        -- omitting it here (every existing deps table) behaves exactly as before this
-        -- existed. Flipping it off is meant to be this one line at the call site, not a
-        -- rewrite -- see app/search.lua's M.query doc comment for what the flag controls.
-        frequencyPriority = deps.frequency_priority ~= false,
     }, Coordinator)
     self:_replaceNodes(deps.nodes or {})
     self:_refreshLifecycle()
@@ -234,7 +228,7 @@ function Coordinator:_rebuildIndex()
         self.index, self.enrichment = result, nil
         local queryOk, results = pcall(self.deps.search, result, self.uiState.query or "",
             self.deps.aliases or {}, self.deps.search_limit,
-            {sort_mode=self.uiState.sort_mode, frequency_priority=self.frequencyPriority})
+            {sort_mode=self.uiState.sort_mode})
         if queryOk then
             self:_clearError("search")
             local reduced, effect = self.ui:reduce(self.uiState,
