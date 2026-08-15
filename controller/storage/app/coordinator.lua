@@ -51,6 +51,7 @@ function Coordinator.new(deps)
         scanRetryBase=deps.scan_retry_base or 500, scanRetryCap=deps.scan_retry_cap or 10000,
         stallAfter=deps.stall_after or 60000, inFlightSince={}, stalled={},
         metadata=copy(deps.metadata or {}), notices={}, dirty=true, animating=false,
+        version=deps.version,
     }, Coordinator)
     self:_replaceNodes(deps.nodes or {})
     self:_refreshLifecycle()
@@ -382,6 +383,19 @@ local function serviceState(name,service)
     return "IDLE"
 end
 
+local function serviceEntries(deps)
+    return {{"recovery",deps.recovery},{"imports",deps.imports},
+        {"requests",deps.requests},{"crafts",deps.crafts}}
+end
+
+local function anyTransferInFlight(deps)
+    for _,entry in ipairs(serviceEntries(deps)) do
+        local state=serviceState(entry[1],entry[2])
+        if state=="TRANSFERRING" or state=="VERIFYING" then return true end
+    end
+    return false
+end
+
 function Coordinator:topologyChangeSafe()
     local entries={{"recovery",self.deps.recovery},{"imports",self.deps.imports},
         {"requests",self.deps.requests},{"crafts",self.deps.crafts}}
@@ -531,9 +545,7 @@ end
 function Coordinator:_stallStep(now)
     local alerts = self.deps.alerts
     if self.paused or not alerts or type(alerts.set) ~= "function" then return end
-    local entries={{"recovery",self.deps.recovery},{"imports",self.deps.imports},
-        {"requests",self.deps.requests},{"crafts",self.deps.crafts}}
-    for _,entry in ipairs(entries) do
+    for _,entry in ipairs(serviceEntries(self.deps)) do
         local name=entry[1]
         local state=serviceState(name,entry[2])
         if state~="TRANSFERRING" and state~="VERIFYING" then
@@ -555,6 +567,23 @@ function Coordinator:_stallStep(now)
     end
 end
 
+function Coordinator:_updateCheckStep(now)
+    local updater = self.deps.updater
+    if not updater then return end
+    if type(updater.maybeCheck) == "function" then pcall(updater.maybeCheck, updater, now) end
+    if type(updater.tick) == "function" then pcall(updater.tick, updater, now) end
+    if type(updater.phase) == "function" then
+        local wasUnreachable = self.uiState.update_turtle_unreachable
+        local nowUnreachable = updater:phase() == "turtle_unreachable"
+        self.uiState.update_turtle_unreachable = nowUnreachable
+        if nowUnreachable and not wasUnreachable then
+            self.uiState.notice = "The turtle did not respond. Press A to update the " ..
+                "controller only, or any other key to cancel."
+            self.dirty = true
+        end
+    end
+end
+
 function Coordinator:workStep(now)
     now = now or self.clock()
     local ok, reason = pcall(function()
@@ -562,6 +591,7 @@ function Coordinator:workStep(now)
         self:_enrichStep()
         self:_automationStep(now)
         self:_stallStep(now)
+        self:_updateCheckStep(now)
         self:_refreshLifecycle(now)
         self:_animationStep(now)
         if self.dirty then self:redraw(now) end
@@ -613,6 +643,12 @@ function Coordinator:_dispatch(effect)
                 serviceState("recovery", self.deps.recovery) == "BLOCKED"
             if recoveryBlocked and target.key == "journal_recovery" then
                 self:command({type="ARM_RECOVERY_RELEASE"})
+            elseif target.key == "update_available" then
+                if anyTransferInFlight(self.deps) then
+                    self.uiState.notice = "Wait for the current transfer to finish before updating"
+                else
+                    self:command({type="ARM_UPDATE_CONFIRM"})
+                end
             else
                 local ok, reason = pcall(self.deps.alerts.resolve, self.deps.alerts, target.key)
                 if not ok then self:_recordError("alert", reason) end
@@ -621,6 +657,20 @@ function Coordinator:_dispatch(effect)
     elseif effect.type == "RESOLVE_RECOVERY" and self.deps.recovery then
         local ok, reason = pcall(self.deps.recovery.resolve, self.deps.recovery)
         if not ok then self:_recordError("recovery", reason) end
+    elseif effect.type == "TRIGGER_UPDATE" and self.deps.updater then
+        local ok, reason = pcall(self.deps.updater.trigger, self.deps.updater)
+        if not ok then self:_recordError("updater", reason) end
+    elseif effect.type == "PROCEED_WITHOUT_TURTLE" and self.deps.updater then
+        local ok, reason = pcall(self.deps.updater.proceedWithoutTurtle, self.deps.updater)
+        if not ok then self:_recordError("updater", reason) end
+    elseif effect.type == "CANCEL_UPDATE" and self.deps.updater then
+        -- Covers both cancel paths: bailing out of the initial arm/confirm
+        -- before anything was sent, and declining to proceed turtle-less
+        -- after a timeout. Either way the updater's own phase must reset,
+        -- or the next _updateCheckStep tick immediately re-flags
+        -- turtle_unreachable and the notice never actually goes away.
+        local ok, reason = pcall(self.deps.updater.cancel, self.deps.updater)
+        if not ok then self:_recordError("updater", reason) end
     elseif effect.type == "PLAN_CRAFT" then
         self:_planCraft(effect)
     elseif effect.type == "COMMIT_CRAFT" then
@@ -724,6 +774,13 @@ function Coordinator:handle(event)
             if link and type(link.deliver) == "function" then
                 local deliverOk, deliverReason = pcall(link.deliver, link, event[2], event[3], event[4])
                 if not deliverOk then self:_recordError("turtle link", deliverReason) end
+                self.dirty = true
+            end
+        elseif name == "http_success" or name == "http_failure" then
+            local updater = self.deps.updater
+            if updater and type(updater.handleHttpEvent) == "function" then
+                local handledOk, handledReason = pcall(updater.handleHttpEvent, updater, event)
+                if not handledOk then self:_recordError("updater", handledReason) end
                 self.dirty = true
             end
         end
@@ -1148,7 +1205,8 @@ function Coordinator:_model(now)
         highest_alert=alerts[1],active_request=activeRequest(requests),
         dropoff=self:_nodeForRole("dropoff"),pickup=self:_nodeForRole("pickup"),
         enrichment=self:_enrichmentProgress(),now=now or self.clock(),
-        notices=copy(self.notices),generation=self.generation,configured=self.configured}
+        notices=copy(self.notices),generation=self.generation,configured=self.configured,
+        version=self.version}
 end
 
 function Coordinator:_nodeForRole(role)

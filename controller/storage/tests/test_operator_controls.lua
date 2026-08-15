@@ -43,6 +43,21 @@ local function recordingRecovery()
     }
 end
 
+local function recordingUpdater(phaseValue)
+    local calls = {maybeCheck=0, tick=0, trigger=0, cancel=0, proceedWithoutTurtle=0, handleHttpEvent={}}
+    local updater = {
+        maybeCheck=function() calls.maybeCheck = calls.maybeCheck + 1 end,
+        tick=function() calls.tick = calls.tick + 1 end,
+        trigger=function() calls.trigger = calls.trigger + 1 end,
+        cancel=function() calls.cancel = calls.cancel + 1 end,
+        proceedWithoutTurtle=function() calls.proceedWithoutTurtle = calls.proceedWithoutTurtle + 1 end,
+        phase=function() return phaseValue end,
+        handleHttpEvent=function(_, event) calls.handleHttpEvent[#calls.handleHttpEvent + 1] = event end,
+        calls=calls,
+    }
+    return updater
+end
+
 local function baseDeps()
     local scanner = {}
     function scanner:begin(node) return {node=node} end
@@ -134,6 +149,86 @@ return {
         T.equal(armed.recovery_confirm_armed,true)
         local _,confirmed=ui:reduce(armed,{type="CONFIRM_RECOVERY_RELEASE"})
         T.equal(confirmed and confirmed.type,"RESOLVE_RECOVERY")
+    end},
+    {name="viewModel surfaces the version passed in deps", run=function()
+        local d = baseDeps(); d.version = "1.2.3"
+        local coordinator = Coordinator.new(d)
+        T.equal(coordinator:viewModel().version, "1.2.3")
+    end},
+    {name="an http_success event for the releases API reaches the updater", run=function()
+        local updater = recordingUpdater()
+        local d = baseDeps(); d.updater = updater
+        local coordinator = Coordinator.new(d)
+        coordinator:handle({"http_success", "https://api.github.com/repos/pellux-network/InvOS/releases/latest",
+            {readAll=function() return "{}" end, close=function() end}})
+        T.equal(#updater.calls.handleHttpEvent, 1, "should have forwarded the event")
+    end},
+    {name="workStep calls the updater's periodic check and tick", run=function()
+        local updater = recordingUpdater()
+        local d = baseDeps(); d.updater = updater
+        local coordinator = Coordinator.new(d)
+        coordinator:workStep(1000)
+        T.equal(updater.calls.maybeCheck, 1)
+        T.equal(updater.calls.tick, 1)
+    end},
+    {name="dismissing the update_available alert arms a confirm instead of resolving it", run=function()
+        local alerts = recordingAlerts({{key="update_available"}})
+        local d = baseDeps(); d.alerts = alerts
+        local coordinator = Coordinator.new(d)
+        coordinator.uiState.page, coordinator.uiState.mode = "alerts", "page"
+        coordinator.uiState.alert_selection = 1
+        coordinator:command({type="DISMISS_ALERT"})
+        T.equal(#alerts.calls.resolve, 0, "the alert must not resolve until confirmed")
+        T.equal(coordinator:viewModel().ui.update_confirm_armed, true)
+    end},
+    {name="dismissing update_available while a transfer is in flight does not arm", run=function()
+        local alerts = recordingAlerts({{key="update_available"}})
+        local fakeImports = {status=function() return {state="TRANSFERRING"} end}
+        local d = baseDeps(); d.alerts, d.imports = alerts, fakeImports
+        local coordinator = Coordinator.new(d)
+        coordinator.uiState.page, coordinator.uiState.mode = "alerts", "page"
+        coordinator.uiState.alert_selection = 1
+        coordinator:command({type="DISMISS_ALERT"})
+        T.equal(coordinator:viewModel().ui.update_confirm_armed, false,
+            "should not have armed while a transfer is in flight")
+    end},
+    {name="confirming update triggers the updater", run=function()
+        local alerts = recordingAlerts({{key="update_available"}})
+        local updater = recordingUpdater()
+        local d = baseDeps(); d.alerts, d.updater = alerts, updater
+        local coordinator = Coordinator.new(d)
+        coordinator.uiState.page, coordinator.uiState.mode = "alerts", "page"
+        coordinator.uiState.alert_selection = 1
+        coordinator:command({type="DISMISS_ALERT"})
+        coordinator:command({type="CONFIRM_UPDATE"})
+        T.equal(updater.calls.trigger, 1)
+    end},
+    {name="workStep mirrors a fresh turtle_unreachable phase into a notice", run=function()
+        local updater = recordingUpdater("turtle_unreachable")
+        local d = baseDeps(); d.updater = updater
+        local coordinator = Coordinator.new(d)
+        coordinator:workStep(1000)
+        T.equal(coordinator:viewModel().ui.update_turtle_unreachable, true)
+        T.contains(coordinator.uiState.notice, "did not respond")
+    end},
+    {name="pressing A while turtle_unreachable proceeds without the turtle", run=function()
+        local updater = recordingUpdater("turtle_unreachable")
+        local d = baseDeps(); d.updater = updater
+        local coordinator = Coordinator.new(d)
+        coordinator.uiState.page, coordinator.uiState.mode = "alerts", "page"
+        coordinator:workStep(1000)
+        coordinator:command({type="PROCEED_WITHOUT_TURTLE"})
+        T.equal(updater.calls.proceedWithoutTurtle, 1)
+        T.equal(updater.calls.trigger, 0, "proceeding resumes the existing attempt, it does not re-trigger")
+    end},
+    {name="cancelling while turtle_unreachable calls updater:cancel()", run=function()
+        local updater = recordingUpdater("turtle_unreachable")
+        local d = baseDeps(); d.updater = updater
+        local coordinator = Coordinator.new(d)
+        coordinator.uiState.page, coordinator.uiState.mode = "alerts", "page"
+        coordinator:workStep(1000)
+        coordinator:command({type="CANCEL_UPDATE_CONFIRM"})
+        T.equal(updater.calls.cancel, 1)
     end},
     {name="toggling pause flips the coordinator pause state", run=function()
         local coordinator = Coordinator.new(baseDeps())
