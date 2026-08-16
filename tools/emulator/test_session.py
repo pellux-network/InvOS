@@ -113,6 +113,68 @@ class InstallationTests(unittest.TestCase):
             self.assertIn(missing, message)
 
 
+class TurtleInstallationTests(unittest.TestCase):
+    """The turtle tree is a second live computer with its own allow-list.
+
+    Both manifests define a module named `deployment_manifest`, so they are read
+    by path rather than by require -- and controller files must never reach the
+    turtle, nor turtle files the controller.
+    """
+
+    def setUp(self):
+        self.tempdir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tempdir.cleanup)
+
+    def test_installs_a_tree_from_a_manifest_at_a_custom_path(self):
+        root = self.tempdir.name
+        names = ["startup.lua"] + ["crafter/m%02d.lua" % i for i in range(6)]
+        write(os.path.join(root, "own_manifest.lua"), manifest_source(names))
+        for name in names:
+            write(os.path.join(root, name), "-- %s\n" % name)
+
+        target = os.path.join(root, "computer", "1")
+        installed = session.Installation(root, target,
+                                         manifest_relative="own_manifest.lua",
+                                         minimum_files=5).install()
+
+        self.assertEqual(sorted(installed), sorted(names))
+        self.assertTrue(os.path.isfile(os.path.join(target, "crafter", "m00.lua")))
+
+    def test_a_manifest_smaller_than_its_floor_is_still_refused(self):
+        # The floor exists to catch the manifest format changing under the regex,
+        # which would otherwise install fewer files and look like a boot bug.
+        path = write(os.path.join(self.tempdir.name, "tiny.lua"),
+                     manifest_source(["a.lua"]))
+        with self.assertRaises(session.EmulatorError):
+            session.manifest_files(path, minimum=5)
+
+    def test_installs_the_real_turtle_tree(self):
+        target = os.path.join(self.tempdir.name, "turtle-computer")
+        installed = session.Installation(
+            harness.TURTLE_ROOT, target,
+            manifest_relative="deployment_manifest.lua",
+            minimum_files=5).install()
+
+        self.assertIn("startup.lua", installed)
+        self.assertIn("crafter/executor.lua", installed)
+        # The turtle tree cannot require anything under controller/storage/, so a
+        # controller module reaching it is a deployment bug, not a harness detail.
+        self.assertFalse(os.path.exists(os.path.join(target, "storage")))
+
+
+class RecipePackTests(unittest.TestCase):
+    def test_the_fixture_pack_is_present_and_shaped_like_a_pack(self):
+        for name in ("index.lua", "items.lua", "tags.lua", "pack_01.lua"):
+            self.assertTrue(os.path.isfile(os.path.join(harness.FIXTURE_PACK, name)), name)
+
+    def test_an_unknown_pack_name_is_refused(self):
+        with self.assertRaises(ValueError):
+            harness.recipe_pack_dir("nonsense")
+
+    def test_no_pack_is_a_supported_choice(self):
+        self.assertIsNone(harness.recipe_pack_dir(None))
+
+
 class WorkdirIsolationTests(unittest.TestCase):
     # Harness.prepare() rmtree's its workdir before every run, so two checkouts
     # sharing one path delete each other's computer directory mid-boot. That

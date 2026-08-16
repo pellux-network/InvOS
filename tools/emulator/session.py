@@ -41,18 +41,20 @@ class Timeout(EmulatorError):
     """A wait_for condition never became true."""
 
 
-def manifest_files(manifest_path):
+def manifest_files(manifest_path, minimum=10):
     """Parse the deployment manifest's file list.
 
     The manifest is Lua, but its shape is a flat list of quoted paths, so a
     regex reads it without needing a Lua interpreter on the host. Anything that
     stops matching should fail loudly rather than silently install fewer files,
-    hence the sanity check on the count.
+    hence the sanity check on the count -- and hence ``minimum``, because the
+    crafting turtle's tree is legitimately seven files where the controller's is
+    forty.
     """
     with open(manifest_path, "r", encoding="utf-8") as handle:
         source = handle.read()
     files = re.findall(r'"([^"]+\.lua)"', source)
-    if len(files) < 10:
+    if len(files) < minimum:
         raise EmulatorError(
             "parsed only %d files from %s; the manifest format may have changed"
             % (len(files), manifest_path))
@@ -60,15 +62,26 @@ def manifest_files(manifest_path):
 
 
 class Installation(object):
-    """A computer directory built from the repository's deployment manifest."""
+    """A computer directory built from a deployment manifest.
 
-    def __init__(self, controller_root, computer_dir):
+    ``manifest_relative`` exists because there are two such trees: the
+    controller's under ``storage/``, and the crafting turtle's at the root of
+    ``turtle/``. They are two live computers with separate allow-lists, and both
+    define a module named ``deployment_manifest``, which is why a manifest is
+    read by path here and never by ``require``.
+    """
+
+    def __init__(self, controller_root, computer_dir,
+                 manifest_relative="storage/deployment_manifest.lua",
+                 minimum_files=10):
         self.controller_root = os.path.abspath(controller_root)
         self.computer_dir = os.path.abspath(computer_dir)
+        self.manifest_relative = manifest_relative
+        self.minimum_files = minimum_files
 
     def install(self, extra_files=None):
-        manifest = os.path.join(self.controller_root, "storage", "deployment_manifest.lua")
-        files = manifest_files(manifest)
+        manifest = os.path.join(self.controller_root, self.manifest_relative)
+        files = manifest_files(manifest, minimum=self.minimum_files)
 
         if os.path.isdir(self.computer_dir):
             shutil.rmtree(self.computer_dir)
@@ -88,7 +101,10 @@ class Installation(object):
                 "deployment manifest lists %d file(s) that do not exist: %s"
                 % (len(missing), ", ".join(missing[:5])))
 
-        os.makedirs(os.path.join(self.computer_dir, "storage", "data"), exist_ok=True)
+        # The controller expects storage/data/ before it writes config. The
+        # turtle tree has no storage/ at all and must not grow one here.
+        if self.manifest_relative.startswith("storage/"):
+            os.makedirs(os.path.join(self.computer_dir, "storage", "data"), exist_ok=True)
         for name, contents in (extra_files or {}).items():
             path = os.path.join(self.computer_dir, name)
             os.makedirs(os.path.dirname(path), exist_ok=True)

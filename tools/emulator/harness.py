@@ -12,6 +12,31 @@ import session
 HERE = os.path.dirname(os.path.abspath(__file__))
 SMOKE_DIR = os.path.join(HERE, "smoke")
 CONTROLLER_ROOT = os.path.abspath(os.path.join(HERE, "..", "..", "controller"))
+TURTLE_ROOT = os.path.abspath(os.path.join(HERE, "..", "..", "turtle"))
+FIXTURE_PACK = os.path.join(CONTROLLER_ROOT, "storage", "tests", "fixtures", "recipes")
+LOCAL_PACK = os.path.join(CONTROLLER_ROOT, "storage", "recipes")
+
+
+def recipe_pack_dir(name):
+    """Where the recipe pack the emulated controller plans against comes from.
+
+    "fixture" is the committed vanilla pack the host craft tests already use:
+    deterministic, present on a fresh clone, small, and agreeing with the world
+    oracle's recipes. "local" is the real generated pack under storage/recipes/,
+    which is gitignored per-deployment data derived from one modpack's own game
+    -- useful for debugging modded scale, absent in CI.
+    """
+    if name in (None, "none"):
+        return None
+    if name == "fixture":
+        return FIXTURE_PACK
+    if name == "local":
+        if not os.path.isdir(LOCAL_PACK):
+            raise ValueError(
+                "no generated recipe pack at %s; regenerate it with "
+                "tools/recipe_import.py or use --pack fixture" % LOCAL_PACK)
+        return LOCAL_PACK
+    raise ValueError("unknown recipe pack %r; choose fixture, local or none" % (name,))
 
 
 def default_workdir(controller_root=None):
@@ -34,10 +59,12 @@ def default_workdir(controller_root=None):
 class Harness(object):
     """Installs the controller onto an emulated computer and starts it."""
 
-    def __init__(self, controller_root=None, workdir=None, provisioner=None):
+    def __init__(self, controller_root=None, workdir=None, provisioner=None,
+                 recipe_pack="fixture"):
         self.controller_root = os.path.abspath(controller_root or CONTROLLER_ROOT)
         self.workdir = os.path.abspath(workdir or default_workdir(self.controller_root))
         self.provisioner = provisioner or provision.Provisioner()
+        self.recipe_pack = recipe_pack
 
     @property
     def data_dir(self):
@@ -47,20 +74,62 @@ class Harness(object):
     def computer_dir(self):
         return os.path.join(self.data_dir, "computer", "0")
 
+    @property
+    def turtle_dir(self):
+        """The crafting turtle's own computer directory: a second live computer."""
+        return os.path.join(self.data_dir, "computer", "1")
+
     def prepare(self, scenario):
-        """Build the computer directory for ``scenario`` and return its file list."""
+        """Build every computer directory for ``scenario`` and return its file list."""
         executable = self.provisioner.ensure()
 
         if os.path.isdir(self.workdir):
             shutil.rmtree(self.workdir)
         os.makedirs(self.computer_dir)
 
-        installation = session.Installation(self.controller_root, self.computer_dir)
-        files = installation.install(extra_files={
+        extra = {
             "scenario.lua": scenario.to_lua(),
             "world.lua": _read(os.path.join(SMOKE_DIR, "world.lua")),
-        })
+        }
+        if getattr(scenario, "turtle", None):
+            extra["world_turtle.lua"] = _read(os.path.join(SMOKE_DIR, "world_turtle.lua"))
+            extra["craft_oracle.lua"] = _read(os.path.join(SMOKE_DIR, "craft_oracle.lua"))
+
+        installation = session.Installation(self.controller_root, self.computer_dir)
+        files = installation.install(extra_files=extra)
+
+        self._install_recipe_pack()
+        if getattr(scenario, "turtle", None):
+            self._install_turtle(scenario)
         return executable, files
+
+    def _install_recipe_pack(self):
+        """Copy the recipe pack in beside the manifest's file set.
+
+        The generated pack is deliberately NOT in deployment_manifest.lua: it is
+        per-deployment data derived from one modpack's own game, not source, and
+        tools/deploy.py pushes it separately. Installing it separately here is
+        what a real deployment looks like, not a way around the manifest.
+        """
+        source = recipe_pack_dir(self.recipe_pack)
+        if not source:
+            return
+        shutil.copytree(source, os.path.join(self.computer_dir, "storage", "recipes"))
+
+    def _install_turtle(self, scenario):
+        """Build computer 1 from the turtle tree's own allow-list.
+
+        Never from the controller's: they are two live computers, and mixing the
+        trees is the mistake the two manifests exist to make impossible.
+        """
+        installation = session.Installation(
+            TURTLE_ROOT, self.turtle_dir,
+            manifest_relative="deployment_manifest.lua",
+            minimum_files=5)
+        installation.install(extra_files={
+            "turtle_api.lua": _read(os.path.join(SMOKE_DIR, "turtle_api.lua")),
+            "scenario.lua": scenario.turtle_lua(),
+        })
 
     def start(self, scenario=None, boot_timeout=session.DEFAULT_BOOT_TIMEOUT):
         """Prepare and start a session, returning it already running."""
