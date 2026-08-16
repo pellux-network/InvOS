@@ -146,10 +146,10 @@ several shapes.
 
 ## Git and integration
 
-- `main` is the local integration branch.
+- `main` is the integration branch, and it tracks `origin` (`github.com/pellux-network/InvOS`).
 - Keep unrelated user changes intact and never use destructive reset or checkout commands to discard them.
 - Merge only from a clean, fully tested branch; rerun the full host Lua suite (`lua storage/tests/run.lua`, cheap) on the merged `main` tree, plus `python3 tools/emulator/run_tests.py all`, which is now cheap enough (~70s) to run on every merge rather than choosing categories by hand.
 - Remove only worktrees created under this repository's `.worktrees/` directory, and only after their commits are merged and verified.
 - Check `git remote -v` before assuming push or pull behavior rather than assuming either way.
-- **Commits on `main` must follow [Conventional Commits](https://www.conventionalcommits.org/)** (`type(scope): summary`, e.g. `fix(craft): ...`, `docs(readme): ...`) once release-please is wired up, because it parses commit history on the default branch to decide the next version and changelog. PRs must be squash-merged only, with the squash commit message set to the PR title (not the default "combine all commits" message) — one PR, one conventional-commit-formatted commit on `main`.
+- **Commits on `main` must follow [Conventional Commits](https://www.conventionalcommits.org/)** (`type(scope): summary`, e.g. `fix(craft): ...`, `docs(readme): ...`), because release-please parses commit history on the default branch to decide the next version and changelog. It is wired up in `.github/workflows/release-please.yml`. PRs must be squash-merged only, with the squash commit message set to the PR title (not the default "combine all commits" message) — one PR, one conventional-commit-formatted commit on `main`.
 - **Claude Code's `EnterWorktree` tool locks the calling session into that worktree for the rest of its life** -- even read-only operations outside it start failing, and the only way out is that same session calling `ExitWorktree`; a plain `cd` back to the repo root does not work. If a session will need to merge or clean up its own work later, skip `EnterWorktree` and work on a plain branch in the shared checkout instead; if directory-level isolation is genuinely needed, call `ExitWorktree` before touching `main` rather than having a second session enter the same worktree to help.

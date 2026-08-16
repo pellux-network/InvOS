@@ -99,9 +99,12 @@ address.
   This caused real confusion.
 - **Search ranking is tuned against three queries** (`chest`, `oak`, `piston`). The tier
   order is a judgment call and may rank oddly on other searches.
-- **Tag and recipe pins have no UI.** `core/craft_prefs.lua` supports pinning which item a
-  tag resolves to and which recipe an output uses; nothing exposes it, so the planner's
-  choice cannot be overridden.
+- **Recipe pins have no UI, and no pin can be cleared.** `core/craft_prefs.lua` supports
+  pinning both which item a tag resolves to (`pinTag`) and which recipe an output uses
+  (`pinRecipe`), plus unpinning either. Only `pinTag` is wired up: `P` on the plan review
+  screen pins the highlighted tag choice. `pinRecipe`, `unpinTag` and `unpinRecipe` have no
+  caller in `app/`, so an output with several recipes cannot be steered, and a tag pinned by
+  mistake cannot be undone from the terminal.
 - **Job progress is coarse** — state and step index, no per-step detail.
 - **The Search stock meter is relative to the largest item on screen**, so the same item reads
   differently depending on what else the query matched. Nothing here has a real ceiling, so an
@@ -118,8 +121,6 @@ address.
 ## Tooling
 
 - `tools/deploy.py` has no `--dry-run`.
-- **The repository has no git remote.** `main` exists only on this machine, so every commit is
-  one disk failure from gone.
 - The re-export loop (restart → export → regenerate → verify → deploy) is documented but
   manual, and it is now the routine way to pick up modpack changes.
 - **Test doubles keep being more permissive than reality.** This has caused defects

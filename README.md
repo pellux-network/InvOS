@@ -154,8 +154,9 @@ Full topology, setup, recovery, upgrade, and deployment-safety details live in
 
 Type any part of an item name on the Search page; results update live as background scans
 continue. Select an item, resolve an exact NBT variant if there is one, and request a
-single item, a stack, everything available, or an exact number. Digit keys `1`–`5` jump
-straight to Search, Nodes, Requests, Alerts, and Setup; `F10` always returns to Search.
+single item, a stack, everything available, or an exact number. Digit keys `1`–`6` jump
+straight to Search, Nodes, Requests, Alerts, Setup, and Crafting; `F10` backs out one level,
+and `F1` shows every control valid on the current screen.
 
 With a turtle and buffer bound, key `6` opens Crafting: pick a craftable output — including
 ones you currently hold none of — enter a quantity, review the plan, and commit. A quantity
