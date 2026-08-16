@@ -256,5 +256,122 @@ class TurtleBootTests(unittest.TestCase):
         self.assertNotIn("No matching recipes", text)
 
 
+TERMINAL_STATES = ("COMPLETE", "BLOCKED", "FAILED", "CANCELLED")
+
+
+def drive_craft(active, query, count, rows=0, timeout=60):
+    """Queue a craft through the real UI and wait for it to finish.
+
+    The keys come from app/keymap.lua: 6 opens Crafting, Delete clears the query,
+    typing filters the recipe list, Enter opens the quantity prompt, digits then
+    Enter plans it, and Enter commits. Committing sets the mode to craft_jobs
+    itself (ui.lua's COMMIT_CRAFT), so the jobs list is already on screen --
+    pressing F2 here would toggle straight back off it.
+
+    Every step that should change the screen is checked before the next one is
+    sent. That is not belt-and-braces: without it, a driver mistake is
+    indistinguishable from a slow craft, and the run burns the whole job timeout
+    before reporting a screen that has been wrong since the second keystroke.
+    Clearing the query is the specific mistake -- the Crafting page keeps its
+    query across visits, so a second craft typed into a dirty box matches no
+    recipe, and the digits meant for the quantity prompt land in the query.
+    """
+    active.press("f10")
+    active.press("six")
+    active.press("delete")      # CRAFT_QUERY_CLEAR; the page keeps its query
+    active.settle(quiet_for=0.8, timeout=20)
+    active.type_text(query)
+    active.wait_for(lambda s: not s.contains("No matching recipes"), timeout=15,
+                    description="the recipe list to match %r" % query)
+    for _ in range(rows):
+        active.press("down")
+    active.press("enter")
+    active.wait_for(lambda s: s.contains("How many?"), timeout=15,
+                    description="the quantity prompt for %r" % query)
+    active.type_text(str(count))
+    active.press("enter")
+    active.wait_for(lambda s: s.contains("PLAN"), timeout=30,
+                    description="a plan for %d x %r" % (count, query))
+    active.press("enter")       # commit; this lands on the jobs list
+    screen = active.wait_for(
+        lambda s: any(state in s.text_dump() for state in TERMINAL_STATES),
+        timeout=timeout, description="the craft job to reach a terminal state")
+    return screen.text_dump()
+
+
+@unittest.skipIf(SKIP, "INVOS_SKIP_EMULATOR=1")
+class CraftingEndToEndTests(unittest.TestCase):
+    """A real craft: real planner, real staging, real firmware, real rednet."""
+
+    harness = None
+    session = None
+
+    @classmethod
+    def setUpClass(cls):
+        cls.harness = harness_module.Harness()
+        cls.session = cls.harness.start(scenario_module.crafting())
+        cls.session.wait_for_text("INVOS", timeout=120)
+        cls.session.wait_for_text("CRAFTER", timeout=120, window="turtle")
+        cls.session.settle(quiet_for=2.5, timeout=60)
+
+    @classmethod
+    def tearDownClass(cls):
+        if cls.session:
+            cls.session.stop()
+
+    def test_a_single_step_craft_completes(self):
+        # Planks from logs: one step, one ingredient, the simplest whole pipeline.
+        jobs = drive_craft(self.session, "Oak Planks", 4)
+        self.assertIn("COMPLETE", jobs)
+        self.assertNotIn("BLOCKED", jobs)
+
+    def test_a_two_ingredient_craft_completes(self):
+        # Torches need coal and sticks, both in stock, so it stays one step. The
+        # buffer holds two item types at once, which is the case that first put
+        # the wrong item in a grid cell on a live installation: every craft
+        # before it had a single ingredient, where any order is the right order.
+        jobs = drive_craft(self.session, "Torch", 4)
+        self.assertIn("COMPLETE", jobs)
+
+    def test_a_two_step_tree_completes(self):
+        # No planks in stock, so sticks need planks crafted first. Exercises the
+        # between-steps drain, the rescan that is the only thing telling the
+        # controller the turtle produced anything, and step_index advancing.
+        jobs = drive_craft(self.session, "Stick", 8)
+        self.assertIn("COMPLETE", jobs)
+
+    def test_the_turtle_reports_its_finished_jobs(self):
+        drive_craft(self.session, "Oak Planks", 4)
+        # jobs_done is cumulative across this class's shared session, so a
+        # non-zero count means the firmware ran a craft through to a reply.
+        turtle = self.session.text(window="turtle")
+        self.assertIn("JOBS COMPLETE", turtle)
+        self.assertNotIn("JOBS COMPLETE 0", turtle)
+
+
+@unittest.skipIf(SKIP, "INVOS_SKIP_EMULATOR=1")
+class WorldDisagreesTests(unittest.TestCase):
+    """A recipe the pack has and the world does not.
+
+    On a live modded installation this is what a conditions-gated mod recipe
+    does: the pack describes it, the running game does not have it, and the
+    controller consumes real materials before finding out. Here the world is
+    simply told to know nothing, which is the same shape of failure.
+    """
+
+    def test_the_job_blocks_instead_of_inventing_an_output(self):
+        harness = harness_module.Harness()
+        active = harness.start(scenario_module.crafting(recipes=[]))
+        try:
+            active.wait_for_text("INVOS", timeout=120)
+            active.wait_for_text("CRAFTER", timeout=120, window="turtle")
+            active.settle(quiet_for=2.5, timeout=60)
+            jobs = drive_craft(active, "Oak Planks", 4)
+            self.assertIn("BLOCKED", jobs)
+            self.assertNotIn("COMPLETE", jobs)
+        finally:
+            active.stop()
+
+
 if __name__ == "__main__":
     unittest.main()

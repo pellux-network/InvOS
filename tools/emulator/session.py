@@ -250,6 +250,12 @@ class Session(object):
 
         Every window is decoded, not only the one asked about: a caller waiting
         on the controller must not throw away the turtle's frames on the way.
+
+        Reporting the change *per window* is what keeps :meth:`settle` cheap once
+        a turtle is running. The turtle's HUD redraws an uptime clock every
+        second, so its frames never repeat and never go quiet -- a session-wide
+        "something changed" flag would make every settle on the controller run to
+        its full timeout, for as long as the turtle is switched on.
         """
         target = self.resolve_window(window)
         updated = False
