@@ -216,5 +216,45 @@ os.shutdown()
         self.assertEqual(written.strip(), "OK")
 
 
+@unittest.skipIf(SKIP, "INVOS_SKIP_EMULATOR=1")
+class TurtleBootTests(unittest.TestCase):
+    """The second computer runs the real firmware and can reach its world."""
+
+    harness = None
+    session = None
+
+    @classmethod
+    def setUpClass(cls):
+        cls.harness = harness_module.Harness()
+        cls.session = cls.harness.start(scenario_module.crafting())
+        cls.session.wait_for_text("INVOS", timeout=120)
+        cls.session.settle(quiet_for=2.5, timeout=60)
+
+    @classmethod
+    def tearDownClass(cls):
+        if cls.session:
+            cls.session.stop()
+
+    def test_the_turtle_draws_its_own_status_screen(self):
+        # crafter/hud.lua's header. Reaching it means the firmware booted, the
+        # injected turtle global answered executor:purge()'s sixteen calls, and
+        # the world server replied to every one.
+        self.session.wait_for_text("CRAFTER", timeout=90, window="turtle")
+        self.assertIn("listening for jobs", self.session.text(window="turtle"))
+
+    def test_the_turtle_window_is_not_the_controller_window(self):
+        self.session.wait_for_text("CRAFTER", timeout=90, window="turtle")
+        self.assertNotEqual(self.session.turtle_window, 0)
+        self.assertIn("INVOS", self.session.text())
+
+    def test_the_controller_offers_recipes_to_craft(self):
+        self.session.press("f10")
+        self.session.press("six")
+        self.session.settle(quiet_for=1.2, timeout=20)
+        text = self.session.text()
+        self.assertIn("RECIPE", text)
+        self.assertNotIn("No matching recipes", text)
+
+
 if __name__ == "__main__":
     unittest.main()
