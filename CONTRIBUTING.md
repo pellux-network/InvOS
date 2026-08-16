@@ -1,8 +1,9 @@
 # Contributing to InvOS
 
-InvOS is deployed and running on a live Minecraft server with real player items in it.
-That constraint shapes everything below: correctness is not optional, and nothing here is
-tested against a running game from the host. Read this alongside
+InvOS runs on live Minecraft servers, moving real players' items between real containers.
+A bug here does not throw an exception — it loses somebody's inventory. That constraint
+shapes everything below: correctness is not optional, and nothing here is tested against a
+running game from the host. Read this alongside
 [`AGENTS.md`](AGENTS.md), which carries the detailed runtime and crafting invariants —
 this file is the shorter, workflow-focused companion to it.
 
@@ -140,5 +141,5 @@ squash merge collapses a whole PR into the one commit release-please actually re
 Bug reports are most useful when they include what you observed, what you expected, and
 whether it was seen on a live server or only in the host suite. If you find something odd
 about crafting specifically, check the "Crafting invariants" section of `AGENTS.md` first —
-several sharp edges there were each found the hard way, on the live server, and are worth
+several sharp edges there were each found the hard way, on a live server, and are worth
 knowing before you file a duplicate.

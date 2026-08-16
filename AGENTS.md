@@ -6,11 +6,11 @@ This repository contains a search-first CC:Tweaked wired-inventory storage termi
 
 Crafting is fully merged: the generated recipe pack, `core/recipe_repo.lua`, `core/craft_prefs.lua`, `core/craft_planner.lua`, `app/craft_service.lua`, `app/craft_buffer.lua`, `app/turtle_link.lua`, `app/craft_monitor.lua`, the Crafting page on key 6, and the turtle firmware under `turtle/`.
 
-**It is deployed and working in game.** Crafting, Drop-off import and retrieval have all been exercised on the live server. Crafting stays off unless both `craft_buffer` and `turtle` are bound in config; without them the craft service is never constructed and every existing behavior is unchanged.
+**Crafting, Drop-off import and retrieval have all been exercised against a real modded installation**, not only against host fakes. Crafting stays off unless both `craft_buffer` and `turtle` are bound in config; without them the craft service is never constructed and every existing behavior is unchanged.
 
-Getting there took seven defects that the host suite could not have found, every one of them the controller acting on something it had not verified. That history is the most useful thing in this file — see "Crafting invariants" below.
+Several crafting defects reached that installation despite a green host suite, every one of them the controller acting on something it had not verified. The reasoning distilled from them is the most useful thing in this file — see "Crafting invariants" below.
 
-The deployed recipe pack is the **live modpack's**, sourced from the running game rather than from jars: 24,583 recipes across 22,391 outputs, 24 shards, 6.0 MB, against `computer_space_limit = 10000000`. Multi-step crafting, single crafts, imports and retrievals have all been exercised against it in game, including a chest, which this modpack routes through `quark:oak_chest` rather than the vanilla planks recipe.
+Assume a production-scale modded recipe pack: tens of thousands of recipes across tens of thousands of outputs, several megabytes, sharded, sourced from a running game rather than from jars. That scale is why the pack is sharded and loaded lazily, and why `computer_space_limit` has to be raised well above its 1,000,000-byte default. Exact figures are per-deployment and deliberately not recorded here — they change with every regeneration, and a number pinned in this file goes stale silently. Read them from the pack's own `index.lua` when a decision depends on them.
 
 Operators drive recovery from the terminal: retry and cancel on the Requests page, acknowledge on the Alerts page, a two-key confirmed release for a recovery that cannot prove what an interrupted transfer moved, and a global pause. `controller/startup.lua` supervises the runtime with a capped restart backoff.
 
@@ -108,7 +108,7 @@ Operators drive recovery from the terminal: retry and cancel on the Requests pag
 
 ## Crafting invariants
 
-These were all found on the live server, after a green suite. Each one is now covered by a
+These were all found on a live installation, after a green suite. Each one is now covered by a
 test; the reasoning matters more than the test, because the same mistake has recurred in
 several shapes.
 
@@ -122,7 +122,7 @@ several shapes.
 - **A turtle slot holds one stack, so an ingredient cannot be gathered into one cell and spread from there.** `per_cell * #cells` routinely exceeds 64. Fill each cell directly, and verify every cell rather than only the first.
 - **A craft quantity means "make N", not "bring stock up to N".** The "up to" behavior is the Search page's retrieval. The planner draws ingredients from storage but never the requested item itself.
 - **`rednet.send` throws "No open sides" unless a modem is opened first,** and the controller has no other reason to use rednet. The turtle's reply arrives as an event on the work loop, so the link needs an inbox: polling `rednet.receive` loses a reply that lands between polls.
-- **An output can have many recipes, and the first is not necessarily usable.** Vanilla nearly always had one, so committing to a single choice was invisible; the live pack gives `minecraft:stick` seven, and the two that sort first want a modded wood nobody stocks. Recipes are tried in rank order with ledger rollback, like tag candidates.
+- **An output can have many recipes, and the first is not necessarily usable.** Vanilla nearly always had one, so committing to a single choice was invisible; a modded pack can give `minecraft:stick` seven, with the two that sort first wanting a wood nobody stocks. Recipes are tried in rank order with ledger rollback, like tag candidates.
 - **Both searches roll back and retry, so their costs multiply.** `minecraft:planks` has 412 members against vanilla's 8. Each decision tries a bounded number of alternatives with a whole-plan budget as backstop, and ranking includes one level of lookahead — is this candidate craftable from what is *actually in stock* — so the right option sorts first and the caps rarely bite. Planning runs inline on a keypress, so an unbounded search is not an option even though it does terminate.
 - **suckDown takes the buffer's lowest occupied slot, so staging cannot assume the buffer's order matches the recipe's.** The buffer is filled by one withdrawal per ingredient and those land wherever there is room, with two withdrawals of one item able to end up either side of a third. The executor identifies each stack in a scratch slot and routes it to the cells that want it. Every recipe crafted before this had a single ingredient type, where any order is the right order, so a two-ingredient recipe was the first to put the wrong item in a cell -- single-ingredient tests cannot cover this.
 - **A live pack is not a fixture.** The planner picked `acacia_planks` with only oak logs in stock; only running the real recipe pack found it. Tag candidates are now tried in order with ledger rollback.

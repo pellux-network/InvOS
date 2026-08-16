@@ -7,11 +7,16 @@
   </p>
 
   <p>
-    <img alt="status" src="https://img.shields.io/badge/status-deployed%20%26%20live-B91C2E">
+    <a href="https://github.com/pellux-network/InvOS/releases/latest">
+      <img alt="release" src="https://img.shields.io/github/v/release/pellux-network/InvOS?color=B91C2E">
+    </a>
     <a href="https://github.com/pellux-network/InvOS/actions/workflows/ci.yml">
       <img alt="CI" src="https://github.com/pellux-network/InvOS/actions/workflows/ci.yml/badge.svg">
     </a>
     <img alt="runtime" src="https://img.shields.io/badge/runtime-CC%3ATweaked%20%2F%20CraftOS-2b2b2b">
+    <a href="LICENSE.md">
+      <img alt="license" src="https://img.shields.io/badge/license-MIT-blue">
+    </a>
   </p>
 </div>
 
