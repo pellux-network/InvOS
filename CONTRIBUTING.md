@@ -1,8 +1,9 @@
 # Contributing to InvOS
 
-InvOS is deployed and running on a live Minecraft server with real player items in it.
-That constraint shapes everything below: correctness is not optional, and nothing here is
-tested against a running game from the host. Read this alongside
+InvOS runs on live Minecraft servers, moving real players' items between real containers.
+A bug here does not throw an exception — it loses somebody's inventory. That constraint
+shapes everything below: correctness is not optional, and nothing here is tested against a
+running game from the host. Read this alongside
 [`AGENTS.md`](AGENTS.md), which carries the detailed runtime and crafting invariants —
 this file is the shorter, workflow-focused companion to it.
 
@@ -75,10 +76,11 @@ where an emulator cannot be provisioned.
   [`AGENTS.md`](AGENTS.md) first.** Four rules there were each learned from a defect that
   reached the live system: end every frame you begin, never mutate state while rendering,
   never hardcode a row for one screen size, and name a color role rather than a slot.
-- **A test that passes for the wrong reason is worse than no test.** Two did today: one
-  searched the bottom row for a `v` and found the one in "inventories", and another asserted a
-  section existed by a word that two different sections share. When a test passes first time
-  against code you believe is broken, find out why before trusting it.
+- **A test that passes for the wrong reason is worse than no test.** Assertions on rendered
+  text are especially prone to this: searching a row for a `v` matches the one in
+  "inventories", and asserting a section exists by a word two sections share proves nothing.
+  When a test passes first time against code you believe is broken, find out why before
+  trusting it.
 - A test double that's more permissive than the real thing hides real bugs — this has
   bitten the project more than once (see the "Tooling" section of
   [`docs/backlog.md`](docs/backlog.md)). Pin exact contracts in tests rather than accepting
@@ -139,5 +141,5 @@ squash merge collapses a whole PR into the one commit release-please actually re
 Bug reports are most useful when they include what you observed, what you expected, and
 whether it was seen on a live server or only in the host suite. If you find something odd
 about crafting specifically, check the "Crafting invariants" section of `AGENTS.md` first —
-several sharp edges there were each found the hard way, on the live server, and are worth
+several sharp edges there were each found the hard way, on a live server, and are worth
 knowing before you file a duplicate.

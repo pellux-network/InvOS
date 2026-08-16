@@ -44,7 +44,7 @@ Use `5 SETUP` from the main interface to review or change configuration later. A
 
 Put items in Drop-off. The controller imports them into healthy storage nodes in priority order. Items already in storage are indexed automatically.
 
-Importing is batched. Each cycle scans storage, issues every planned move, then rescans to measure what actually landed, so the cost of a cycle is mostly fixed regardless of how much it carries. Two limits bound a batch: `slot_batch_limit` caps how many Drop-off slots join one cycle, and `batch_limit` caps the total moves issued in it. Raising `slot_batch_limit` is what makes a large mixed drop-off drain quickly; it ships at 1, matching single-slot importing, and should only be raised after the multi-item path has been watched on a live controller. Every item type in a batch is still measured separately against its own before-and-after storage total, so a batch spanning many types is proven exactly as one type is.
+Importing is batched. Each cycle scans storage, issues every planned move, then rescans to measure what actually landed, so the cost of a cycle is mostly fixed regardless of how much it carries. Two limits bound a batch: `slot_batch_limit` caps how many Drop-off slots join one cycle, and `batch_limit` caps the total moves issued in it. Raising `slot_batch_limit` is what makes a large mixed drop-off drain quickly; it ships at 8, alongside `batch_limit` at 16. Both are defaults in `Main.build`'s environment table rather than settings in `config.lua`. Every item type in a batch is still measured separately against its own before-and-after storage total, so a batch spanning many types is proven exactly as one type is.
 
 On the controller, type any part of an item name. Results update while background scans continue. Select an item, choose an exact NBT variant when necessary, and request one, a stack, all available, or an exact number. Retrieved items arrive in Pickup. The public monitor is status-only and resizes automatically.
 
@@ -284,7 +284,7 @@ To regenerate from the vanilla server jar:
 
 ```
 python tools/recipe_import.py \
-  --jar "G:/libraries/net/minecraft/server/1.18.2/server-1.18.2.jar" \
+  --jar "<server-root>/libraries/net/minecraft/server/<version>/server-<version>.jar" \
   --out controller/storage/recipes
 ```
 
@@ -302,7 +302,7 @@ Only `crafting_shaped` and `crafting_shapeless` recipes are imported, because th
 
 Two flags exist for later use. `--namespace` points the converter at a mod's data (`data/<namespace>/recipes/`), and `--shards` changes how many `pack_NN.lua` files are emitted.
 
-**Changing `--shards` requires editing `deployment_manifest.lua` to match.** The manifest names each shard file explicitly. The suite has two guards for this — one asserting every manifest path exists, one asserting every shard the pack declares is listed — so a mismatch fails the test run rather than a live deployment. The converter also prunes shard files above the new count so stale shards cannot be deployed.
+**Changing `--shards` needs no manifest edit.** The pack is not listed in `deployment_manifest.lua` at all — `tests/test_deployment.lua` asserts the manifest never lists it — and `tools/deploy.py` pushes whatever shard files exist locally through its own `deploy_recipe_pack` step. `recipe_repo` resolves a shard by zero-padded name (`pack_01.lua`) from the count recorded in the pack's own `index.lua`, so the pack stays self-describing. The converter prunes shard files above the new count so stale shards cannot be deployed.
 
 ### Verifying a regenerated pack
 
@@ -346,7 +346,11 @@ own `ShapedKubeJSRecipe` need no special handling.
    carries no language data:
 
 ```bash
-python tools/recipe_import.py   --jar "G:/libraries/net/minecraft/server/1.18.2/server-1.18.2.jar"   --kubejs "G:/kubejs/exported/invos_recipes.json"   --mods "G:/mods"   --out controller/storage/recipes --shards 24
+python tools/recipe_import.py \
+  --jar "<server-root>/libraries/net/minecraft/server/<version>/server-<version>.jar" \
+  --kubejs "<server-root>/kubejs/exported/invos_recipes.json" \
+  --mods "<server-root>/mods" \
+  --out controller/storage/recipes --shards 24
 ```
 
 **`--jar` is not optional if you want vanilla items named.** Without it every vanilla item
@@ -391,9 +395,9 @@ game will actually craft:
 
 ```bash
 python tools/recipe_import.py \
-  --jar "G:/libraries/net/minecraft/server/1.18.2/server-1.18.2.jar" \
-  --mods "G:/mods" \
-         "G:/libraries/net/minecraftforge/forge/1.18.2-40.3.11/forge-1.18.2-40.3.11-universal.jar" \
+  --jar "<server-root>/libraries/net/minecraft/server/<version>/server-<version>.jar" \
+  --mods "<server-root>/mods" \
+         "<server-root>/libraries/net/minecraftforge/forge/<forge-version>/forge-<forge-version>-universal.jar" \
   --out controller/storage/recipes --shards 16
 ```
 
@@ -431,10 +435,11 @@ Three constraints to plan for:
   `storage/data/` and future regeneration. The server must restart to pick it up.
   `items.lua`, `index.lua` and `tags.lua` total about 1.1 MB and are always resident;
   shards are roughly 165 KB each and load lazily, only when an output in them is queried.
-- **`--shards` must match `deployment_manifest.lua`.** The manifest names each shard file
-  explicitly, so a 16-shard pack needs `pack_01` through `pack_16` listed. Two suite guards
-  catch a mismatch at test time rather than at deployment, and the converter prunes shards
-  above the new count so a stale one cannot ship.
+- **`--shards` needs no manifest edit.** The pack is deliberately absent from
+  `deployment_manifest.lua`, and `tests/test_deployment.lua` asserts it stays that way; the
+  pack records its own `shard_count` in `index.lua` and `recipe_repo` resolves shards by
+  zero-padded name from it. The converter prunes shards above the new count so a stale one
+  cannot ship.
 - **Recipe id collisions are resolved by filename order, not mod load order.** About 1,600
   ids are defined by more than one jar; the alphabetically last jar wins, which may not be
   what the game does. This affects which of several duplicate recipes is offered, not

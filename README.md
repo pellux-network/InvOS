@@ -7,11 +7,16 @@
   </p>
 
   <p>
-    <img alt="status" src="https://img.shields.io/badge/status-deployed%20%26%20live-B91C2E">
+    <a href="https://github.com/pellux-network/InvOS/releases/latest">
+      <img alt="release" src="https://img.shields.io/github/v/release/pellux-network/InvOS?color=B91C2E">
+    </a>
     <a href="https://github.com/pellux-network/InvOS/actions/workflows/ci.yml">
       <img alt="CI" src="https://github.com/pellux-network/InvOS/actions/workflows/ci.yml/badge.svg">
     </a>
     <img alt="runtime" src="https://img.shields.io/badge/runtime-CC%3ATweaked%20%2F%20CraftOS-2b2b2b">
+    <a href="LICENSE.md">
+      <img alt="license" src="https://img.shields.io/badge/license-MIT-blue">
+    </a>
   </p>
 </div>
 
@@ -154,8 +159,9 @@ Full topology, setup, recovery, upgrade, and deployment-safety details live in
 
 Type any part of an item name on the Search page; results update live as background scans
 continue. Select an item, resolve an exact NBT variant if there is one, and request a
-single item, a stack, everything available, or an exact number. Digit keys `1`–`5` jump
-straight to Search, Nodes, Requests, Alerts, and Setup; `F10` always returns to Search.
+single item, a stack, everything available, or an exact number. Digit keys `1`–`6` jump
+straight to Search, Nodes, Requests, Alerts, Setup, and Crafting; `F10` backs out one level,
+and `F1` shows every control valid on the current screen.
 
 With a turtle and buffer bound, key `6` opens Crafting: pick a craftable output — including
 ones you currently hold none of — enter a quantity, review the plan, and commit. A quantity

@@ -1,7 +1,11 @@
 # Backlog
 
 Ordered by what would hurt most if left alone. Everything here is grounded in something
-actually observed on the live installation — where an item is speculative, it says so.
+actually observed on a live installation — where an item is speculative, it says so.
+
+Figures derived from a recipe pack are marked *(pack-dependent)*. They describe one
+generated pack and drift on every regeneration, so treat them as scale, not as constants;
+re-measure before relying on one. Counts below were last measured 2026-08-16.
 
 ## Correctness
 
@@ -17,7 +21,8 @@ does not match what the server last exported. Needs a channel from the export to
 controller, so it is not free.
 
 ### Recipes the pack cannot represent
-Counted and reported at import, currently 234 on this pack:
+Counted and reported at import; 234 on the pack these figures were taken from
+*(pack-dependent)*:
 
 - **208 NBT-bearing results.** The controller identifies a crafted item by plain id, so it
   can neither verify nor deliver a specific variant. Supportable only if the output NBT is
@@ -32,11 +37,23 @@ Counted and reported at import, currently 234 on this pack:
 None of these are wrong today — a refused recipe is absent, never miscrafted — but each is a
 thing the operator can make by hand and not through the system.
 
-### 7,967 outputs have no display name
-7,421 are `everycomp`, which generates its blocks at runtime and ships no static lang entry,
-so no jar can name them. The recipe manager does not carry language data either. Possible
-fix: have the export ask the game for each item's display name. Untested — server-side
-translation may return the raw key rather than the English string.
+### Thousands of outputs have no display name
+7,997 of 22,705 outputs on the current pack, of which 7,421 are `everycomp`
+*(pack-dependent)*. `everycomp` generates its blocks at runtime and ships no static lang
+entry, so no jar can name them; the recipe manager does not carry language data either.
+Such an item stores its raw id as its name, so it is searchable only by id.
+
+Possible fix: have the export ask the game for each item's display name. Untested —
+server-side translation may return the raw key rather than the English string.
+
+Re-measure from `controller/` with:
+
+```bash
+lua -e 'local it=dofile("storage/recipes/items.lua") local ix=dofile("storage/recipes/index.lua")
+local out={} for _,p in ipairs(ix.outputs or {}) do out[p]=true end
+local n=0 for i,id in ipairs(it.ids) do if out[i] and it.names[i]==id then n=n+1 end end
+print(n.." of "..#(ix.outputs or {}).." outputs unnamed")'
+```
 
 ### Planner search bounds are unvalidated
 `MAX_TAG_TRIALS = 8`, `MAX_RECIPE_TRIALS = 4` and `RESOLVE_BUDGET = 20000` were chosen to
@@ -55,7 +72,8 @@ crafting path below still has never run outside host fakes. See
 These work in the host suite and have never run in game:
 
 - **A large batched craft against the modded pack.** 500 sticks worked against the vanilla
-  pack; nothing that size has run since the pack grew to 22,391 outputs.
+  pack; nothing that size has run since the pack grew to modded scale, currently 22,705
+  outputs *(pack-dependent)*.
 - **A deep tree** — three or more chained intermediates.
 - **A queued second job** while one is running.
 - **The `TRANSFER_STALLED` alert.** Added after a real stall, never seen fire.
@@ -81,12 +99,14 @@ It confirms the scanner issues one `size` and one `list` per node per scan and n
 per slot beyond the metadata budget. It does not model tick cost, so it ranks work rather
 than predicting how long the real computer takes:
 
-- `items.lua` is 1.85 MB and parsed eagerly at boot. Boot time on #4 has not been measured
-  since the pack grew; if `INDEXING` now takes noticeably longer, this is why.
-- Crafting search costs ~10 ms per keystroke on host over 22,391 entries. The catalog and
-  its lowercased search index are both resident.
-- The pack is 5.89 MB against a 10,000,000 byte `computer_space_limit`. Another large mod
-  addition could approach it.
+- `items.lua` is 1.85 MB and parsed eagerly at boot *(pack-dependent)*. Boot time has not
+  been measured on a real computer since the pack grew; if `INDEXING` takes noticeably
+  longer, this is why.
+- Crafting search costs ~10 ms per keystroke on host over the full catalogue, currently
+  22,705 outputs *(pack-dependent)*. The catalogue and its lowercased search index are both
+  resident.
+- The pack is 5.89 MB against a 10,000,000 byte `computer_space_limit` *(pack-dependent)*.
+  Another large mod addition could approach it.
 
 ## UI polish
 
@@ -99,10 +119,15 @@ address.
   This caused real confusion.
 - **Search ranking is tuned against three queries** (`chest`, `oak`, `piston`). The tier
   order is a judgment call and may rank oddly on other searches.
-- **Tag and recipe pins have no UI.** `core/craft_prefs.lua` supports pinning which item a
-  tag resolves to and which recipe an output uses; nothing exposes it, so the planner's
-  choice cannot be overridden.
-- **Job progress is coarse** — state and step index, no per-step detail.
+- **Recipe pins have no UI, and no pin can be cleared.** `core/craft_prefs.lua` supports
+  pinning both which item a tag resolves to (`pinTag`) and which recipe an output uses
+  (`pinRecipe`), plus unpinning either. Only `pinTag` is wired up: `P` on the plan review
+  screen pins the highlighted tag choice. `pinRecipe`, `unpinTag` and `unpinRecipe` have no
+  caller in `app/`, so an output with several recipes cannot be steered, and a tag pinned by
+  mistake cannot be undone from the terminal.
+- **Job progress is coarse.** The jobs list shows the state name, plus a queue position for
+  `QUEUED` (`ui.lua`'s craft-jobs view) — no step index and no per-step detail, so a
+  multi-step craft looks identical at step one and step five.
 - **The Search stock meter is relative to the largest item on screen**, so the same item reads
   differently depending on what else the query matched. Nothing here has a real ceiling, so an
   absolute scale would need one invented; this was the least arbitrary option, not a good one.
@@ -118,8 +143,6 @@ address.
 ## Tooling
 
 - `tools/deploy.py` has no `--dry-run`.
-- **The repository has no git remote.** `main` exists only on this machine, so every commit is
-  one disk failure from gone.
 - The re-export loop (restart → export → regenerate → verify → deploy) is documented but
   manual, and it is now the routine way to pick up modpack changes.
 - **Test doubles keep being more permissive than reality.** This has caused defects
