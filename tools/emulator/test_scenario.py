@@ -94,6 +94,69 @@ class ConfiguredScenarioTests(unittest.TestCase):
         self.assertTrue(rendered.startswith("return {"))
         self.assertIn("inventories", rendered)
 
+    def test_configured_still_leaves_crafting_unbound(self):
+        # A supported configuration in its own right, and the one every existing
+        # smoke test asserts against: no buffer and no turtle means the craft
+        # service is never constructed and everything else runs unchanged.
+        built = scenario.configured()
+        self.assertIsNone(built.config["craft_buffer"])
+        self.assertIsNone(built.config["turtle"])
+        self.assertIsNone(built.turtle)
+
+
+class CraftingScenarioTests(unittest.TestCase):
+    def test_binds_a_buffer_and_a_turtle(self):
+        built = scenario.crafting()
+        self.assertEqual(built.config["craft_buffer"],
+                         {"peripheral_name": scenario.CRAFT_BUFFER_NAME})
+        # The turtle is bound by its computer peripheral's name, which is what
+        # TurtleLink resolves a rednet ID through.
+        self.assertEqual(built.config["turtle"], {"peripheral_name": "computer_1"})
+
+    def test_the_buffer_exists_as_an_inventory(self):
+        names = [entry["name"] for entry in scenario.crafting().inventories]
+        self.assertIn(scenario.CRAFT_BUFFER_NAME, names)
+
+    def test_the_buffer_is_not_also_a_storage_node(self):
+        built = scenario.crafting()
+        storage = [node["peripheral_name"] for node in built.config["storage"]]
+        self.assertNotIn(scenario.CRAFT_BUFFER_NAME, storage)
+
+    def test_the_world_declares_the_turtle(self):
+        rendered = scenario.crafting().to_lua()
+        self.assertIn("emu:crafter_inventory", rendered)
+        self.assertIn("emu:void", rendered)
+
+    def test_stock_can_craft_the_tree_but_holds_no_intermediate(self):
+        ids = [entry["id"] for entry in scenario.CRAFT_STOCK]
+        self.assertIn("minecraft:oak_log", ids)
+        self.assertIn("minecraft:coal", ids)
+        self.assertIn("minecraft:stick", ids)
+        # No planks: a stick craft must go through planks rather than finding
+        # the intermediate already in storage, which is what makes it a tree.
+        self.assertNotIn("minecraft:oak_planks", ids)
+
+    def test_the_turtle_gets_its_own_small_scenario(self):
+        built = scenario.crafting()
+        self.assertTrue(built.turtle)
+        turtle_lua = built.turtle_lua()
+        self.assertIn("skip_splash", turtle_lua)
+        self.assertIn("world_server", turtle_lua)
+        # It must not carry the controller's world: peripherals do not cross
+        # computers, so those inventories are ones the turtle can never reach.
+        self.assertNotIn("inventories", turtle_lua)
+
+    def test_recipes_can_be_overridden_to_make_the_world_disagree(self):
+        # An empty list serialises as "{}", so a world told to know no recipes
+        # says so explicitly -- which is how "the pack has a recipe the game
+        # does not" is reproduced.
+        self.assertIn("recipes = {}", scenario.crafting(recipes=[]).to_lua())
+
+    def test_recipes_are_omitted_when_not_overridden(self):
+        # Left out entirely, so craft_oracle.lua's own defaults stay the single
+        # place the world's recipes are written down.
+        self.assertNotIn("recipes", scenario.crafting().to_lua())
+
 
 if __name__ == "__main__":
     unittest.main()

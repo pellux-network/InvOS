@@ -22,6 +22,27 @@ DEFAULT_STOCK = [
     {"id": "minecraft:wheat", "count": 906},
 ]
 
+TURTLE_ID = 1
+CRAFT_BUFFER_NAME = "minecraft:barrel_2"
+TURTLE_INVENTORY_NAME = "emu:crafter_inventory"
+VOID_NAME = "emu:void"
+
+# Stock chosen to exercise the craft tree rather than to look like a real store.
+#
+# Oak logs and coal are the raw materials the world's recipes start from, and a
+# few sticks make a torch craft a single two-ingredient step. There are
+# deliberately NO planks: a stick craft then has to craft planks first, which is
+# the two-step tree -- and because the pack's stick recipe wants the
+# `minecraft:planks` tag, whose eight members sort acacia first, it also
+# exercises the tag-candidate rollback a live installation found the hard way
+# when the planner picked acacia_planks with only oak logs in stock.
+CRAFT_STOCK = [
+    {"id": "minecraft:oak_log", "count": 512},
+    {"id": "minecraft:coal", "count": 256},
+    {"id": "minecraft:stick", "count": 64},
+    {"id": "minecraft:cobblestone", "count": 1024},
+]
+
 # Display names the automatic prettifier would get wrong. Everything else falls
 # back to title-casing the item id, which matches how these items read in game.
 CATALOGUE = {
@@ -68,7 +89,8 @@ class Scenario(object):
     """One emulated installation, ready to be written into a computer."""
 
     def __init__(self, inventories=None, config=None, data=None,
-                 modem="back", catalogue=None, skip_splash=True, profile=False):
+                 modem="back", catalogue=None, skip_splash=True, profile=False,
+                 turtle=None):
         self.inventories = inventories if inventories is not None else []
         self.config = config
         self.data = data or {}
@@ -76,6 +98,7 @@ class Scenario(object):
         self.catalogue = catalogue if catalogue is not None else dict(CATALOGUE)
         self.skip_splash = skip_splash
         self.profile = profile
+        self.turtle = turtle
 
     def to_lua(self):
         world = {
@@ -84,12 +107,26 @@ class Scenario(object):
             "catalogue": self.catalogue,
             "profile": self.profile,
         }
+        if self.turtle is not None:
+            world["turtle"] = self.turtle
         table = {"world": world, "skip_splash": self.skip_splash}
         if self.config is not None:
             table["config"] = self.config
         if self.data:
             table["data"] = self.data
         return "return %s\n" % lua_value(table)
+
+    def turtle_lua(self):
+        """The scenario file written to the crafting turtle's computer directory.
+
+        Deliberately tiny. The turtle cannot see any of the controller's world --
+        peripherals do not cross computers in CraftOS-PC -- so shipping it the
+        full world table would describe inventories it can never reach.
+        """
+        return "return %s\n" % lua_value({
+            "skip_splash": self.skip_splash,
+            "world_server": 0,
+        })
 
 
 def unconfigured():
@@ -216,3 +253,31 @@ def configured(stock=None, storage_count=None):
         "monitors": None,
     }
     return Scenario(inventories=inventories, config=config)
+
+
+def crafting(stock=None, recipes=None, storage_count=None):
+    """A commissioned installation with a crafting turtle bound and running.
+
+    Everything `configured()` provides, plus the craft buffer the turtle sits
+    over, the turtle itself as computer 1, and the world model that gives the
+    emulated turtle something to move items in and out of.
+
+    `recipes` overrides what the emulated world knows how to craft. Left alone
+    the world uses smoke/craft_oracle.lua's own defaults; passed a list it can
+    be made to *disagree* with the controller's recipe pack, which is what a
+    conditions-gated modded recipe does on a live installation.
+    """
+    built = configured(stock=CRAFT_STOCK if stock is None else stock,
+                       storage_count=storage_count)
+    built.inventories.append({"name": CRAFT_BUFFER_NAME})
+    built.config["craft_buffer"] = {"peripheral_name": CRAFT_BUFFER_NAME}
+    built.config["turtle"] = {"peripheral_name": "computer_%d" % TURTLE_ID}
+    built.turtle = {
+        "id": TURTLE_ID,
+        "buffer": CRAFT_BUFFER_NAME,
+        "inventory": TURTLE_INVENTORY_NAME,
+        "void": VOID_NAME,
+    }
+    if recipes is not None:
+        built.turtle["recipes"] = recipes
+    return built
