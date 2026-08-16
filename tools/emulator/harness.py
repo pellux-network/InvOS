@@ -87,13 +87,17 @@ class Harness(object):
             shutil.rmtree(self.workdir)
         os.makedirs(self.computer_dir)
 
+        # craft_oracle.lua goes on every computer beside world.lua: both describe
+        # the emulated world rather than any one scenario, and it is pure enough
+        # to be probed without standing a turtle up. world_turtle.lua actually
+        # drives peripherals, so it only appears where there is a turtle to drive.
         extra = {
             "scenario.lua": scenario.to_lua(),
             "world.lua": _read(os.path.join(SMOKE_DIR, "world.lua")),
+            "craft_oracle.lua": _read(os.path.join(SMOKE_DIR, "craft_oracle.lua")),
         }
         if getattr(scenario, "turtle", None):
             extra["world_turtle.lua"] = _read(os.path.join(SMOKE_DIR, "world_turtle.lua"))
-            extra["craft_oracle.lua"] = _read(os.path.join(SMOKE_DIR, "craft_oracle.lua"))
 
         installation = session.Installation(self.controller_root, self.computer_dir)
         files = installation.install(extra_files=extra)
