@@ -35,7 +35,7 @@ Operators drive recovery from the terminal: retry and cancel on the Requests pag
 - `tools/emulator/` boots the controller in the CraftOS-PC emulator and drives it headlessly; see `docs/emulator.md`. It installs from `deployment_manifest.lua`, so a module missing from the manifest fails to boot there rather than in Minecraft, and it runs the Lua 5.2 that CC:Tweaked runs rather than the host's 5.4. Nothing under `controller/` or `turtle/` may require any part of it. `smoke/world.lua` uses CraftOS-PC-only calls (`periphemu`, `setItem`) and patches `getItemDetail` to return the `displayName`/`maxCount`/`tags` that CC:Tweaked returns and the emulator does not; that patch exists to match Minecraft, and the controller must never depend on it.
 - `controller/storage/tests/` contains the host-runnable Lua suite and must never be deployed.
 - `controller/storage/deployment_manifest.lua` is the exact runtime deployment allow-list.
-- `docs/operations.md` describes topology, setup, recovery, upgrades, and deployment safety.
+- `docs/operations.md` covers the two host-side procedures: deploying to a live installation and generating the recipe pack. Operator-facing material (topology, setup, daily use, recovery, upgrades) lives in the GitHub wiki, which is canonical for it.
 - `docs/backlog.md` lists known gaps, untested paths and polish, ordered by risk.
 - `docs/assets/wordmark.svg` is the project wordmark used in `README.md`.
 - `CONTRIBUTING.md` is the developer-facing onboarding doc: workflow, test commands, code
