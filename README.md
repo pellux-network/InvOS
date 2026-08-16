@@ -170,7 +170,9 @@ Search retrieval.
   - `storage/core/` — inventory scanning, indexing, planning, transfers, and
     reconciliation.
   - `storage/shared/` — runtime, codec, and durable-store helpers.
-  - `storage/recipes/` — the generated crafting recipe pack; never hand-edited.
+  - `storage/recipes/` — the generated crafting recipe pack; never hand-edited, and
+    gitignored, since it's data derived from one modpack's own game rather than source.
+    See [`docs/operations.md`](docs/operations.md#regenerating-the-crafting-recipe-pack).
 - `turtle/` — the crafting turtle's own deployable tree. It never shares files with the
   controller in either direction.
 - `tools/` — host-side build tooling that is never deployed: `recipe_import.py` builds the

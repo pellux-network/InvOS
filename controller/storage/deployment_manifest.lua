@@ -40,38 +40,10 @@ local M={files={
     "storage/shared/codec.lua",
     "storage/shared/runtime.lua",
     "storage/shared/store.lua",
-    -- The generated crafting recipe pack. These are build artifacts, not mutable
-    -- state, which is why they live outside storage/data/ and ship like code.
-    -- Regenerate with tools/recipe_import.py; never hand-edit.
-    -- The shard list must match the converter's --shards default (4). Changing one
-    -- without the other either strands a shard on the host or names a missing file.
-    "storage/recipes/items.lua",
-    "storage/recipes/index.lua",
-    "storage/recipes/tags.lua",
-    "storage/recipes/pack_01.lua",
-    "storage/recipes/pack_02.lua",
-    "storage/recipes/pack_03.lua",
-    "storage/recipes/pack_04.lua",
-    "storage/recipes/pack_05.lua",
-    "storage/recipes/pack_06.lua",
-    "storage/recipes/pack_07.lua",
-    "storage/recipes/pack_08.lua",
-    "storage/recipes/pack_09.lua",
-    "storage/recipes/pack_10.lua",
-    "storage/recipes/pack_11.lua",
-    "storage/recipes/pack_12.lua",
-    "storage/recipes/pack_13.lua",
-    "storage/recipes/pack_14.lua",
-    "storage/recipes/pack_15.lua",
-    "storage/recipes/pack_16.lua",
-    "storage/recipes/pack_17.lua",
-    "storage/recipes/pack_18.lua",
-    "storage/recipes/pack_19.lua",
-    "storage/recipes/pack_20.lua",
-    "storage/recipes/pack_21.lua",
-    "storage/recipes/pack_22.lua",
-    "storage/recipes/pack_23.lua",
-    "storage/recipes/pack_24.lua",
+    -- The generated crafting recipe pack under storage/recipes/ is deliberately NOT
+    -- listed here. It is per-deployment data derived from one modpack's own game, not
+    -- source, so it is gitignored and never fetched by install.lua; tools/deploy.py
+    -- pushes it separately, outside this allow-list, if a local copy exists.
 }}
 
 local listed={};for _,path in ipairs(M.files) do listed[path]=true end

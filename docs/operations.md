@@ -276,7 +276,7 @@ an error.
 
 ## Regenerating the crafting recipe pack
 
-The recipe pack under `controller/storage/recipes/` is generated, not hand-written. It is deployed like code and listed in `deployment_manifest.lua`. Never edit it directly: the next regeneration overwrites it.
+The recipe pack under `controller/storage/recipes/` is generated, not hand-written, and never edited directly: the next regeneration overwrites it. It's per-deployment data derived from one modpack's own game rather than source, so it's gitignored and not listed in `deployment_manifest.lua`; `tools/deploy.py` pushes it to the live controller separately, from whatever local copy exists (see its `deploy_recipe_pack` step). A fresh clone has no pack until you generate one below, and the controller runs fine without it — crafting just reports nothing craftable until you deploy one.
 
 Hand-written recipes belong in `storage/data/custom_recipes.lua`, which lives with the mutable data the deployment gate preserves, and which takes precedence over every generated pack. Operator tag and recipe pins live alongside it in `storage/data/craft_prefs.lua`.
 

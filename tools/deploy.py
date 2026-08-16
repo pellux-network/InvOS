@@ -18,6 +18,9 @@ What it enforces, in order:
 3. Nothing is in flight: no transfer journal, and file mtimes stable across a sample.
 4. Both trees are backed up before anything is written.
 5. Only manifest-listed paths are written, LF-only, and never anything under storage/data.
+   The controller's generated recipe pack (storage/recipes/) is the one exception: it is
+   per-deployment data, not source, so it deploys from whatever is present in the local
+   working tree rather than from the manifest -- see deploy_recipe_pack().
 6. Every written file hashes correctly, holds no CR bytes, and has no strays beside it.
 7. Every deployed Lua module parses.
 8. storage/data survived byte-for-byte.
@@ -189,6 +192,58 @@ def deploy(source_root, target_root, manifest_path, label):
         dst.write_bytes(payload)
         written += 1
     say("   wrote %d, unchanged %d" % (written, unchanged))
+    return hashes
+
+
+def deploy_recipe_pack(source_root, target_root, label):
+    """Copy the generated recipe pack, if present locally, outside the manifest.
+
+    storage/recipes/ is generated per-deployment from one modpack's own game data by
+    tools/recipe_import.py, so it is gitignored rather than committed and is not listed
+    in deployment_manifest.lua. A controller with no local pack still deploys cleanly --
+    recipe_repo.lua already treats a missing pack as "no recipes craftable" -- so this is
+    the one deploy step that is allowed to find nothing and move on.
+
+    Returned hashes fold into the same dict verify()/strays()/parse_check() already run
+    over the manifest's files, so a recipe pack gets the same integrity checks for free
+    and never shows up as a stray.
+    """
+    src_dir = source_root / "storage" / "recipes"
+    say("== recipe pack (%s) ==" % label)
+    hashes = {}
+    if not src_dir.is_dir():
+        say("   none locally, skipping (crafting will report nothing craftable)")
+        return hashes
+
+    written, unchanged = 0, 0
+    keep = set()
+    for src in sorted(src_dir.glob("*.lua")):
+        rel = "storage/recipes/" + src.name
+        keep.add(rel)
+        payload = lf(src.read_bytes())
+        hashes[rel] = hashlib.sha256(payload).hexdigest()
+        dst = target_root / rel
+        existing = dst.read_bytes() if dst.is_file() else None
+        if existing is not None and lf(existing) == payload:
+            unchanged += 1
+            continue
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        if dst.is_file():
+            dst.unlink()
+        dst.write_bytes(payload)
+        written += 1
+
+    pruned = 0
+    dst_dir = target_root / "storage" / "recipes"
+    if dst_dir.is_dir():
+        for path in dst_dir.glob("*.lua"):
+            rel = "storage/recipes/" + path.name
+            if rel not in keep:
+                path.unlink()
+                pruned += 1
+
+    say("   wrote %d, unchanged %d, pruned %d (%d files)"
+        % (written, unchanged, pruned, len(keep)))
     return hashes
 
 
@@ -369,6 +424,8 @@ def main(argv=None):
         deployed[name] = deploy(source, target, manifest,
                                 "%s -> #%s" % (name, target.name))
         deploy_version_file(repo, target, deployed[name])
+        if name == "controller":
+            deployed[name].update(deploy_recipe_pack(source, target, name))
     say("")
 
     problems = 0

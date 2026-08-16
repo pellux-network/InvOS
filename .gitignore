@@ -1,5 +1,6 @@
 .worktrees/
 controller/storage/data/
+controller/storage/recipes/
 *.tmp
 __pycache__/
 .deploy-backups/
