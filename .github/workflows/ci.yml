@@ -41,7 +41,10 @@ jobs:
 
       - name: Run tools/ Python suite
         working-directory: tools
-        run: python3 -m unittest test_recipe_pack test_recipe_import
+        run: python3 -m unittest test_recipe_pack test_recipe_import test_deploy
+
+      - name: Run install.lua's pure-function suite
+        run: lua install_test.lua
 
       - name: Run emulator suite (host Lua 5.2 + CraftOS-PC)
         working-directory: tools/emulator
