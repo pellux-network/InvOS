@@ -74,9 +74,9 @@ local function context(stock, overrides)
     return ctx
 end
 
--- The real generated pack, loaded once. Deliberately not the fixture: a test double
--- that is more permissive than the real artifact hides exactly this module's bugs.
-local realRepo = RecipeRepo.new({})
+-- The vanilla-1.18.2 fixture pack, loaded once. Deliberately not standardRepo(): a test
+-- double that is more permissive than a real artifact hides exactly this module's bugs.
+local realRepo = require("tests.real_recipe_pack")
 
 local function realContext(stock)
     return {

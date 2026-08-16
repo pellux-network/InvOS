@@ -2,15 +2,14 @@ local Coordinator = require("app.coordinator")
 local CraftMonitor = require("app.craft_monitor")
 local CraftPlanner = require("core.craft_planner")
 local CraftPrefs = require("core.craft_prefs")
-local RecipeRepo = require("core.recipe_repo")
 local UI = require("app.ui")
 local T = require("tests.mock_cc")
 
--- End to end from a keypress to a queued job, against the real generated recipe pack.
--- The point is the interaction between the UI, the coordinator and the planner: each has
--- its own tests, and this is where the connections between them can be wrong while all of
--- those still pass.
-local realRepo = RecipeRepo.new({})
+-- End to end from a keypress to a queued job, against the vanilla-1.18.2 fixture recipe
+-- pack. The point is the interaction between the UI, the coordinator and the planner: each
+-- has its own tests, and this is where the connections between them can be wrong while all
+-- of those still pass.
+local realRepo = require("tests.real_recipe_pack")
 
 local function scanner()
     local api, steps = {}, 0

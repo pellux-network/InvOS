@@ -2,19 +2,18 @@ local Alerts = require("app.alerts")
 local CraftPlanner = require("core.craft_planner")
 local CraftService = require("app.craft_service")
 local Lifecycle = require("app.lifecycle")
-local RecipeRepo = require("core.recipe_repo")
 local T = require("tests.mock_cc")
 
 -- The real turtle executor, loaded by path so the turtle tree never shadows controller
 -- modules for tests that run after this one.
 local Executor = dofile("../turtle/crafter/executor.lua")
 
--- Everything below the craft service is real: the generated recipe pack, the planner,
--- the service, and the turtle executor. Only the inventories are modelled, and they are
--- modelled with stack limits, because a fake without them is what let a batching bug
--- reach the game.
+-- Everything below the craft service is real: the vanilla-1.18.2 fixture recipe pack, the
+-- planner, the service, and the turtle executor. Only the inventories are modelled, and
+-- they are modelled with stack limits, because a fake without them is what let a batching
+-- bug reach the game.
 local STACK = 64
-local realRepo = RecipeRepo.new({})
+local realRepo = require("tests.real_recipe_pack")
 
 local function newBuffer()
     -- Slot-based, so the turtle draws from it the way suckDown really does.
