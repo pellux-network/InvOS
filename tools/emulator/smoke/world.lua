@@ -42,6 +42,11 @@ local function stackLimitFor(id)
     return STACK_LIMITS[id] or DEFAULT_STACK
 end
 
+-- Exported for smoke/world_turtle.lua, which has to give a crafted item the same
+-- stack limit and display name any other item in this world would have.
+World.stackLimitFor = stackLimitFor
+World.displayNameFor = displayNameFor
+
 -- Per-slot facts the emulated chest cannot store, remembered here and re-attached
 -- when the controller reads a slot back.
 --
@@ -247,6 +252,15 @@ function World.build(spec)
     for _, inventory in ipairs(spec.inventories or {}) do
         World.createInventory(inventory.name, inventory.double)
         if inventory.stock then World.stock(inventory.name, inventory.stock) end
+    end
+    if spec.turtle then
+        -- The turtle's own sixteen slots, and the sink crafting consumes into.
+        -- A chest has more slots than a turtle; the world server refuses anything
+        -- above 16, so the extra ones are unreachable. The void is a double chest
+        -- because setItem cannot clear a slot, so nothing can ever empty it --
+        -- pushItems merges into partial stacks, so it grows slowly.
+        World.createInventory(spec.turtle.inventory, false)
+        World.createInventory(spec.turtle.void, true)
     end
     -- Order matters: each of these wraps the peripheral API the previous one
     -- installed, so profiling must go on last to see the calls the controller

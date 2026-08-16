@@ -128,5 +128,93 @@ os.shutdown()
         self.assertEqual(written.strip(), "OK")
 
 
+@unittest.skipIf(SKIP, "INVOS_SKIP_EMULATOR=1")
+class WorldServerTests(unittest.TestCase):
+    """The world server, driven directly rather than through rednet.
+
+    Item movement is real pushItems/pullItems between emulated chests, so these
+    assert the emulator's own conservation as much as the server's logic: a stack
+    that vanished here would vanish in a craft too.
+    """
+
+    ASSERTIONS = r'''
+local World = dofile("/world.lua")
+local WorldTurtle = dofile("/world_turtle.lua")
+local scenario = dofile("/scenario.lua")
+World.build(scenario.world)
+
+local BUFFER = scenario.world.turtle.buffer
+local INV = scenario.world.turtle.inventory
+local server = WorldTurtle.new(scenario.world.turtle, World)
+
+local failures = {}
+local function check(name, condition)
+    if not condition then failures[#failures + 1] = name end
+end
+local function countIn(name, slot)
+    local item = peripheral.call(name, "list")[slot]
+    return item and item.count or 0
+end
+
+peripheral.call(BUFFER, "setItem", 1, {name = "minecraft:oak_log", count = 8, maxCount = 64})
+
+check("select bounds", server:handle({op = "select", args = {17}}) == false)
+server:handle({op = "select", args = {16}})
+check("suckDown takes the lowest buffer slot", server:handle({op = "suckDown", args = {}}) == true)
+check("it landed in the selected slot", countIn(INV, 16) == 8)
+check("the buffer gave them up", countIn(BUFFER, 1) == 0)
+
+-- transferTo is a push to the inventory's own name, which CraftOS-PC allows.
+check("transferTo moves part of a stack", server:handle({op = "transferTo", args = {1, 3}}) == true)
+check("source kept the rest", countIn(INV, 16) == 5)
+check("destination took its share", countIn(INV, 1) == 3)
+
+-- Only the 3x3 grid is a recipe. Slot 16 sits outside it, so five logs there plus
+-- three in slot 1 is still just "three logs in cell 1".
+local ok = server:handle({op = "craft", args = {}})
+check("a matching grid crafts", ok == true)
+
+local function heldOf(name, id)
+    local total = 0
+    for _, item in pairs(peripheral.call(name, "list")) do
+        if item.name == id then total = total + item.count end
+    end
+    return total
+end
+
+-- The three logs in the cell are gone; the five parked outside the grid in slot
+-- 16 are untouched, because slots 4, 8 and 12-16 are not part of the recipe.
+check("the grid's ingredients were consumed, held " .. heldOf(INV, "minecraft:oak_log"),
+    heldOf(INV, "minecraft:oak_log") == 5)
+check("and they went to the void", heldOf(scenario.world.turtle.void, "minecraft:oak_log") == 3)
+
+local produced = heldOf(INV, "minecraft:oak_planks")
+-- 3 logs in one cell = 3 runs of a 4-plank recipe.
+check("output is count times runs, got " .. produced, produced == 12)
+
+-- A grid nothing matches must refuse rather than invent an output.
+peripheral.call(INV, "setItem", 2, {name = "minecraft:cobblestone", count = 4, maxCount = 64})
+local bad = server:handle({op = "craft", args = {}})
+check("an unmatched grid refuses", bad == false)
+check("and consumed nothing", countIn(INV, 2) == 4)
+
+-- dropDown returns items to the buffer, which is how every job ends.
+server:handle({op = "select", args = {2}})
+check("dropDown returns items", server:handle({op = "dropDown", args = {}}) == true)
+check("the turtle slot is empty", countIn(INV, 2) == 0)
+
+local handle = fs.open("/world.txt", "w")
+handle.write(#failures == 0 and "OK" or table.concat(failures, "\n"))
+handle.close()
+os.shutdown()
+'''
+
+    def test_the_world_server_moves_and_crafts_real_items(self):
+        written = test_smoke.run_probe(
+            "world_turtle_probe.lua", self.ASSERTIONS, "world.txt",
+            scenario=scenario_module.crafting())
+        self.assertEqual(written.strip(), "OK")
+
+
 if __name__ == "__main__":
     unittest.main()
