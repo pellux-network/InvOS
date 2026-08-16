@@ -65,30 +65,36 @@ too low. Worth measuring against real multi-step crafts before trusting them.
 
 `tools/emulator/` narrowed this list but did not empty it. It runs the controller under
 ComputerCraft's own Lua 5.2 against emulated inventories, which is a real third tier between
-the host suite and the live installation — but it emulates no crafting turtle, so every
-crafting path below still has never run outside host fakes. See
-[`emulator.md`](emulator.md) for what it does and does not reproduce.
+the host suite and the live installation. It now boots the crafting turtle too — a second
+emulated computer running `turtle/` over real rednet — so the crafting pipeline no longer runs
+only against host fakes. See [`emulator.md`](emulator.md) for what it does and does not
+reproduce, and for the oracle's limits.
 
 These work in the host suite and have never run in game:
 
 - **A large batched craft against the modded pack.** 500 sticks worked against the vanilla
   pack; nothing that size has run since the pack grew to modded scale, currently 22,705
-  outputs *(pack-dependent)*.
-- **A deep tree** — three or more chained intermediates.
-- **A queued second job** while one is running.
+  outputs *(pack-dependent)*. A *small* craft now has: `craftos.py craft "Stick" --count 8
+  --pack local` completes a two-step tree against the real pack, which exercises tag
+  rollback over a 412-member tag. A batch in the hundreds still has not.
+- **A deep tree** — three or more chained intermediates. The emulator covers two.
+- **A queued second job** while one is running. Drivable through the emulator now; not asserted.
 - **The `TRANSFER_STALLED` alert.** Added after a real stall, never seen fire.
-- **Job cancellation mid-craft.**
+- **Job cancellation mid-craft.** Drivable through the emulator now; not asserted.
 
 Now covered outside the host suite, under real CC Lua 5.2 rather than in game: boot from the
 deployment manifest, indexing and stock aggregation across eight containers, search filtering,
-page navigation, the setup wizard's discovery step, and NBT variants staying distinct through
-scanning and indexing. Emulated, not played — but no longer only host fakes.
+page navigation, the setup wizard's discovery step, NBT variants staying distinct through
+scanning and indexing, and — since the emulated turtle — a whole craft from plan through
+staging, the turtle command, collection and delivery, including a two-ingredient recipe, a
+two-step tree, and a world that refuses a recipe the pack claims. Emulated, not played, and
+against a five-recipe oracle rather than Minecraft — but no longer only host fakes.
 
-**`install.lua`'s turtle-side auto-detection.** The emulator has no crafting turtle (above),
-so `tools/emulator/test_install.py` only exercises the controller branch of
-`install.lua`'s `turtle ~= nil` check. The turtle branch itself is proven only by that same
-logic being read correctly, not by actually booting a turtle against it — same limitation,
-same reason, as the crafting paths above.
+**`install.lua`'s turtle-side auto-detection.** The `turtle` global now exists on the emulated
+crafting turtle, so the `turtle ~= nil` branch is reachable there — but
+`tools/emulator/test_install.py` still exercises only the controller branch. The turtle branch
+is proven by that logic being read correctly, not by an install actually running against a
+turtle.
 
 ## Performance
 
@@ -151,14 +157,17 @@ address.
   ordering bug; hand-written dump fixtures using ints where KubeJS emits floats. A shared
   fake that models CC's real constraints once would be worth more than the individual fixes.
   `tools/emulator/` is the strongest version of that — it is not a double at all, but the
-  real runtime — and it already covers inventories, stack limits, slot counts and Lua 5.2
-  semantics. It does not yet cover the turtle, which is where several of the defects above
-  actually came from, so the argument for a constrained shared fake still stands for
-  `turtle/`.
-- **The emulator has no crafting turtle.** `periphemu` can create a `computer` peripheral, so
-  a second emulated computer running `turtle/` is possible in principle; until then crafting
-  is exercised only by host fakes, and `scenario.configured()` deliberately leaves the turtle
-  unbound so the Craft page reports crafting unavailable rather than pretending.
+  real runtime — and it covers inventories, stack limits, slot counts and Lua 5.2 semantics.
+  It now covers the turtle too: the firmware runs unmodified on a second emulated computer,
+  and the `turtle` API it is given moves items with real `pushItems`/`pullItems` between
+  emulated chests, so slot counts and stack limits are enforced by the emulator rather than
+  by the fake. The remaining double is the recipe oracle, and it is deliberately small.
+- **The emulated world knows five recipes.** `smoke/craft_oracle.lua` is hand-written and
+  independent of the recipe pack on purpose — an oracle derived from the pack could never
+  disagree with it, and disagreement is the failure worth reproducing. The cost is coverage:
+  an item outside those five is uncraftable in the emulator whatever the pack says, so a
+  crafting test can only be written about them. Widening it is cheap; deriving it from the
+  pack would not be an improvement.
 - **Emulated NBT does not survive item movement.** `smoke/world.lua` re-attaches seeded NBT
   per inventory and slot because CraftOS-PC's chests drop it entirely; the shim does not
   follow items through `pushItems`/`pullItems`. Enough for indexing, search and planning;
