@@ -152,22 +152,76 @@ class SessionInputTests(unittest.TestCase):
             driver.press("anykey")
 
 
-def terminal_payload(line):
+def terminal_payload(line, window=0):
     """A one-row terminal-contents payload showing ``line``."""
-    import struct
-    width = len(line)
-    body = struct.pack("<BBBBHHHHB3x", rawterm.PACKET_TERMINAL_CONTENTS, 0, 0, 0,
-                       width, 1, 0, 0, 0)
-    body += b"".join(bytes((ord(c), 1)) for c in line)
-    body += bytes((0x0F, width))
-    body += bytes(48)
-    return body
+    return rawterm.encode_terminal_contents(window, line)
 
 
-def queue_frames(driver, lines):
+def queue_frames(driver, lines, window=0):
     for line in lines:
-        driver._queue.put(rawterm.Packet(rawterm.PACKET_TERMINAL_CONTENTS, 0,
-                                         terminal_payload(line)))
+        driver._queue.put(rawterm.Packet(rawterm.PACKET_TERMINAL_CONTENTS, window,
+                                         terminal_payload(line, window)))
+
+
+class WindowRoutingTests(unittest.TestCase):
+    """A second computer's terminal arrives as another raw-protocol window.
+
+    Windows are numbered in creation order -- a probe with a monitor present put
+    the monitor on 1 and the turtle on 2 -- so the turtle is found as the lowest
+    non-zero window that has drawn, never as a hardcoded number.
+    """
+
+    def driver(self):
+        return session.Session("craftos", "/nonexistent")
+
+    def test_window_zero_is_still_the_default_screen(self):
+        driver = self.driver()
+        queue_frames(driver, ["CONTROLLER"])
+        driver.pump(timeout=0.05)
+        self.assertIn("CONTROLLER", driver.screen.text_dump())
+
+    def test_other_windows_no_longer_overwrite_window_zero(self):
+        driver = self.driver()
+        queue_frames(driver, ["CONTROLLER"])
+        driver.pump(timeout=0.05)
+        queue_frames(driver, ["CRAFTER"], window=1)
+        driver.pump(timeout=0.05, window=1)
+        self.assertIn("CONTROLLER", driver.screen.text_dump())
+        self.assertIn("CRAFTER", driver.screens[1].text_dump())
+
+    def test_the_turtle_window_is_the_lowest_non_zero_one(self):
+        driver = self.driver()
+        queue_frames(driver, ["CONTROLLER"])
+        queue_frames(driver, ["CRAFTER"], window=2)
+        driver.pump(timeout=0.05)
+        self.assertEqual(driver.turtle_window, 2)
+
+    def test_the_turtle_window_falls_back_to_one_before_any_frame(self):
+        self.assertEqual(self.driver().turtle_window, 1)
+
+    def test_resolve_window_accepts_names(self):
+        driver = self.driver()
+        self.assertEqual(driver.resolve_window(None), 0)
+        self.assertEqual(driver.resolve_window("terminal"), 0)
+        self.assertEqual(driver.resolve_window("turtle"), 1)
+        self.assertEqual(driver.resolve_window(3), 3)
+
+    def test_pump_reports_change_only_for_the_window_asked_about(self):
+        driver = self.driver()
+        queue_frames(driver, ["CRAFTER"], window=1)
+        self.assertFalse(driver.pump(timeout=0.05, window=0))
+        queue_frames(driver, ["CRAFTER 2"], window=1)
+        self.assertTrue(driver.pump(timeout=0.05, window=1))
+
+    def test_text_reads_the_window_it_is_given(self):
+        driver = self.driver()
+        queue_frames(driver, ["CONTROLLER"])
+        queue_frames(driver, ["CRAFTER"], window=1)
+        driver.pump(timeout=0.05)
+        driver.pump(timeout=0.05, window=1)
+        self.assertIn("CONTROLLER", driver.text())
+        self.assertIn("CRAFTER", driver.text(window="turtle"))
+        self.assertEqual(driver.text(window=9), "")
 
 
 class SettleTests(unittest.TestCase):

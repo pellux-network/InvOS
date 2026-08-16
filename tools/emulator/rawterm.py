@@ -266,6 +266,52 @@ class Screen(object):
         return any(needle in line for line in self.lines())
 
 
+def rle_encode(data):
+    """Run-length encode as value/count byte pairs, the form the decoder expects.
+
+    Counts are a single byte, so a run longer than 255 is split. Overshooting a
+    run would push every following field out of alignment, which is why
+    ``rle_decode_with_length`` clamps rather than trusts.
+    """
+    out = bytearray()
+    index = 0
+    while index < len(data):
+        value = data[index]
+        run = 1
+        while index + run < len(data) and data[index + run] == value and run < 255:
+            run += 1
+        out += bytes((value, run))
+        index += run
+    return bytes(out)
+
+
+def encode_terminal_contents(window, text, width=None, height=None):
+    """Build a terminal-contents payload holding ``text``, one line per row.
+
+    Only the tests use this -- in a real run the emulator is the only producer --
+    but a decoder with no encoder cannot be exercised without booting an
+    emulator, and window routing is exactly the kind of logic that should not
+    need one. The layout mirrors :meth:`Screen.from_payload` field for field.
+    """
+    lines = text.split("\n")
+    width = width or max(len(line) for line in lines)
+    height = height or len(lines)
+
+    cells = bytearray()
+    for row in range(height):
+        line = lines[row] if row < len(lines) else ""
+        cells += line.ljust(width)[:width].encode("ascii", "replace")
+
+    header = struct.pack("<BBBBHHHH", PACKET_TERMINAL_CONTENTS, window,
+                         0,      # mode: text
+                         0,      # cursor blink
+                         width, height,
+                         0, 0)   # cursor x, y
+    header += b"\x00\x00\x00\x00"  # payload[12:16]; the decoder's body starts at 16
+    colours = bytes((0x0F,)) * (width * height)  # bg high nybble, fg low nybble
+    return header + rle_encode(bytes(cells)) + rle_encode(colours) + bytes(48)
+
+
 def key_packet(key, pressed=True, held=False, window=0):
     """Build a key event payload. ``key`` is a ComputerCraft key code."""
     flags = 0

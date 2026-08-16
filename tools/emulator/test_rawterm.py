@@ -123,6 +123,41 @@ class InputEncodingTests(unittest.TestCase):
             rawterm.mouse_packet("teleport", button=1, x=1, y=1)
 
 
+class TerminalContentsRoundTripTests(unittest.TestCase):
+    """The encoder exists for the tests, so the decoder is what judges it.
+
+    A hand-built packet the decoder read differently would make every test built
+    on it a test of nothing, so these check the two against each other rather
+    than checking the encoder against its own idea of the format.
+    """
+
+    def test_a_built_packet_decodes_back_to_its_text(self):
+        payload = rawterm.encode_terminal_contents(0, "HELLO")
+        screen = rawterm.Screen.from_payload(payload)
+        self.assertIn("HELLO", screen.text_dump())
+
+    def test_the_geometry_survives_the_round_trip(self):
+        payload = rawterm.encode_terminal_contents(0, "AB\nCD")
+        screen = rawterm.Screen.from_payload(payload)
+        self.assertEqual((screen.width, screen.height), (2, 2))
+        self.assertEqual(len(screen.palette), 16)
+        self.assertEqual(screen.text_dump(), "AB\nCD")
+
+    def test_short_rows_are_padded_to_the_full_width(self):
+        screen = rawterm.Screen.from_payload(
+            rawterm.encode_terminal_contents(0, "LONGER\nX"))
+        self.assertEqual(screen.text_dump(), "LONGER\nX")
+
+    def test_long_runs_are_split_across_count_bytes(self):
+        # Counts are one byte, so a 300-cell run of spaces cannot encode as a
+        # single pair -- a decoder clamping at 255 would lose the remainder.
+        payload = rawterm.encode_terminal_contents(0, " " * 300)
+        self.assertEqual(rawterm.Screen.from_payload(payload).width, 300)
+
+    def test_the_window_is_carried_in_the_header(self):
+        self.assertEqual(rawterm.encode_terminal_contents(2, "HI")[1], 2)
+
+
 class PrintableKeyTests(unittest.TestCase):
     """A driver must reproduce the key+char pairing a real keyboard produces."""
 
