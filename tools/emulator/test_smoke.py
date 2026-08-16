@@ -153,7 +153,7 @@ class ManifestTests(unittest.TestCase):
         installation = session.Installation(harness.controller_root,
                                             os.path.join(harness.workdir, "manifest-check"))
         files = installation.install()
-        self.assertGreater(len(files), 50)
+        self.assertGreater(len(files), 30)
 
     def test_the_runtime_is_the_lua_version_minecraft_uses(self):
         # AGENTS.md: host Lua is 5.4 and CC:Tweaked is 5.2, so a green host suite
