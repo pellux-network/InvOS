@@ -107,6 +107,17 @@ It confirms the scanner issues one `size` and one `list` per node per scan and n
 per slot beyond the metadata budget. It does not model tick cost, so it ranks work rather
 than predicting how long the real computer takes:
 
+- Ordinary retrieval and Drop-off import now refresh only the storage nodes named by a
+  tentative plan, replan against those fresh snapshots, and reconcile only the storage
+  endpoints actually touched. The Lua 5.2 emulator regression holds retrieval at eight
+  profiled calls (`3 size`, `3 list`, `1 getItemDetail`, `1 pushItems`) with both 1 and 20
+  storage nodes. Import holds at sixteen controller calls (`5 size`, `5 list`,
+  `5 getItemDetail`, `1 pushItems`); its test records a seventeenth, harness-only `setItem`
+  call used to deposit the item after profiling is reset. A 1/5/10/20-node emulator sweep
+  was correspondingly flat (retrieval 1.85--1.87s; import 0.52--0.56s), but those host
+  wall-clock values do not predict live server ticks. Initial indexing, ordinary background
+  refresh, crafting plans, and the bounded no-plan/retarget fallback intentionally still
+  inspect the full storage pool.
 - `items.lua` is 1.85 MB and parsed eagerly at boot *(pack-dependent)*. Boot time has not
   been measured on a real computer since the pack grew; if `INDEXING` takes noticeably
   longer, this is why.
