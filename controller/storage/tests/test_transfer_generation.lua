@@ -19,7 +19,7 @@ return {{name="unchanged live slots tolerate harmless scan generation advances",
     local result=transfer:execute({id="move",kind="request",state="TRANSFERRING"},{
         source_name="source",source_slot=1,source_epoch=10,source_pre_count=12,
         destination_name="pickup",destination_slot=1,destination_epoch=20,destination_pre_count=0,
-        identity_key=stone,limit=12},{{node_id="store",health="READY",
+        identity_key=stone,limit=12},{{node_id="store",peripheral_name="source",health="READY",
             slots={[1]={identity_key=stone,count=12}}}})
     T.equal(result.state,"VERIFYING")
     T.equal(pushed,1)

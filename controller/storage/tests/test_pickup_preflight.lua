@@ -17,8 +17,10 @@ local function execute(kind,destination)
     if kind=="import" then
         step.destination_slot=1;step.destination_epoch=1;step.destination_pre_count=5
     end
+    local storageName=kind=="request" and "source" or "pickup"
     local result=transfer:execute({id="move",kind=kind,state="TRANSFERRING"},step,
-        {{node_id="store",health="READY",slots={[1]={identity_key=stone,count=12}}}})
+        {{node_id="store",peripheral_name=storageName,health="READY",
+            slots={[1]={identity_key=stone,count=12}}}})
     return result,pushed,destinationInspections
 end
 

@@ -1,3 +1,5 @@
+local StorageScope=require("core.storage_scope")
+
 local Transfer={}
 Transfer.__index=Transfer
 
@@ -282,7 +284,9 @@ function Transfer:execute(operation,step,storageSnapshots)
     if not validateOperation(operation) or type(step)~="table" then
         return failed("INVALID_OPERATION","operation and transfer step are required",false)
     end
-    local baseline,baselineReason=self.reconciliation.capture(step.identity_key,storageSnapshots)
+    local scopedSnapshots,_,scopeReason=StorageScope.select(operation.kind,{step},storageSnapshots)
+    if not scopedSnapshots then return {state="FAILED",moved=0,reason=copy(scopeReason),rescan={}} end
+    local baseline,baselineReason=self.reconciliation.capture(step.identity_key,scopedSnapshots)
     if not baseline then return {state="FAILED",moved=0,reason=copy(baselineReason),
         rescan=copyArray(baselineReason.rescan or {})} end
     local ready,preflightReason=self:_preflight(operation,step)
@@ -393,7 +397,9 @@ function Transfer:executeBatch(operation,steps,storageSnapshots)
             return failed("MIXED_IDENTITY","a batch moves exactly one exact item identity",false)
         end
     end
-    local baseline,baselineReason=self.reconciliation.capture(identity,storageSnapshots)
+    local scopedSnapshots,_,scopeReason=StorageScope.select(operation.kind,steps,storageSnapshots)
+    if not scopedSnapshots then return {state="FAILED",moved=0,reason=copy(scopeReason),rescan={}} end
+    local baseline,baselineReason=self.reconciliation.capture(identity,scopedSnapshots)
     if not baseline then return {state="FAILED",moved=0,reason=copy(baselineReason),
         rescan=copyArray(baselineReason.rescan or {})} end
     local ready,preflightReason=self:_preflightBatch(operation,steps)
@@ -519,7 +525,9 @@ function Transfer:executeMultiBatch(operation,steps,storageSnapshots)
     local groups=identityGroups(steps)
     local keys={}
     for index,group in ipairs(groups) do keys[index]=group.identity_key end
-    local baseline,baselineReason=self.reconciliation.captureMany(keys,storageSnapshots)
+    local scopedSnapshots,_,scopeReason=StorageScope.select(operation.kind,steps,storageSnapshots)
+    if not scopedSnapshots then return {state="FAILED",moved=0,reason=copy(scopeReason),rescan={}} end
+    local baseline,baselineReason=self.reconciliation.captureMany(keys,scopedSnapshots)
     if not baseline then return {state="FAILED",moved=0,reason=copy(baselineReason),
         rescan=copyArray(baselineReason.rescan or {})} end
     local ready,preflightReason=self:_preflightMulti(operation,steps)
