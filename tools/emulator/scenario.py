@@ -43,6 +43,15 @@ CRAFT_STOCK = [
     {"id": "minecraft:cobblestone", "count": 1024},
 ]
 
+# Raw materials only. With no sticks and no planks in stock, a torch is three
+# crafts deep -- logs to planks, planks to sticks, sticks and coal to torches --
+# which is the chained-intermediate case the host suite could never reach.
+DEEP_CRAFT_STOCK = [
+    {"id": "minecraft:oak_log", "count": 512},
+    {"id": "minecraft:coal", "count": 256},
+    {"id": "minecraft:cobblestone", "count": 1024},
+]
+
 # Display names the automatic prettifier would get wrong. Everything else falls
 # back to title-casing the item id, which matches how these items read in game.
 CATALOGUE = {

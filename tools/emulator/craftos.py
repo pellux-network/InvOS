@@ -209,9 +209,15 @@ def command_gui(args):
     game outside of any test. Useful for watching a scenario play out, or for
     the debugger peripheral and other tools that need a real SDL window
     (see docs/emulator.md).
+
+    `--scenario crafting` opens **two** windows: the controller, and the crafting
+    turtle that `smoke/boot.lua` creates. Both are real computers you can type
+    into, so a craft can be driven by hand from the Crafting page and watched on
+    the turtle's own screen as it stages, crafts and purges.
     """
     scenario = build_scenario(args.scenario)
-    harness = harness_module.Harness(workdir=args.workdir)
+    harness = harness_module.Harness(workdir=args.workdir,
+                                     recipe_pack=getattr(args, "pack", "fixture"))
     _executable, files = harness.prepare(scenario)
     gui_executable = harness.provisioner.gui_executable
     if not os.path.exists(gui_executable):
@@ -229,6 +235,10 @@ def command_gui(args):
     process = subprocess.Popen(command, **popen_kwargs)
 
     print("Installed %d files into %s" % (len(files), harness.computer_dir))
+    if getattr(scenario, "turtle", None):
+        print("Installed the crafting turtle into %s" % harness.turtle_dir)
+        print("Two windows will open: computer 0 is the controller, computer %d "
+              "the turtle." % (scenario.turtle.get("id", 1),))
     print("Launched %s (pid %d)" % (gui_executable, process.pid))
     return 0
 

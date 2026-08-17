@@ -72,23 +72,25 @@ reproduce, and for the oracle's limits.
 
 These work in the host suite and have never run in game:
 
-- **A large batched craft against the modded pack.** 500 sticks worked against the vanilla
-  pack; nothing that size has run since the pack grew to modded scale, currently 22,705
-  outputs *(pack-dependent)*. A *small* craft now has: `craftos.py craft "Stick" --count 8
-  --pack local` completes a two-step tree against the real pack, which exercises tag
-  rollback over a 412-member tag. A batch in the hundreds still has not.
-- **A deep tree** — three or more chained intermediates. The emulator covers two.
-- **A queued second job** while one is running. Drivable through the emulator now; not asserted.
-- **The `TRANSFER_STALLED` alert.** Added after a real stall, never seen fire.
-- **Job cancellation mid-craft.** Drivable through the emulator now; not asserted.
+- **A large batched craft against the modded pack.** 256 sticks — one turtle call with
+  `per_cell` at 64 — now runs in the emulator against the fixture pack, and an 8-stick
+  two-step craft runs against the real modded pack. A batch in the *hundreds against the
+  modded pack* has still not run anywhere, and neither has anything at all in game.
+- **The `TRANSFER_STALLED` alert.** Added after a real stall, never seen fire. Forcing it
+  needs a transfer wedged for 60 seconds, which the harness can only do by stalling the world
+  server — a minute of test time to watch an alert that deliberately does not intervene.
 
 Now covered outside the host suite, under real CC Lua 5.2 rather than in game: boot from the
 deployment manifest, indexing and stock aggregation across eight containers, search filtering,
 page navigation, the setup wizard's discovery step, NBT variants staying distinct through
 scanning and indexing, and — since the emulated turtle — a whole craft from plan through
-staging, the turtle command, collection and delivery, including a two-ingredient recipe, a
-two-step tree, and a world that refuses a recipe the pack claims. Emulated, not played, and
-against a five-recipe oracle rather than Minecraft — but no longer only host fakes.
+staging, the turtle command, collection and delivery. Specifically: a single-ingredient craft,
+a two-ingredient one, a two-step tree, a **three-step tree** (logs to planks to sticks to
+torches), a **256-item batch** in one turtle call, a **second job queued behind a running
+one**, **cancelling a running job** and proving the next one still completes, a world that
+refuses a recipe the pack claims, and — where a generated pack exists — a craft against the
+real modpack plus a check that every recipe it declares is one the emulated world can match.
+Emulated, not played — but no longer only host fakes.
 
 **`install.lua`'s turtle-side auto-detection.** The `turtle` global now exists on the emulated
 crafting turtle, so the `turtle ~= nil` branch is reachable there — but
@@ -162,12 +164,13 @@ address.
   and the `turtle` API it is given moves items with real `pushItems`/`pullItems` between
   emulated chests, so slot counts and stack limits are enforced by the emulator rather than
   by the fake. The remaining double is the recipe oracle, and it is deliberately small.
-- **The emulated world knows five recipes.** `smoke/craft_oracle.lua` is hand-written and
-  independent of the recipe pack on purpose — an oracle derived from the pack could never
-  disagree with it, and disagreement is the failure worth reproducing. The cost is coverage:
-  an item outside those five is uncraftable in the emulator whatever the pack says, so a
-  crafting test can only be written about them. Widening it is cheap; deriving it from the
-  pack would not be an improvement.
+- **The emulated world's recipes now come from the pack.** `smoke/craft_oracle.lua` loads
+  every shard and resolves tags, so any item the controller can plan is one the emulator can
+  craft — 26,087 recipes indexed in about 100ms on a real modpack. It therefore cannot catch
+  a pack claiming a recipe the game does not have, since it believes the same file; passing
+  an explicit recipe list still makes the world disagree on demand. The earlier hand-written
+  five-recipe table had that independence by default and could test no modded item at all,
+  which was the wrong trade for a system whose defects come from modded crafting.
 - **Emulated NBT does not survive item movement.** `smoke/world.lua` re-attaches seeded NBT
   per inventory and slot because CraftOS-PC's chests drop it entirely; the shim does not
   follow items through `pushItems`/`pullItems`. Enough for indexing, search and planning;

@@ -39,6 +39,8 @@ scenario play out in an actual window instead, use `gui`:
 ```powershell
 python tools/emulator/craftos.py gui
 python tools/emulator/craftos.py gui --scenario unconfigured
+python tools/emulator/craftos.py gui --scenario crafting
+python tools/emulator/craftos.py gui --scenario crafting --pack local
 ```
 
 This installs the working tree from `storage/deployment_manifest.lua` and the
@@ -51,6 +53,14 @@ setup wizard for `unconfigured` — except now it is a real SDL window you can
 type and click into by hand, and the one case in docs/emulator.md's
 "Other CraftOS-PC debugging tools" table that needs a display (the `debugger`
 peripheral) works here.
+
+`--scenario crafting` opens **two** windows, because it is two computers: the
+controller, and the crafting turtle `smoke/boot.lua` creates. Both are real and
+both take input, so a craft can be driven by hand from the Crafting page (key 6)
+and watched on the turtle's own screen as it stages, crafts and purges. Add
+`--pack local` to do it against the real generated modpack rather than the
+vanilla fixture — the combination worth reaching for when a modded recipe
+misbehaves and you want to watch it happen rather than read a screen dump.
 
 `doctor` prints the GUI build's path alongside the console one when they
 differ, which is only on Windows — the Linux AppImage's `AppRun` serves both
@@ -153,12 +163,26 @@ deliver — not emulation overhead. If a crafting test ever takes *minutes*,
 something is wrong with the test rather than with the emulator: see
 "Driving this from an agent" below.
 
-**What a green craft run does not prove.** The oracle knows five recipes, so an
-item outside them is uncraftable here whatever the pack says. A pack recipe the
-game does not actually have is still only findable in game — the emulator can
-reproduce that *symptom* on demand (`scenario.crafting(recipes=[])` makes the
-world know nothing) but cannot detect the real case. And nothing here models
-server ticks.
+**What the world knows how to craft.** By default, everything the installed
+recipe pack does. `smoke/craft_oracle.lua` loads every shard, inverts the tag
+table, and indexes each recipe by its first occupied cell, so matching a staged
+grid is a lookup rather than a scan. Measured on a real modpack: 26,087 recipes
+indexed in about 100 ms, and every shaped recipe in the pack matches when its own
+grid is replayed through it — including the 3,888 modded ones sampled by
+`ModdedPackTests`.
+
+That is a deliberate change from an earlier design where the oracle was a small
+hand-written table kept independent of the pack. Independence bought one thing:
+the oracle could disagree with the pack. It cost the ability to test any modded
+item at all, which is where the defects actually come from. The disagreement case
+is still available on demand — `scenario.crafting(recipes=[...])` takes an
+explicit list, and an empty one makes the world know nothing — so nothing was
+lost except it no longer being the default.
+
+**What a green craft run does not prove.** A pack recipe the game does not
+actually have is still only findable in game: the oracle believes the same file
+the planner does, so it can reproduce that *symptom* on demand but cannot detect
+the real case. And nothing here models server ticks.
 
 One transport limitation worth knowing: `rednet.receive` discards messages that do
 not match its protocol filter, so while the shim is waiting inside an RPC the
@@ -236,8 +260,9 @@ Where the emulator differs from Minecraft, and what the harness does:
 | --- | --- |
 | CraftOS-PC's emulated chest returns only `name` and `count` from `getItemDetail`; CC:Tweaked also returns `displayName`, `maxCount`, `tags` | `World.enrichItemDetails` adds them, so the controller's learned-metadata paths behave as they do in game rather than seeing every item permanently unnamed. Patches the emulated computer only — the controller never knows. |
 | Emulated chests start empty and are filled with `setItem`, which is a CraftOS-PC extension | Confined to `smoke/world.lua`. Nothing in `controller/` may call it. |
+| **`pushItems`/`pullItems` with no target slot do not fill the first available slot.** CraftOS-PC only merges into an existing matching stack, and moves *nothing* once that stack is full — even with the rest of the inventory empty. CC:Tweaked spills into the first slot that will take them | `World.fillFirstAvailableSlot` restores CC's behaviour for every caller. This is the most consequential fidelity fix here: `core/planner.lua`'s `planRetrieval` deliberately names a destination node and no slot, so without it *any* multi-stack retrieval, craft delivery or drop-off import blocks with `PICKUP_FULL` against an almost-empty Pickup. Nothing in the controller is wrong; the emulator was. |
 | CraftOS-PC has no turtles at all: `periphemu.create(_, "turtle")` returns false and there is no `turtle` global | `scenario.crafting()` runs the real `turtle/` firmware on a second emulated computer over real rednet, with `turtle` injected by `smoke/turtle_api.lua` — a proxy that owns no item state and forwards every call to a world server beside the controller. `scenario.configured()` still leaves crafting unbound, which is a supported installation in its own right. |
-| Nothing decides whether a staged grid forms a recipe, because there is no Minecraft | `smoke/craft_oracle.lua` holds a small hand-written recipe table, deliberately independent of the controller's recipe pack. It knows five vanilla recipes; an item outside them is uncraftable here whatever the pack says. Because it is independent, a scenario can make the world *disagree* with the pack — which is what a `conditions`-gated modded recipe does in game. |
+| Nothing decides whether a staged grid forms a recipe, because there is no Minecraft | `smoke/craft_oracle.lua` answers it, by default from the same recipe pack the controller plans against — every recipe, tags and all, so any modded item that can be planned can be crafted. It re-checks the *arrangement* independently: which cell holds what, how many, and whether an item really is a member of the tag the recipe asked for. It cannot catch a pack that claims a recipe the game does not have, since it believes the same file; a scenario passing an explicit recipe list makes the world disagree on purpose, which is that failure's shape. |
 | CraftOS-PC accepts `nbt` on `setItem` and never reports it back from `list` or `getItemDetail` | `smoke/world.lua` remembers seeded NBT per inventory and slot and re-attaches it, as CC:Tweaked does. **It does not follow items through `pushItems`/`pullItems`**, so a seeded variant reads back correctly only where it was placed — enough for scanning, indexing, search and planning, not for transfers. Tests that move a variant would be asserting on the harness, so they are not written. |
 
 The rendered PNG has no Minecraft chrome: in game the terminal sits inside the
@@ -319,11 +344,21 @@ worth knowing before you start, both learned the hard way:
   the Crafting page keeps its query between visits and the driver never pressed
   Delete. The second craft typed into a dirty box, matched no recipe, and its
   digits went into the query instead of the quantity prompt — so no job was ever
-  created and the wait had nothing to find. With the query cleared the same four
-  crafts run in 37 seconds. **Confirm each step changed the screen before
-  sending the next**, so a driver mistake is reported in seconds instead of
-  being indistinguishable from slow work. Measuring first also showed the world
-  RPC costs 0.18 ms a round trip, ruling out the layer that looked suspicious.
+  created and the wait had nothing to find. **Confirm each step changed the
+  screen before sending the next**, so a driver mistake is reported in seconds
+  instead of being indistinguishable from slow work. Measuring first also showed
+  the world RPC costs 0.18 ms a round trip, ruling out the layer that looked
+  suspicious.
+- **Then a slow run means a real bug, so go and find it.** Once the driver was
+  honest, a 256-stick craft took its whole 300-second timeout — because it was
+  wedged, not slow. Sampling the jobs list, then dumping the Requests and Alerts
+  pages, located it in minutes: the turtle was dropping only the first stack of a
+  two-stack output, so the controller saw a shortfall and waited forever on a
+  withdrawal for planks that only existed inside the turtle. The same underlying
+  divergence then failed the craft itself and destroyed items. Both were
+  `pushItems` not spilling (see the fidelity table). The same craft now finishes
+  in **4 seconds**. Nothing in `controller/` or `turtle/` needed changing —
+  but nothing would have found it without running a craft this size.
 - **Use `craftos.py` for single screens.** One `text` or `shot` capture boots
   once and returns in well under a minute, so checking a specific screen is much
   cheaper than running a whole category. Reach for the suites to prove nothing

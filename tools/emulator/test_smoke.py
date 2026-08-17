@@ -25,7 +25,8 @@ import session
 SKIP = os.environ.get("INVOS_SKIP_EMULATOR") == "1"
 
 
-def run_probe(script_name, source, output_name, timeout=60, scenario=None):
+def run_probe(script_name, source, output_name, timeout=60, scenario=None,
+              recipe_pack="fixture"):
     """Run a Lua probe on an emulated computer and return what it wrote.
 
     The probes below end with ``os.shutdown()``, which stops the *computer* but
@@ -40,7 +41,7 @@ def run_probe(script_name, source, output_name, timeout=60, scenario=None):
     about a harness module needs that module on the computer. The probe replaces
     the boot script entirely either way, so nothing is started for it.
     """
-    harness = harness_module.Harness()
+    harness = harness_module.Harness(recipe_pack=recipe_pack)
     executable, _ = harness.prepare(
         scenario or scenario_module.Scenario(inventories=[], config=None))
     script = os.path.join(harness.workdir, script_name)

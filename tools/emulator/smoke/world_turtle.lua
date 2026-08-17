@@ -29,7 +29,10 @@ function WorldTurtle.new(spec, world)
         buffer = assert(spec.buffer, "the craft buffer's peripheral name is required"),
         inventory = assert(spec.inventory, "the turtle inventory's name is required"),
         void = assert(spec.void, "the void inventory's name is required"),
-        oracle = Oracle.new(spec.recipes),
+        -- The generated pack by default, so any modded item the controller can
+        -- plan is an item the world can actually craft. An explicit table in the
+        -- spec overrides it, which is how a scenario makes the world disagree.
+        oracle = Oracle.forSpec(spec.recipes, spec.pack_dir),
         world = world,
         selected = 1,
     }, WorldTurtle)
@@ -101,6 +104,15 @@ function WorldTurtle:suckDown()
     return false
 end
 
+-- Drop the selected slot into the buffer, as a real turtle's dropDown does:
+-- spilling across as many buffer slots as it takes.
+--
+-- The spilling itself lives in World.fillFirstAvailableSlot, which makes a
+-- slotless pushItems behave the way CC:Tweaked's does, because the controller
+-- depends on that too. Before it existed the turtle could only ever drop its
+-- *first* stack of output: a craft yielding two stacks left half of it held, the
+-- controller saw a shortfall it then tried to withdraw from storage, and the job
+-- waited forever on a withdrawal that could never complete.
 function WorldTurtle:dropDown(count)
     local moved = peripheral.call(self.inventory, "pushItems",
         self.buffer, self.selected, count) or 0
@@ -160,9 +172,14 @@ function WorldTurtle:craft(limit)
 
     -- Consume by pushing into the void: setItem cannot clear or decrement a slot,
     -- so a sink is the only way to make items leave without a real destination.
+    -- This relies on a slotless push spilling across slots (see
+    -- World.fillFirstAvailableSlot): a cell holding a full stack fills a void slot,
+    -- and without spilling the next cell's push moved nothing -- failing the craft
+    -- with the earlier cells already destroyed, which lost items outright.
     for position, slot in ipairs(Oracle.GRID_SLOTS) do
         if grid[position] then
-            local moved = peripheral.call(self.inventory, "pushItems", self.void, slot, runs) or 0
+            local moved = peripheral.call(self.inventory, "pushItems",
+                self.void, slot, runs) or 0
             if moved < runs then
                 return false, "the emulated void is full; this run was too large"
             end

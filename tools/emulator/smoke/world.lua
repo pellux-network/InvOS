@@ -196,6 +196,96 @@ function World.enrichItemDetails(catalogue)
     end
 end
 
+--- Make a slotless pushItems/pullItems fill the first available slot, as CC does.
+--
+-- This is a fidelity fix, not a convenience, and it is the most consequential one
+-- in this file. In Minecraft, `pushItems(target, fromSlot, limit)` with no target
+-- slot fills the first slot that will take the items. CraftOS-PC only merges into
+-- an existing matching stack: once that stack is full it moves **nothing**, even
+-- with the rest of the inventory empty.
+--
+-- Measured, not assumed: pushing 64 planks into a chest whose first slot already
+-- held 64 returned 0 with 26 slots free; the same push naming an empty slot moved
+-- all 64.
+--
+-- Nothing in the controller is wrong here. `core/planner.lua`'s planRetrieval
+-- deliberately names a destination *node* and no slot, letting the destination
+-- choose -- which is right in game and is why retrieving more than one stack to
+-- Pickup works there. Without this shim it fails in the emulator only, and the
+-- controller blocks with PICKUP_FULL against an almost-empty Pickup. Any
+-- multi-stack retrieval, craft delivery or drop-off import would hit it.
+function World.fillFirstAvailableSlot()
+    local realWrap = peripheral.wrap
+    local realCall = peripheral.call
+
+    local function acceptingSlot(targetName, itemName, limit)
+        local contents = realCall(targetName, "list") or {}
+        local size = realCall(targetName, "size") or 0
+        for slot = 1, size do
+            local existing = contents[slot]
+            if existing and existing.name == itemName and existing.count < limit then
+                return slot
+            end
+        end
+        for slot = 1, size do
+            if not contents[slot] then return slot end
+        end
+        return nil
+    end
+
+    -- `move` is whichever direction is being emulated; `holder` is the inventory
+    -- the items start in and `receiver` the one they end up in, so one body serves
+    -- both pushItems and pullItems.
+    local function spill(method, holder, receiver, fromSlot, limit, selfName, otherName)
+        local item = (realCall(holder, "list") or {})[fromSlot]
+        if not item then return 0 end
+        local max = stackLimitFor(item.name)
+        local remaining = math.min(limit or item.count, item.count)
+        local moved = 0
+        while remaining > 0 do
+            local target = acceptingSlot(receiver, item.name, max)
+            if not target then break end
+            local shifted = realCall(selfName, method, otherName, fromSlot, remaining, target) or 0
+            if shifted <= 0 then break end
+            moved = moved + shifted
+            remaining = remaining - shifted
+        end
+        return moved
+    end
+
+    local function pushed(selfName, otherName, fromSlot, limit, toSlot)
+        if toSlot ~= nil then
+            return realCall(selfName, "pushItems", otherName, fromSlot, limit, toSlot)
+        end
+        return spill("pushItems", selfName, otherName, fromSlot, limit, selfName, otherName)
+    end
+
+    local function pulled(selfName, otherName, fromSlot, limit, toSlot)
+        if toSlot ~= nil then
+            return realCall(selfName, "pullItems", otherName, fromSlot, limit, toSlot)
+        end
+        return spill("pullItems", otherName, selfName, fromSlot, limit, selfName, otherName)
+    end
+
+    peripheral.call = function(name, method, ...)
+        if method == "pushItems" then return pushed(name, ...) end
+        if method == "pullItems" then return pulled(name, ...) end
+        return realCall(name, method, ...)
+    end
+
+    peripheral.wrap = function(name)
+        local wrapped = realWrap(name)
+        if type(wrapped) ~= "table" then return wrapped end
+        if wrapped.pushItems then
+            wrapped.pushItems = function(...) return pushed(name, ...) end
+        end
+        if wrapped.pullItems then
+            wrapped.pullItems = function(...) return pulled(name, ...) end
+        end
+        return wrapped
+    end
+end
+
 --- Count peripheral calls, the unit of work that actually costs server ticks.
 --
 -- AGENTS.md is specific that every peripheral call yields for about a server
@@ -266,6 +356,7 @@ function World.build(spec)
     -- installed, so profiling must go on last to see the calls the controller
     -- actually makes rather than the enrichment shim's inner calls.
     if spec.enrich ~= false then World.enrichItemDetails(spec.catalogue) end
+    if spec.fill ~= false then World.fillFirstAvailableSlot() end
     if spec.profile then World.profilePeripherals() end
     return World
 end
