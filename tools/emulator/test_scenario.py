@@ -103,6 +103,13 @@ class ConfiguredScenarioTests(unittest.TestCase):
         self.assertIsNone(built.config["turtle"])
         self.assertIsNone(built.turtle)
 
+    def test_optional_runtime_environment_is_serialised_for_the_boot_harness(self):
+        built = scenario.configured()
+        built.environment = {"scan_refresh_interval": 123456}
+        rendered = built.to_lua()
+        self.assertIn("environment", rendered)
+        self.assertIn("scan_refresh_interval = 123456", rendered)
+
 
 class CraftingScenarioTests(unittest.TestCase):
     def test_binds_a_buffer_and_a_turtle(self):

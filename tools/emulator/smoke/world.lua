@@ -300,6 +300,7 @@ function World.profilePeripherals()
     local counts, total = {}, 0
     local realCall = peripheral.call
     local realWrap = peripheral.wrap
+    local wrappedDepth = 0
 
     local function record(method)
         counts[method] = (counts[method] or 0) + 1
@@ -307,7 +308,7 @@ function World.profilePeripherals()
     end
 
     peripheral.call = function(name, method, ...)
-        record(method)
+        if wrappedDepth == 0 then record(method) end
         return realCall(name, method, ...)
     end
 
@@ -317,7 +318,15 @@ function World.profilePeripherals()
         local proxy = {}
         for key, value in pairs(wrapped) do
             if type(value) == "function" then
-                proxy[key] = function(...) record(key) return value(...) end
+                proxy[key] = function(...)
+                    record(key)
+                    wrappedDepth = wrappedDepth + 1
+                    local results = {pcall(value, ...)}
+                    wrappedDepth = wrappedDepth - 1
+                    if not results[1] then error(results[2], 0) end
+                    table.remove(results, 1)
+                    return table.unpack(results)
+                end
             else
                 proxy[key] = value
             end
@@ -331,6 +340,9 @@ function World.profilePeripherals()
             { compact = true }))
         handle.close()
         return total
+    end
+    World.resetProfile = function()
+        counts, total = {}, 0
     end
     return World
 end

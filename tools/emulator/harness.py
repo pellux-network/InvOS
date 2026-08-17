@@ -95,6 +95,7 @@ class Harness(object):
             "scenario.lua": scenario.to_lua(),
             "world.lua": _read(os.path.join(SMOKE_DIR, "world.lua")),
             "craft_oracle.lua": _read(os.path.join(SMOKE_DIR, "craft_oracle.lua")),
+            "run_main.lua": _read(os.path.join(SMOKE_DIR, "run_main.lua")),
         }
         if getattr(scenario, "turtle", None):
             extra["world_turtle.lua"] = _read(os.path.join(SMOKE_DIR, "world_turtle.lua"))

@@ -75,7 +75,12 @@ local world = nil
 if scenario.world then
     local loadedWorld, World = pcall(dofile, WORLD)
     if not loadedWorld then fail("world failed to load: " .. tostring(World)) end
+    -- Environment-injected runs enter a normal shell below; their profiler must wrap that
+    -- shell's peripheral table, not this raw --script environment's copy.
+    local profileInShell=scenario.environment and scenario.world.profile
+    if profileInShell then scenario.world.profile=false end
     local built, reason = pcall(World.build, scenario.world)
+    if profileInShell then scenario.world.profile=true end
     if not built then fail("world failed to build: " .. tostring(reason)) end
     world = World
 end
@@ -118,12 +123,20 @@ end
 local function flushProfileForever()
     while true do
         sleep(1)
+        if fs.exists("/profile-reset") then
+            fs.delete("/profile-reset")
+            if world and world.resetProfile then pcall(world.resetProfile) end
+        end
         if world and world.flushProfile then pcall(world.flushProfile) end
     end
 end
 
 local function runApplication()
-    if scenario.skip_splash then
+    if scenario.environment then
+        -- boot.lua is a raw --script and has no `package`; cross a normal shell boundary
+        -- before loading main as a module so require behaves exactly as it does in-game.
+        shell.run("/run_main.lua")
+    elseif scenario.skip_splash then
         -- The splash is a real part of a cold boot, but it costs seconds on every
         -- run. Scenarios that are asserting on a later screen can skip straight to
         -- the application; the splash gets its own scenario instead.
@@ -141,7 +154,9 @@ end
 -- coroutine under parallel sees every event, so the world server reading its own
 -- rednet protocol cannot starve the controller's event loop of craft replies.
 local tasks = {runApplication}
-if scenario.world and scenario.world.profile then tasks[#tasks + 1] = flushProfileForever end
+if scenario.world and scenario.world.profile and not scenario.environment then
+    tasks[#tasks + 1] = flushProfileForever
+end
 if turtleWorld then tasks[#tasks + 1] = serveTurtleWorld end
 
 if #tasks == 1 then
