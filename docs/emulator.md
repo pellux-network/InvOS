@@ -157,9 +157,11 @@ in for the turtle's sixteen slots, and a void chest that crafting consumes into
 (`setItem` cannot clear a slot, so a sink is the only way to make items leave).
 A round trip costs about 0.2 ms, so the RPC layer is never what a craft waits on.
 
-A craft takes roughly ten seconds here. That is InvOS's own pacing — the work
-loop's tick plus scan-freshness gates across plan, stage, craft, collect and
-deliver — not emulation overhead. If a crafting test ever takes *minutes*,
+A craft takes a few seconds here: about 7 seconds for a whole test including
+driving the UI, and 4 seconds from committing a 256-stick two-step craft to
+`COMPLETE`. That is InvOS's own pacing — the work loop's tick plus
+scan-freshness gates across plan, stage, craft, collect and deliver — not
+emulation overhead. If a crafting test ever takes *minutes*,
 something is wrong with the test rather than with the emulator: see
 "Driving this from an agent" below.
 
@@ -307,7 +309,8 @@ python3 run_tests.py emulator        # every category that boots an emulator
 python3 run_tests.py all             # everything test_smoke.py's `-m unittest` invocation covers
 ```
 
-`all` finishes in about two minutes, so the categories are still a convenience
+`all` finishes in about four minutes -- three without a generated recipe pack,
+since the modpack tests skip -- so the categories are still a convenience
 rather than something to agonise over — when in doubt, run everything.
 `manifest` and `keys` remain the slowest relative to their size, because each
 test in those two classes boots its own bare computer via `run_probe` rather
@@ -328,7 +331,7 @@ prefer it over the host Lua suite for anything user-visible. Two things are
 worth knowing before you start, both learned the hard way:
 
 - **Run the suites in the foreground, with a timeout.** `timeout 300 python3
-  run_tests.py all 2>&1 | tail -30` blocks, finishes in about two minutes, and
+  run_tests.py all 2>&1 | tail -30` blocks, finishes in about four minutes, and
   prints what matters. Backgrounding one and waiting for it to announce itself
   does not work — nothing notifies you, and it is easy to sit idle.
 - **If it feels slow, measure before blaming the emulator.** CraftOS-PC runs
