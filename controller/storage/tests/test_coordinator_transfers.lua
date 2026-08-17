@@ -28,7 +28,7 @@ return {
         coordinator:tick(3);T.equal(importCalls,2)
         coordinator:tick(4);T.equal(requestCalls,1)
     end},
-    {name="automation context exposes every configured storage node and its live health",run=function()
+    {name="automation context exposes configured storage including unscanned nodes",run=function()
         local captured
         local requests={list=function() return {{state="PLANNING"}} end,
             tick=function(_,context) captured=context.storage end}
@@ -42,14 +42,15 @@ return {
             {status=function() return {state="IDLE"} end},requests)
         for tick=1,6 do coordinator:tick(tick);if captured then break end end
         T.equal(#captured,2);T.equal(captured[1].health,"READY")
-        T.equal(captured[2].node_id,"b");T.equal(captured[2].health,"READY")
+        T.equal(captured[2].node_id,"b");T.equal(captured[2].health,"SCANNING")
     end},
-    {name="planning waits for a fresh complete pool scan then executes before another scan",run=function()
+    {name="request planning selects a targeted scan then executes before another scan",run=function()
         local state,requestCalls,scans="PLANNING",0,0;local scanAtPlan
         local requests={list=function() return {{state=state}} end}
         function requests:tick()
             requestCalls=requestCalls+1
-            if state=="PLANNING" then state="TRANSFERRING";scanAtPlan=scans
+            if requestCalls==1 then return {state="PLANNING",rescan={"a","pickup"}}
+            elseif state=="PLANNING" then state="TRANSFERRING";scanAtPlan=scans
             else state="VERIFYING";T.equal(scans,scanAtPlan) end
         end
         local scanner={begin=function(_,node) return {node=node} end}
@@ -62,9 +63,9 @@ return {
             {id="b",role="storage",peripheral_name="b"},
             {id="pickup",role="pickup",peripheral_name="pickup"}},scanner,
             {status=function() return {state="IDLE"} end},requests)
-        coordinator:tick(1);T.equal(requestCalls,0)
-        for tick=2,8 do coordinator:tick(tick);if requestCalls==2 then break end end
-        T.equal(requestCalls,2);T.equal(state,"VERIFYING")
+        coordinator:tick(1);T.equal(requestCalls,1)
+        for tick=2,8 do coordinator:tick(tick);if requestCalls==3 then break end end
+        T.equal(requestCalls,3);T.equal(state,"VERIFYING")
     end},
     {name="request preflight ignores unrelated Drop-off while import ignores unrelated Pickup",run=function()
         local function run(serviceName)
@@ -117,7 +118,7 @@ return {
             {status=function() return {state="IDLE"} end},requests)
         coordinator:tick(1);T.equal(scans,0)
     end},
-    {name="retrieval reconciliation receives storage snapshots without slot observations",run=function()
+    {name="retrieval reconciliation receives targeted storage without Pickup observations",run=function()
         local requestCalls,sourceBegins,pickupBegins=0,0,0;local observedField="unset";local storageCount=0
         local requests={}
         function requests:list() return {{state=requestCalls==1 and "VERIFYING" or "PLANNING"}} end
@@ -135,7 +136,7 @@ return {
             {id="pickup",role="pickup",peripheral_name="pickup"}},scanner,
             {status=function() return {state="IDLE"} end},requests)
         for tick=1,10 do coordinator:tick(tick);if requestCalls==2 then break end end
-        T.equal(requestCalls,2);T.equal(sourceBegins>=2,true);T.equal(pickupBegins>=1,true)
+        T.equal(requestCalls,2);T.equal(sourceBegins>=2,true);T.equal(pickupBegins,0)
         T.equal(observedField,nil);T.equal(storageCount,1)
     end},
 }

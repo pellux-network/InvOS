@@ -147,11 +147,11 @@ function Coordinator:_context(now)
             storage[#storage + 1]=snapshot
         end
     end
-    context.dropoff=self:_snapshotForRole("dropoff")
-    context.pickup=self:_snapshotForRole("pickup")
+    context.dropoff=self:_contextForRole("dropoff")
+    context.pickup=self:_contextForRole("pickup")
     -- Absent on an installation with no crafting turtle, which is why every consumer
     -- has to tolerate it being nil rather than assume a buffer exists.
-    context.craft_buffer=self:_snapshotForRole("craft_buffer")
+    context.craft_buffer=self:_contextForRole("craft_buffer")
     context.storage=storage
     context.index=self.index
     return context
@@ -167,6 +167,20 @@ end
 function Coordinator:_snapshotForRole(role)
     for _, node in ipairs(self.nodes) do
         if node.role == role then return self.snapshots[node.id] end
+    end
+end
+
+-- Planning needs the configured endpoint identity even before its first scan completes.
+-- A placeholder is not presented as fresh inventory: its health mirrors the node state and
+-- its empty slots merely let a service decide which exact nodes it needs refreshed.
+function Coordinator:_contextForRole(role)
+    for _, node in ipairs(self.nodes) do
+        if node.role == role then
+            local snapshot=copy(self.snapshots[node.id] or {node_id=node.id,
+                peripheral_name=node.peripheral_name,slots={}})
+            snapshot.health=node.state
+            return snapshot
+        end
     end
 end
 
@@ -484,12 +498,12 @@ function Coordinator:_automationStep(now)
             if state=="TRANSFERRING" or state=="VERIFYING" then inFlight=true;break end
         end
         if not inFlight then
-            for _,entry in ipairs(entries) do
-                if (entry[1]=="imports" or entry[1]=="requests" or entry[1]=="crafts") and
-                    serviceState(entry[1],entry[2])=="PLANNING" then
-                    self:_setVerificationGate(entry[1],self:_preflightNames(entry[1]),"planning")
-                    return
-                end
+            -- Craft planning consumes the whole storage ledger, so it retains the full-pool
+            -- preflight. Requests and imports first produce a tentative plan, then return the
+            -- exact nodes that plan needs refreshed.
+            if serviceState("crafts",self.deps.crafts)=="PLANNING" then
+                self:_setVerificationGate("crafts",self:_preflightNames("crafts"),"planning")
+                return
             end
         end
         for _,entry in ipairs(entries) do
@@ -517,7 +531,8 @@ function Coordinator:_automationStep(now)
     else
         self:_clearError(selected[1])
         if type(result)=="table" and result.rescan and
-            (result.state=="VERIFYING" or result.state=="BLOCKED" or selected[1]=="crafts") then
+            (result.state=="PLANNING" or result.state=="VERIFYING" or
+                result.state=="BLOCKED" or selected[1]=="crafts") then
             -- Crafting asks for a rescan from its own states, not VERIFYING or BLOCKED: the
             -- turtle drops output into the buffer without anything telling the controller.
             --
@@ -528,7 +543,8 @@ function Coordinator:_automationStep(now)
             if serviceState(selected[1],selected[2])=="TRANSFERRING" then
                 self:requestRescan(result.rescan)
             else
-                self:_setVerificationGate(selected[1],result.rescan)
+                self:_setVerificationGate(selected[1],result.rescan,
+                    result.state=="PLANNING" and "planning" or nil)
             end
         end
     end
