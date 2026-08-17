@@ -110,6 +110,30 @@ return {
         for _=1,4 do coordinator:tick(1000) end
         T.arrayEqual(d.scans.begun,{"dropoff","storage_1","storage_2","pickup"})
     end},
+    {name="an overdue Drop-off scan preempts older ordinary background scans",run=function()
+        local d=deps();d.scan_refresh_interval=2000
+        local coordinator=Coordinator.new(d)
+        for _=1,4 do coordinator:tick(1000) end
+        coordinator.scanCompletedAt.dropoff=800
+        coordinator.scanCompletedAt.storage_1=0
+        coordinator.scanCompletedAt.storage_2=100
+        coordinator.scanCompletedAt.pickup=200
+        T.equal(coordinator:_staleNodeId(3000),"dropoff",
+            "deposit discovery has a hard refresh bound independent of storage count")
+        coordinator.scanCompletedAt.dropoff=3000
+        T.equal(coordinator:_staleNodeId(3001),"storage_1",
+            "ordinary scans resume immediately after Drop-off is fresh")
+    end},
+    {name="an overdue Drop-off still respects scan failure backoff",run=function()
+        local d=deps();d.scan_refresh_interval=2000
+        local coordinator=Coordinator.new(d)
+        for _=1,4 do coordinator:tick(1000) end
+        coordinator.scanCompletedAt.dropoff=0
+        coordinator.scanCompletedAt.storage_1=100
+        coordinator.scanFailures.dropoff=3
+        coordinator.scanFailedAt.dropoff=2900
+        T.equal(coordinator:_staleNodeId(3000),"storage_1")
+    end},
     {name="targeted rescans are promoted ahead of background rotation",run=function()
         local d=deps(); local coordinator=Coordinator.new(d)
         coordinator:tick(1000)

@@ -67,7 +67,7 @@ return {
         for tick=2,8 do coordinator:tick(tick);if requestCalls==3 then break end end
         T.equal(requestCalls,3);T.equal(state,"VERIFYING")
     end},
-    {name="request preflight ignores unrelated Drop-off while import ignores unrelated Pickup",run=function()
+    {name="targeted planners tick without forcing unrelated endpoint scans",run=function()
         local function run(serviceName)
             local calls,unrelated=0,0
             local service={status=function() return {state="PLANNING"} end,
@@ -85,7 +85,7 @@ return {
             local coordinator=base({{id="store",role="storage",peripheral_name="store"},
                 {id="drop",role="dropoff",peripheral_name="drop"},
                 {id="pickup",role="pickup",peripheral_name="pickup"}},scanner,imports,requests)
-            for tick=1,6 do coordinator:tick(tick);if calls>0 then break end end
+            coordinator:_automationStep(1)
             T.equal(calls,1);T.equal(unrelated,0)
         end
         run("requests");run("imports")

@@ -289,21 +289,35 @@ end
 -- attempt, a recorded error and a repaint on every pass of the work loop, forever, which
 -- saturates the controller and makes the terminal stop responding to keys.
 function Coordinator:_staleNodeId(now)
+    local function eligibleAge(node)
+        local failedAt=self.scanFailedAt[node.id]
+        local backingOff=failedAt and (now-failedAt)<self:_scanBackoff(node.id)
+        if node.state=="DISABLED" or backingOff then return nil end
+        if not self.snapshots[node.id] then return math.huge end
+        local completedAt=self.scanCompletedAt[node.id]
+        return completedAt and (now-completedAt) or math.huge
+    end
+
+    -- Nothing else signals a physical deposit. Once Drop-off reaches its refresh deadline,
+    -- scan it before older routine storage work so adding storage nodes cannot stretch that
+    -- discovery bound. It becomes fresh afterward, so ordinary nodes immediately resume.
+    local dropoffId,dropoffAge
+    for _,node in ipairs(self.nodes) do
+        if node.role=="dropoff" then
+            local age=eligibleAge(node)
+            if age and age>=self.scanRefreshInterval and
+                (not dropoffAge or age>dropoffAge) then
+                dropoffId,dropoffAge=node.id,age
+            end
+        end
+    end
+    if dropoffId then return dropoffId end
+
     local bestId, bestAge
     for _, node in ipairs(self.nodes) do
-        local failedAt = self.scanFailedAt[node.id]
-        local backingOff = failedAt and (now - failedAt) < self:_scanBackoff(node.id)
-        if node.state ~= "DISABLED" and not backingOff then
-            local age
-            if not self.snapshots[node.id] then
-                age = math.huge
-            else
-                local completedAt = self.scanCompletedAt[node.id]
-                age = completedAt and (now - completedAt) or math.huge
-            end
-            if age >= self.scanRefreshInterval and (not bestAge or age > bestAge) then
-                bestId, bestAge = node.id, age
-            end
+        local age=eligibleAge(node)
+        if age and age>=self.scanRefreshInterval and (not bestAge or age>bestAge) then
+            bestId,bestAge=node.id,age
         end
     end
     return bestId
