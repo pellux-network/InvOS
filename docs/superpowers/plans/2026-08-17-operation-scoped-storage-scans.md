@@ -248,7 +248,9 @@ git commit -m "perf(transfer): reconcile touched storage nodes"
 - Produces: `PlanningRefresh.advance(previous, candidateNodeIds, hasPlan) -> action, nextState`.
 - `action` is exactly `"SCAN"`, `"COMMIT"`, or `"FINAL_NO_PLAN"`.
 - Produces: `PlanningRefresh.names(state, storageSnapshots, endpointSnapshot) -> names` or `nil, reason`.
-- State shape: `{mode="targeted"|"full", storage_node_ids={...}, retargets=0|1}`.
+- State shape: `{mode="targeted"|"full", storage_node_ids={...}, retargets=0|1}`. In
+  targeted mode, `storage_node_ids` is the accumulated union of nodes gated during this
+  attempt; a later plan may safely use any subset of it.
 
 - [ ] **Step 1: Write the decision-table tests**
 
@@ -264,6 +266,9 @@ action=Refresh.advance(state,{"a"},true)
 T.equal(action,"COMMIT")
 action,state=Refresh.advance({mode="targeted",storage_node_ids={"a"},retargets=0},{"b"},true)
 T.equal(action,"SCAN");T.equal(state.retargets,1)
+T.arrayEqual(state.storage_node_ids,{"a","b"})
+action=Refresh.advance(state,{"a"},true)
+T.equal(action,"COMMIT","a subset of already refreshed nodes is safe")
 action,state=Refresh.advance(state,{"c"},true)
 T.equal(action,"SCAN");T.equal(state.mode,"full")
 action=Refresh.advance(state,{"c"},true)
@@ -286,7 +291,9 @@ Expected: FAIL because `app.planning_refresh` is not found.
 
 - [ ] **Step 3: Implement the pure helper**
 
-Use array equality, not table identity, to compare scopes. Sort and de-duplicate every returned array. The central decision must be:
+Use a real set-subset check, not table identity or exact array equality, to decide whether all
+candidate nodes have already been refreshed. Sort and de-duplicate every returned array. The
+central decision must be:
 
 ```lua
 function M.advance(previous,candidateNodeIds,hasPlan)
@@ -298,11 +305,12 @@ function M.advance(previous,candidateNodeIds,hasPlan)
     if not previous then
         return "SCAN",{mode="targeted",storage_node_ids=candidate,retargets=0}
     end
-    if previous.mode=="full" or arraysEqual(previous.storage_node_ids,candidate) then
+    if previous.mode=="full" or isSubset(candidate,previous.storage_node_ids) then
         return "COMMIT"
     end
     if previous.retargets<1 then
-        return "SCAN",{mode="targeted",storage_node_ids=candidate,retargets=1}
+        return "SCAN",{mode="targeted",
+            storage_node_ids=sortedUnion(previous.storage_node_ids,candidate),retargets=1}
     end
     return "SCAN",{mode="full",storage_node_ids={},retargets=previous.retargets}
 end
