@@ -33,6 +33,7 @@ local defaultModules = {
     "tests.test_craft_window",
     "tests.test_craft_endtoend",
     "tests.test_reconciliation",
+    "tests.test_storage_scope",
     "tests.test_transfer",
     "tests.test_recovery",
     "tests.test_recovery_service",

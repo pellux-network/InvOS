@@ -36,6 +36,7 @@ local M={files={
     "storage/core/recipe_repo.lua",
     "storage/core/registry.lua",
     "storage/core/scanner.lua",
+    "storage/core/storage_scope.lua",
     "storage/core/transfer.lua",
     "storage/shared/codec.lua",
     "storage/shared/runtime.lua",
