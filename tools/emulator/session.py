@@ -41,18 +41,20 @@ class Timeout(EmulatorError):
     """A wait_for condition never became true."""
 
 
-def manifest_files(manifest_path):
+def manifest_files(manifest_path, minimum=10):
     """Parse the deployment manifest's file list.
 
     The manifest is Lua, but its shape is a flat list of quoted paths, so a
     regex reads it without needing a Lua interpreter on the host. Anything that
     stops matching should fail loudly rather than silently install fewer files,
-    hence the sanity check on the count.
+    hence the sanity check on the count -- and hence ``minimum``, because the
+    crafting turtle's tree is legitimately seven files where the controller's is
+    forty.
     """
     with open(manifest_path, "r", encoding="utf-8") as handle:
         source = handle.read()
     files = re.findall(r'"([^"]+\.lua)"', source)
-    if len(files) < 10:
+    if len(files) < minimum:
         raise EmulatorError(
             "parsed only %d files from %s; the manifest format may have changed"
             % (len(files), manifest_path))
@@ -60,15 +62,26 @@ def manifest_files(manifest_path):
 
 
 class Installation(object):
-    """A computer directory built from the repository's deployment manifest."""
+    """A computer directory built from a deployment manifest.
 
-    def __init__(self, controller_root, computer_dir):
+    ``manifest_relative`` exists because there are two such trees: the
+    controller's under ``storage/``, and the crafting turtle's at the root of
+    ``turtle/``. They are two live computers with separate allow-lists, and both
+    define a module named ``deployment_manifest``, which is why a manifest is
+    read by path here and never by ``require``.
+    """
+
+    def __init__(self, controller_root, computer_dir,
+                 manifest_relative="storage/deployment_manifest.lua",
+                 minimum_files=10):
         self.controller_root = os.path.abspath(controller_root)
         self.computer_dir = os.path.abspath(computer_dir)
+        self.manifest_relative = manifest_relative
+        self.minimum_files = minimum_files
 
     def install(self, extra_files=None):
-        manifest = os.path.join(self.controller_root, "storage", "deployment_manifest.lua")
-        files = manifest_files(manifest)
+        manifest = os.path.join(self.controller_root, self.manifest_relative)
+        files = manifest_files(manifest, minimum=self.minimum_files)
 
         if os.path.isdir(self.computer_dir):
             shutil.rmtree(self.computer_dir)
@@ -88,7 +101,10 @@ class Installation(object):
                 "deployment manifest lists %d file(s) that do not exist: %s"
                 % (len(missing), ", ".join(missing[:5])))
 
-        os.makedirs(os.path.join(self.computer_dir, "storage", "data"), exist_ok=True)
+        # The controller expects storage/data/ before it writes config. The
+        # turtle tree has no storage/ at all and must not grow one here.
+        if self.manifest_relative.startswith("storage/"):
+            os.makedirs(os.path.join(self.computer_dir, "storage", "data"), exist_ok=True)
         for name, contents in (extra_files or {}).items():
             path = os.path.join(self.computer_dir, name)
             os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -109,11 +125,14 @@ class Session(object):
         self.computer_id = computer_id
         self.extra_args = list(extra_args or [])
         self.process = None
-        self.screen = None
-        self.title = None
-        # The last window-0 payload parsed, so pump() can tell a real repaint
+        # Per window, not per session: a second computer's terminal arrives as
+        # another raw-protocol window, and dropping everything but window 0 is
+        # what made the crafting turtle invisible from here.
+        self.screens = {}
+        self.titles = {}
+        # The last payload parsed per window, so pump() can tell a real repaint
         # from CraftOS-PC resending an unchanged terminal.
-        self._last_payload = None
+        self._last_payloads = {}
         self._queue = queue.Queue()
         self._reader = None
         self._stderr = []
@@ -185,17 +204,60 @@ class Session(object):
     def stderr(self):
         return "\n".join(self._stderr)
 
+    # -- windows -----------------------------------------------------------
+
+    @property
+    def screen(self):
+        """The controller's own terminal. Window 0 is the computer ``--id`` names."""
+        return self.screens.get(0)
+
+    @property
+    def title(self):
+        return self.titles.get(0)
+
+    @property
+    def turtle_window(self):
+        """The window the crafting turtle draws on.
+
+        Raw-protocol windows are numbered in creation order, not by computer ID:
+        a probe with a monitor present put the monitor on window 1 and the turtle
+        on window 2. `smoke/world.lua` therefore creates the turtle computer
+        before anything else that takes a window, which makes "the lowest
+        non-zero window that has drawn" the turtle. Before any frame has arrived
+        there is nothing to go on, so it answers 1.
+        """
+        others = [window for window in self.screens if window != 0]
+        return min(others) if others else 1
+
+    def resolve_window(self, window):
+        """Turn a window name or number into a raw-protocol window number."""
+        if window is None or window in ("terminal", "controller"):
+            return 0
+        if window == "turtle":
+            return self.turtle_window
+        return int(window)
+
     # -- reading the screen ------------------------------------------------
 
-    def pump(self, timeout=0.2):
-        """Consume pending packets, updating the current screen. Returns bool.
+    def pump(self, timeout=0.2, window=0):
+        """Consume pending packets, updating every window's screen. Returns bool.
 
-        "Updated" means the screen's *contents* changed, not that a packet
-        arrived. CraftOS-PC resends the terminal on a cadence of its own
+        "Updated" means the *asked-about* window's contents changed, not that a
+        packet arrived. CraftOS-PC resends the terminal on a cadence of its own
         regardless of whether anything was redrawn -- measured at 24 packets
         for 7 real changes over six seconds -- so counting packets made
         :meth:`settle` believe a completely static screen was still repainting.
+
+        Every window is decoded, not only the one asked about: a caller waiting
+        on the controller must not throw away the turtle's frames on the way.
+
+        Reporting the change *per window* is what keeps :meth:`settle` cheap once
+        a turtle is running. The turtle's HUD redraws an uptime clock every
+        second, so its frames never repeat and never go quiet -- a session-wide
+        "something changed" flag would make every settle on the controller run to
+        its full timeout, for as long as the turtle is switched on.
         """
+        target = self.resolve_window(window)
         updated = False
         deadline = time.time() + timeout
         while True:
@@ -207,41 +269,46 @@ class Session(object):
             except queue.Empty:
                 break
             if packet.type == rawterm.PACKET_TERMINAL_CONTENTS:
-                # Only window 0 is the computer's own terminal; monitors arrive
-                # as further windows and would otherwise overwrite it.
-                if packet.window == 0:
-                    if packet.payload != self._last_payload:
-                        self._last_payload = packet.payload
-                        self.screen = rawterm.Screen.from_payload(packet.payload)
+                if packet.payload != self._last_payloads.get(packet.window):
+                    self._last_payloads[packet.window] = packet.payload
+                    self.screens[packet.window] = rawterm.Screen.from_payload(packet.payload)
+                    if packet.window == target:
                         updated = True
-                    elif self.screen is None:
-                        self.screen = rawterm.Screen.from_payload(packet.payload)
+                elif packet.window not in self.screens:
+                    self.screens[packet.window] = rawterm.Screen.from_payload(packet.payload)
             elif packet.type == rawterm.PACKET_TERMINAL_CHANGE:
                 body = packet.payload[6:].split(b"\x00")[0]
-                self.title = body.decode("utf-8", "replace")
+                self.titles[packet.window] = body.decode("utf-8", "replace")
         return updated
 
-    def wait_for(self, predicate, timeout=DEFAULT_BOOT_TIMEOUT, description=None):
-        """Pump until ``predicate(screen)`` is true, or raise :class:`Timeout`."""
+    def wait_for(self, predicate, timeout=DEFAULT_BOOT_TIMEOUT, description=None,
+                 window=0):
+        """Pump until ``predicate(screen)`` is true, or raise :class:`Timeout`.
+
+        The window is re-resolved on every pass rather than once up front:
+        waiting on the turtle legitimately starts before the turtle has drawn
+        anything, and resolving early would freeze in the fallback.
+        """
         deadline = time.time() + timeout
         while time.time() < deadline:
-            self.pump(timeout=0.25)
-            if self.screen is not None and predicate(self.screen):
-                return self.screen
+            self.pump(timeout=0.25, window=window)
+            screen = self.screens.get(self.resolve_window(window))
+            if screen is not None and predicate(screen):
+                return screen
             if self.process.poll() is not None:
                 raise EmulatorError(
                     "emulator exited with code %d while waiting for %s\n%s"
                     % (self.process.returncode, description or "a condition", self.stderr))
         raise Timeout(
-            "timed out after %.1fs waiting for %s.\nLast screen:\n%s"
-            % (timeout, description or "a condition",
-               self.screen.text_dump() if self.screen else "(no frame received)"))
+            "timed out after %.1fs waiting for %s on window %s.\nLast screen:\n%s"
+            % (timeout, description or "a condition", window,
+               self.text(window=window) or "(no frame received)"))
 
-    def wait_for_text(self, needle, timeout=DEFAULT_BOOT_TIMEOUT):
+    def wait_for_text(self, needle, timeout=DEFAULT_BOOT_TIMEOUT, window=0):
         return self.wait_for(lambda s: s.contains(needle), timeout,
-                             description="text %r" % needle)
+                             description="text %r" % needle, window=window)
 
-    def settle(self, quiet_for=0.6, timeout=10.0):
+    def settle(self, quiet_for=0.6, timeout=10.0, window=0):
         """Pump until the screen stops changing, or starts repeating itself.
 
         Screens that redraw in stages would otherwise be captured mid-repaint,
@@ -258,22 +325,26 @@ class Session(object):
         from "animating forever" (frames recur) without needing to know
         anything about what is on screen.
         """
+        target = self.resolve_window(window)
         deadline = time.time() + timeout
         seen = set()
-        if self.screen is not None:
-            seen.add(self.screen.text_dump())
+        current = self.screens.get(target)
+        if current is not None:
+            seen.add(current.text_dump())
         while time.time() < deadline:
-            if not self.pump(timeout=quiet_for):
-                return self.screen
-            if self.screen is not None:
-                dump = self.screen.text_dump()
+            if not self.pump(timeout=quiet_for, window=target):
+                return self.screens.get(target)
+            current = self.screens.get(target)
+            if current is not None:
+                dump = current.text_dump()
                 if dump in seen:
-                    return self.screen
+                    return current
                 seen.add(dump)
-        return self.screen
+        return self.screens.get(target)
 
-    def text(self):
-        return self.screen.text_dump() if self.screen else ""
+    def text(self, window=0):
+        screen = self.screens.get(self.resolve_window(window))
+        return screen.text_dump() if screen else ""
 
     # -- driving input -----------------------------------------------------
 
@@ -283,7 +354,7 @@ class Session(object):
         self.process.stdin.write((rawterm.encode_packet(payload) + "\n").encode("ascii"))
         self.process.stdin.flush()
 
-    def press(self, key, settle=0.15):
+    def press(self, key, settle=0.15, window=0):
         """Press and release a named key, e.g. ``press("enter")``.
 
         A printable key also emits the `char` event a real keyboard pairs with
@@ -300,36 +371,40 @@ class Session(object):
         else:
             code = key
             printable = None
-        self._send(rawterm.key_packet(code, pressed=True))
+        target = self.resolve_window(window)
+        self._send(rawterm.key_packet(code, pressed=True, window=target))
         if printable is not None:
-            self._send(rawterm.char_packet(printable))
-        self._send(rawterm.key_packet(code, pressed=False))
+            self._send(rawterm.char_packet(printable, window=target))
+        self._send(rawterm.key_packet(code, pressed=False, window=target))
         if settle:
-            self.pump(timeout=settle)
+            self.pump(timeout=settle, window=target)
         return self
 
-    def type_text(self, text, settle=0.05):
+    def type_text(self, text, settle=0.05, window=0):
         """Type a string as character events, as a player's keyboard would."""
+        target = self.resolve_window(window)
         for character in text:
-            self._send(rawterm.char_packet(character))
+            self._send(rawterm.char_packet(character, window=target))
             if settle:
-                self.pump(timeout=settle)
+                self.pump(timeout=settle, window=target)
         return self
 
-    def click(self, x, y, button=1, settle=0.2):
+    def click(self, x, y, button=1, settle=0.2, window=0):
         """Click terminal cell (x, y), 1-based, as ComputerCraft reports them."""
-        self._send(rawterm.mouse_packet("click", button, x, y))
-        self._send(rawterm.mouse_packet("up", button, x, y))
+        target = self.resolve_window(window)
+        self._send(rawterm.mouse_packet("click", button, x, y, window=target))
+        self._send(rawterm.mouse_packet("up", button, x, y, window=target))
         if settle:
-            self.pump(timeout=settle)
+            self.pump(timeout=settle, window=target)
         return self
 
     # -- output ------------------------------------------------------------
 
-    def screenshot(self, path, scale=1, font_roots=()):
-        if self.screen is None:
-            raise EmulatorError("no frame has been received yet")
+    def screenshot(self, path, scale=1, font_roots=(), window=0):
+        screen = self.screens.get(self.resolve_window(window))
+        if screen is None:
+            raise EmulatorError("no frame has been received yet for window %s" % (window,))
         if self._font is None:
             path_to_font = self.font_path or render.find_font(font_roots)
             self._font = render.Font(path_to_font)
-        return render.render_screen(self.screen, self._font, path, scale=scale)
+        return render.render_screen(screen, self._font, path, scale=scale)

@@ -22,7 +22,8 @@ import sys
 
 CATEGORIES = {
     "fast": (
-        ["test_rawterm", "test_scenario", "test_render", "test_session"],
+        ["test_rawterm", "test_scenario", "test_render", "test_session",
+         "test_craft.OraclePackAgreementTests"],
         "harness/protocol unit tests -- no emulator, run these on every change",
     ),
     "smoke": (
@@ -49,9 +50,14 @@ CATEGORIES = {
         ["test_install.InstallTests"],
         "install.lua fetch/verify/write against a local fixture server",
     ),
+    "craft": (
+        ["test_craft"],
+        "the emulated crafting turtle: oracle, boot, and end-to-end crafts",
+    ),
 }
 
-EMULATOR_CATEGORIES = ["smoke", "setup-wizard", "manifest", "keys", "nbt", "install"]
+EMULATOR_CATEGORIES = ["smoke", "setup-wizard", "manifest", "keys", "nbt", "install",
+                       "craft"]
 
 
 def targets_for(names):

@@ -113,6 +113,68 @@ class InstallationTests(unittest.TestCase):
             self.assertIn(missing, message)
 
 
+class TurtleInstallationTests(unittest.TestCase):
+    """The turtle tree is a second live computer with its own allow-list.
+
+    Both manifests define a module named `deployment_manifest`, so they are read
+    by path rather than by require -- and controller files must never reach the
+    turtle, nor turtle files the controller.
+    """
+
+    def setUp(self):
+        self.tempdir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tempdir.cleanup)
+
+    def test_installs_a_tree_from_a_manifest_at_a_custom_path(self):
+        root = self.tempdir.name
+        names = ["startup.lua"] + ["crafter/m%02d.lua" % i for i in range(6)]
+        write(os.path.join(root, "own_manifest.lua"), manifest_source(names))
+        for name in names:
+            write(os.path.join(root, name), "-- %s\n" % name)
+
+        target = os.path.join(root, "computer", "1")
+        installed = session.Installation(root, target,
+                                         manifest_relative="own_manifest.lua",
+                                         minimum_files=5).install()
+
+        self.assertEqual(sorted(installed), sorted(names))
+        self.assertTrue(os.path.isfile(os.path.join(target, "crafter", "m00.lua")))
+
+    def test_a_manifest_smaller_than_its_floor_is_still_refused(self):
+        # The floor exists to catch the manifest format changing under the regex,
+        # which would otherwise install fewer files and look like a boot bug.
+        path = write(os.path.join(self.tempdir.name, "tiny.lua"),
+                     manifest_source(["a.lua"]))
+        with self.assertRaises(session.EmulatorError):
+            session.manifest_files(path, minimum=5)
+
+    def test_installs_the_real_turtle_tree(self):
+        target = os.path.join(self.tempdir.name, "turtle-computer")
+        installed = session.Installation(
+            harness.TURTLE_ROOT, target,
+            manifest_relative="deployment_manifest.lua",
+            minimum_files=5).install()
+
+        self.assertIn("startup.lua", installed)
+        self.assertIn("crafter/executor.lua", installed)
+        # The turtle tree cannot require anything under controller/storage/, so a
+        # controller module reaching it is a deployment bug, not a harness detail.
+        self.assertFalse(os.path.exists(os.path.join(target, "storage")))
+
+
+class RecipePackTests(unittest.TestCase):
+    def test_the_fixture_pack_is_present_and_shaped_like_a_pack(self):
+        for name in ("index.lua", "items.lua", "tags.lua", "pack_01.lua"):
+            self.assertTrue(os.path.isfile(os.path.join(harness.FIXTURE_PACK, name)), name)
+
+    def test_an_unknown_pack_name_is_refused(self):
+        with self.assertRaises(ValueError):
+            harness.recipe_pack_dir("nonsense")
+
+    def test_no_pack_is_a_supported_choice(self):
+        self.assertIsNone(harness.recipe_pack_dir(None))
+
+
 class WorkdirIsolationTests(unittest.TestCase):
     # Harness.prepare() rmtree's its workdir before every run, so two checkouts
     # sharing one path delete each other's computer directory mid-boot. That
@@ -152,22 +214,76 @@ class SessionInputTests(unittest.TestCase):
             driver.press("anykey")
 
 
-def terminal_payload(line):
+def terminal_payload(line, window=0):
     """A one-row terminal-contents payload showing ``line``."""
-    import struct
-    width = len(line)
-    body = struct.pack("<BBBBHHHHB3x", rawterm.PACKET_TERMINAL_CONTENTS, 0, 0, 0,
-                       width, 1, 0, 0, 0)
-    body += b"".join(bytes((ord(c), 1)) for c in line)
-    body += bytes((0x0F, width))
-    body += bytes(48)
-    return body
+    return rawterm.encode_terminal_contents(window, line)
 
 
-def queue_frames(driver, lines):
+def queue_frames(driver, lines, window=0):
     for line in lines:
-        driver._queue.put(rawterm.Packet(rawterm.PACKET_TERMINAL_CONTENTS, 0,
-                                         terminal_payload(line)))
+        driver._queue.put(rawterm.Packet(rawterm.PACKET_TERMINAL_CONTENTS, window,
+                                         terminal_payload(line, window)))
+
+
+class WindowRoutingTests(unittest.TestCase):
+    """A second computer's terminal arrives as another raw-protocol window.
+
+    Windows are numbered in creation order -- a probe with a monitor present put
+    the monitor on 1 and the turtle on 2 -- so the turtle is found as the lowest
+    non-zero window that has drawn, never as a hardcoded number.
+    """
+
+    def driver(self):
+        return session.Session("craftos", "/nonexistent")
+
+    def test_window_zero_is_still_the_default_screen(self):
+        driver = self.driver()
+        queue_frames(driver, ["CONTROLLER"])
+        driver.pump(timeout=0.05)
+        self.assertIn("CONTROLLER", driver.screen.text_dump())
+
+    def test_other_windows_no_longer_overwrite_window_zero(self):
+        driver = self.driver()
+        queue_frames(driver, ["CONTROLLER"])
+        driver.pump(timeout=0.05)
+        queue_frames(driver, ["CRAFTER"], window=1)
+        driver.pump(timeout=0.05, window=1)
+        self.assertIn("CONTROLLER", driver.screen.text_dump())
+        self.assertIn("CRAFTER", driver.screens[1].text_dump())
+
+    def test_the_turtle_window_is_the_lowest_non_zero_one(self):
+        driver = self.driver()
+        queue_frames(driver, ["CONTROLLER"])
+        queue_frames(driver, ["CRAFTER"], window=2)
+        driver.pump(timeout=0.05)
+        self.assertEqual(driver.turtle_window, 2)
+
+    def test_the_turtle_window_falls_back_to_one_before_any_frame(self):
+        self.assertEqual(self.driver().turtle_window, 1)
+
+    def test_resolve_window_accepts_names(self):
+        driver = self.driver()
+        self.assertEqual(driver.resolve_window(None), 0)
+        self.assertEqual(driver.resolve_window("terminal"), 0)
+        self.assertEqual(driver.resolve_window("turtle"), 1)
+        self.assertEqual(driver.resolve_window(3), 3)
+
+    def test_pump_reports_change_only_for_the_window_asked_about(self):
+        driver = self.driver()
+        queue_frames(driver, ["CRAFTER"], window=1)
+        self.assertFalse(driver.pump(timeout=0.05, window=0))
+        queue_frames(driver, ["CRAFTER 2"], window=1)
+        self.assertTrue(driver.pump(timeout=0.05, window=1))
+
+    def test_text_reads_the_window_it_is_given(self):
+        driver = self.driver()
+        queue_frames(driver, ["CONTROLLER"])
+        queue_frames(driver, ["CRAFTER"], window=1)
+        driver.pump(timeout=0.05)
+        driver.pump(timeout=0.05, window=1)
+        self.assertIn("CONTROLLER", driver.text())
+        self.assertIn("CRAFTER", driver.text(window="turtle"))
+        self.assertEqual(driver.text(window=9), "")
 
 
 class SettleTests(unittest.TestCase):

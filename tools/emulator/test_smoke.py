@@ -25,8 +25,9 @@ import session
 SKIP = os.environ.get("INVOS_SKIP_EMULATOR") == "1"
 
 
-def run_probe(script_name, source, output_name, timeout=60):
-    """Run a Lua probe on a bare emulated computer and return what it wrote.
+def run_probe(script_name, source, output_name, timeout=60, scenario=None,
+              recipe_pack="fixture"):
+    """Run a Lua probe on an emulated computer and return what it wrote.
 
     The probes below end with ``os.shutdown()``, which stops the *computer* but
     not the CraftOS-PC *process*: in raw mode the emulator keeps serving its
@@ -34,10 +35,15 @@ def run_probe(script_name, source, output_name, timeout=60):
     the timeout. Waiting for the file the probe writes and then closing stdin is
     what makes a probe run finish -- and the exit code is still asserted, so a
     probe that crashed the emulator does not pass quietly.
+
+    ``scenario`` defaults to a bare computer with no world, which is what a probe
+    about the runtime itself wants. Pass one to get its files installed: a probe
+    about a harness module needs that module on the computer. The probe replaces
+    the boot script entirely either way, so nothing is started for it.
     """
-    harness = harness_module.Harness()
+    harness = harness_module.Harness(recipe_pack=recipe_pack)
     executable, _ = harness.prepare(
-        scenario_module.Scenario(inventories=[], config=None))
+        scenario or scenario_module.Scenario(inventories=[], config=None))
     script = os.path.join(harness.workdir, script_name)
     with open(script, "w", encoding="utf-8") as handle:
         handle.write(source)
