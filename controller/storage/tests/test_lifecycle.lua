@@ -31,6 +31,9 @@ return {
     { name = "request preflight changes may return to planning", run = function()
         T.truthy(Lifecycle.transition("request", "TRANSFERRING", "PLANNING"))
     end },
+    { name = "import preflight changes may return to planning", run = function()
+        T.truthy(Lifecycle.transition("import", "TRANSFERRING", "PLANNING"))
+    end },
     { name = "controller lifecycle follows safety precedence", run = function()
         local cases = {
             { change = { persistence_error = "bad config" }, state = "ERROR" },

@@ -14,7 +14,7 @@ local allowed = {
     import = {
         PENDING = { PLANNING=true, COMPLETE=true, FAILED=true },
         PLANNING = { TRANSFERRING=true, BLOCKED=true, COMPLETE=true, FAILED=true },
-        TRANSFERRING = { VERIFYING=true, PARTIAL=true, BLOCKED=true, FAILED=true },
+        TRANSFERRING = { PLANNING=true, VERIFYING=true, PARTIAL=true, BLOCKED=true, FAILED=true },
         VERIFYING = { COMPLETE=true, PARTIAL=true, BLOCKED=true, FAILED=true },
         BLOCKED = { PLANNING=true },
         PARTIAL = { PLANNING=true, BLOCKED=true, FAILED=true },

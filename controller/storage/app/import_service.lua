@@ -1,3 +1,6 @@
+local PlanningRefresh = require("app.planning_refresh")
+local StorageScope = require("core.storage_scope")
+
 local ImportService = {}
 ImportService.__index = ImportService
 
@@ -54,6 +57,7 @@ function ImportService:retry()
         return nil, "import is not awaiting operator retry"
     end
     self.active.reason = nil
+    self.active.planning_refresh,self.active.rescan=nil,nil
     self:_state("PLANNING")
     return true
 end
@@ -222,21 +226,48 @@ function ImportService:tick(context)
             end
         end
         active.plan_remainder = remainder
-        if #steps == 0 then
-            -- Nothing in this batch can be placed. Blocking here would replan the very same
-            -- sources forever, so set their types aside and rediscover instead, which lets
-            -- selection reach slots sitting behind them.
-            for _, source in ipairs(active.sources) do
-                self:_defer(source, context, planReason)
-            end
-            self:_abandon("NO_PLAN",
-                planReason and planReason.message or "No storage can accept these items")
-            return self:_event()
+        local candidateIds,scopeReason={},nil
+        if #steps>0 then
+            local _,selectedIds
+            _,selectedIds,scopeReason=StorageScope.select("import",steps,context.storage or {})
+            candidateIds=selectedIds or {}
+        end
+        if scopeReason then
+            active.reason=copy(scopeReason)
+            self:_state("FAILED")
+            self.alerts:set("import_failed:"..active.source.identity_key,"critical",
+                scopeReason.message,{code=scopeReason.code})
         else
-            active.steps = steps
-            active.step = steps[1]
-            active.reason = nil
-            self:_state("TRANSFERRING")
+            local action,refresh=PlanningRefresh.advance(active.planning_refresh,
+                candidateIds,#steps>0)
+            if action=="SCAN" then
+                active.planning_refresh=refresh
+                local names,refreshReason=PlanningRefresh.names(refresh,
+                    context.storage or {},context.dropoff)
+                if not names then
+                    active.reason=copy(refreshReason)
+                    self:_state("FAILED")
+                    self.alerts:set("import_failed:"..active.source.identity_key,"critical",
+                        refreshReason.message,{code=refreshReason.code})
+                else
+                    active.rescan=names
+                end
+            elseif action=="FINAL_NO_PLAN" then
+                active.planning_refresh,active.rescan=nil,nil
+                -- Nothing in this batch can be placed after a full-pool refresh. Blocking
+                -- would replan the same sources forever, so defer their types and rediscover.
+                for _, source in ipairs(active.sources) do
+                    self:_defer(source, context, planReason)
+                end
+                self:_abandon("NO_PLAN",
+                    planReason and planReason.message or "No storage can accept these items")
+                return self:_event()
+            else
+                active.steps=steps
+                active.step=steps[1]
+                active.reason,active.rescan,active.planning_refresh=nil,nil,nil
+                self:_state("TRANSFERRING")
+            end
         end
     elseif active.state == "TRANSFERRING" then
         local result = self.transfer:executeMultiBatch(active, active.steps, context.storage or {})
@@ -245,6 +276,14 @@ function ImportService:tick(context)
             active.pending_moved = result.moved
             active.rescan = copy(result.rescan)
             self:_state("VERIFYING")
+        elseif result.reason and not result.journal and
+            (result.reason.code=="SOURCE_CHANGED" or result.reason.code=="DESTINATION_CHANGED") then
+            -- The inventory call was never issued. Discard the stale plan and rediscover;
+            -- a result carrying a journal must always reconcile instead of taking this path.
+            active.step,active.steps,active.journal=nil,nil,nil
+            active.pending_moved,active.rescan,active.reason=nil,nil,nil
+            active.planning_refresh=nil
+            self:_state("PLANNING")
         elseif result.reason and result.reason.retryable then
             active.rescan=copy(result.rescan)
             self:_block(context,result.reason)

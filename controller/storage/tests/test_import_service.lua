@@ -5,7 +5,7 @@ local T=require("tests.mock_cc")
 
 local stone="minecraft:stone\0-"
 local function dropoff(count)
-    return {health="READY",peripheral_name="drop",epoch=10,
+    return {node_id="dropoff",health="READY",peripheral_name="drop",epoch=10,
         slots=count and {[1]={name="minecraft:stone",count=count,identity_key=stone}} or {}}
 end
 local function step(limit)
@@ -15,7 +15,12 @@ local function step(limit)
 end
 local function service(plans,outcomes,extra)
     local calls=0;local planner={}
-    function planner.planImport() calls=calls+1;local value=plans[calls];return value.plan,value.remainder,value.reason end
+    function planner.planImport()
+        calls=calls+1
+        local position=extra and extra.plan_each_call and calls or math.floor((calls+1)/2)
+        local value=plans[position]
+        return value.plan,value.remainder,value.reason
+    end
     local transfer={execute_calls=0,verify_calls=0,retire_calls=0,cursor=1}
     function transfer:executeMultiBatch(_,planned,storage)
         self.execute_calls=self.execute_calls+1;T.truthy(storage)
@@ -33,16 +38,85 @@ local function service(plans,outcomes,extra)
     return ImportService.new(deps),transfer,alerts
 end
 local function context(count,generation)
-    return {dropoff=dropoff(count),storage={{node_id="storage",health="READY",slots={}}},
+    return {dropoff=dropoff(count),storage={{node_id="storage",peripheral_name="store",
+        health="READY",slots={}}},
         generation=generation or 1,now=0}
 end
 
 return {
+    {name="a tentative import refreshes only its destinations and Drop-off before moving",run=function()
+        local imports,transfer=service({{plan={step(5)},remainder=0}},
+            {{state="COMPLETE",moved=5}})
+        local ctx=context(5)
+        T.equal(imports:tick(ctx).state,"PLANNING")
+        local planning=imports:tick(ctx)
+        T.equal(planning.state,"PLANNING")
+        T.arrayEqual(planning.rescan,{"dropoff","storage"})
+        T.equal(transfer.execute_calls,0)
+        T.equal(imports:tick(ctx).state,"TRANSFERRING")
+    end},
+    {name="one changed import destination accumulates the refreshed union",run=function()
+        local function to(name)
+            local value=step(5);value.destination_name=name;return value
+        end
+        local imports=select(1,service({{plan={to("store_a")}},
+            {plan={to("store_b")}}, {plan={to("store_a")}}},{},{plan_each_call=true}))
+        local ctx=context(5)
+        ctx.storage={
+            {node_id="a",peripheral_name="store_a",health="READY",slots={}},
+            {node_id="b",peripheral_name="store_b",health="READY",slots={}},
+            {node_id="c",peripheral_name="store_c",health="READY",slots={}},
+        }
+        imports:tick(ctx)
+        T.arrayEqual(imports:tick(ctx).rescan,{"a","dropoff"})
+        T.arrayEqual(imports:tick(ctx).rescan,{"a","b","dropoff"})
+        T.equal(imports:tick(ctx).state,"TRANSFERRING")
+    end},
+    {name="a second unrefreshed import destination widens to the full pool",run=function()
+        local function to(name)
+            local value=step(5);value.destination_name=name;return value
+        end
+        local imports=select(1,service({{plan={to("store_a")}},
+            {plan={to("store_b")}}, {plan={to("store_c")}}},{},{plan_each_call=true}))
+        local ctx=context(5)
+        ctx.storage={
+            {node_id="a",peripheral_name="store_a",health="READY",slots={}},
+            {node_id="b",peripheral_name="store_b",health="READY",slots={}},
+            {node_id="c",peripheral_name="store_c",health="READY",slots={}},
+        }
+        imports:tick(ctx);imports:tick(ctx);imports:tick(ctx)
+        local widened=imports:tick(ctx)
+        T.equal(widened.state,"PLANNING")
+        T.arrayEqual(widened.rescan,{"a","b","c","dropoff"})
+    end},
+    {name="an unplaceable import gets one full-pool retry before deferral",run=function()
+        local noPlan={plan={},remainder=5,reason={code="FULL",message="Storage full"}}
+        local imports=select(1,service({noPlan},{},{}))
+        local ctx=context(5)
+        imports:tick(ctx)
+        local retry=imports:tick(ctx)
+        T.equal(retry.state,"PLANNING")
+        T.arrayEqual(retry.rescan,{"dropoff","storage"})
+        T.equal(imports:tick(ctx).state,"IDLE")
+    end},
+    {name="pre-call destination change abandons the plan and returns to planning",run=function()
+        local imports,transfer=service({{plan={step(5)},remainder=0}}, {})
+        function transfer:executeMultiBatch()
+            self.execute_calls=self.execute_calls+1
+            return {state="FAILED",reason={code="DESTINATION_CHANGED",message="changed"}}
+        end
+        local ctx=context(5)
+        imports:tick(ctx);imports:tick(ctx);imports:tick(ctx)
+        local result=imports:tick(ctx)
+        T.equal(result.state,"PLANNING")
+        T.equal(result.journal,nil)
+        T.equal(result.reason,nil)
+    end},
     {name="import credits measured aggregate increase rather than reported count",run=function()
         local imports,transfer=service({{plan={step(5)},remainder=0}},
             {{state="COMPLETE",moved=5,reported_moved=2}})
         local ctx=context(5)
-        imports:tick(ctx);imports:tick(ctx);imports:tick(ctx)
+        imports:tick(ctx);imports:tick(ctx);imports:tick(ctx);imports:tick(ctx)
         local result=imports:tick(ctx)
         T.equal(result.state,"COMPLETE");T.equal(result.moved,5)
         T.equal(transfer.execute_calls,1);T.equal(transfer.retire_calls,1)
@@ -51,9 +125,10 @@ return {
         local imports,transfer=service({{plan={step(5)},remainder=0},{plan={step(3)},remainder=0}},
             {{state="COMPLETE",moved=2,reported_moved=5},{state="COMPLETE",moved=3,reported_moved=3}})
         local ctx=context(5,1)
-        imports:tick(ctx);imports:tick(ctx);imports:tick(ctx)
+        imports:tick(ctx);imports:tick(ctx);imports:tick(ctx);imports:tick(ctx)
         T.equal(imports:tick(ctx).state,"PARTIAL")
         ctx=context(3,2);T.equal(imports:tick(ctx).state,"PLANNING")
+        T.equal(imports:tick(ctx).state,"PLANNING")
         T.equal(imports:tick(ctx).state,"TRANSFERRING")
         T.equal(transfer.retire_calls,1)
     end},
@@ -61,7 +136,7 @@ return {
         local imports,transfer,alerts=service({{plan={step(5)},remainder=0}},
             {{state="COMPLETE",moved=5,reported_moved=5}})
         function transfer:retire() self.retire_calls=self.retire_calls+1;error("disk detached") end
-        local ctx=context(5);imports:tick(ctx);imports:tick(ctx);imports:tick(ctx)
+        local ctx=context(5);imports:tick(ctx);imports:tick(ctx);imports:tick(ctx);imports:tick(ctx)
         local result=imports:tick(ctx);T.equal(result.state,"COMPLETE");T.equal(result.moved,5)
         T.equal(imports:status().moved,5)
         T.equal(transfer.execute_calls,1);T.equal(transfer.verify_calls,1)
@@ -70,7 +145,7 @@ return {
     {name="zero import waits for explicit retry despite background generations",run=function()
         local imports,transfer=service({{plan={step(5)},remainder=0}},
             {{state="COMPLETE",moved=0,reported_moved=0}})
-        local ctx=context(5,1);imports:tick(ctx);imports:tick(ctx);imports:tick(ctx)
+        local ctx=context(5,1);imports:tick(ctx);imports:tick(ctx);imports:tick(ctx);imports:tick(ctx)
         T.equal(imports:tick(ctx).state,"BLOCKED")
         for generation=2,8 do ctx.generation=generation;ctx.now=100000+generation;imports:tick(ctx) end
         T.equal(imports:status().state,"BLOCKED");T.equal(transfer.execute_calls,1)
@@ -90,7 +165,7 @@ return {
         local imports,transfer=service({{plan={step(5)},remainder=0}},
             {{state="COMPLETE",moved=2,reported_moved=2}})
         local ctx=context(5)
-        imports:tick(ctx);imports:tick(ctx);imports:tick(ctx)
+        imports:tick(ctx);imports:tick(ctx);imports:tick(ctx);imports:tick(ctx)
         T.equal(imports:tick(ctx).state,"PARTIAL")
         ctx.dropoff.slots[1]=nil
         imports:tick(ctx)
@@ -110,7 +185,7 @@ return {
             return {state="VERIFYING",journal={step=steps},rescan={"storage","drop"}}
         end
         local ctx=context(64)
-        imports:tick(ctx);imports:tick(ctx);imports:tick(ctx)
+        imports:tick(ctx);imports:tick(ctx);imports:tick(ctx);imports:tick(ctx)
         T.equal(#submitted,3,"the whole plan goes out together")
         T.arrayEqual({submitted[1].limit,submitted[2].limit,submitted[3].limit},{4,1,59})
         local result=imports:tick(ctx)
@@ -127,7 +202,7 @@ return {
         function transfer:executeMultiBatch(_,steps) submitted=steps
             return {state="VERIFYING",journal={},rescan={}} end
         local ctx=context(20)
-        imports:tick(ctx);imports:tick(ctx);imports:tick(ctx)
+        imports:tick(ctx);imports:tick(ctx);imports:tick(ctx);imports:tick(ctx)
         T.equal(#submitted,8,"the constructor's own conservative default bounds a batch")
     end},
     {name="a batch honours a raised cap, the shipped production value",run=function()
@@ -138,13 +213,13 @@ return {
         function transfer:executeMultiBatch(_,steps) submitted=steps
             return {state="VERIFYING",journal={},rescan={}} end
         local ctx=context(20)
-        imports:tick(ctx);imports:tick(ctx);imports:tick(ctx)
+        imports:tick(ctx);imports:tick(ctx);imports:tick(ctx);imports:tick(ctx)
         T.equal(#submitted,16,"main.lua raises the shipped cap to 16")
     end},
     {name="opposite import delta raises a critical actionable alert",run=function()
         local imports,transfer,alerts=service({{plan={step(5)},remainder=0}},
             {{state="WAITING",reason={code="RECONCILE_DIRECTION"},rescan={"storage"}}})
-        local ctx=context(5);imports:tick(ctx);imports:tick(ctx);imports:tick(ctx)
+        local ctx=context(5);imports:tick(ctx);imports:tick(ctx);imports:tick(ctx);imports:tick(ctx)
         T.equal(imports:tick(ctx).state,"VERIFYING");T.equal(transfer.execute_calls,1)
         local active=alerts:active();T.equal(active[1].severity,"critical")
         T.equal(active[1].details.code,"RECONCILE_DIRECTION")
@@ -153,7 +228,7 @@ return {
         local imports,transfer,alerts=service({{plan={step(5)},remainder=0}},
             {{state="WAITING",reason={code="STORAGE_SCOPE_INCOMPLETE"},rescan={"storage"}},
              {state="COMPLETE",moved=5,reported_moved=5}})
-        local ctx=context(5);imports:tick(ctx);imports:tick(ctx);imports:tick(ctx)
+        local ctx=context(5);imports:tick(ctx);imports:tick(ctx);imports:tick(ctx);imports:tick(ctx)
         local result=imports:tick(ctx);T.equal(result.state,"VERIFYING")
         T.arrayEqual(result.rescan,{"storage"})
         T.equal(alerts:active()[1].details.code,"STORAGE_SCOPE_INCOMPLETE")
