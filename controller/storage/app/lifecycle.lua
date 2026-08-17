@@ -5,7 +5,7 @@ local allowed = {
         DRAFT = { QUEUED=true, CANCELLED=true },
         QUEUED = { PLANNING=true, CANCELLED=true },
         PLANNING = { TRANSFERRING=true, BLOCKED=true, FAILED=true, CANCELLED=true },
-        TRANSFERRING = { VERIFYING=true, PARTIAL=true, BLOCKED=true, FAILED=true },
+        TRANSFERRING = { PLANNING=true, VERIFYING=true, PARTIAL=true, BLOCKED=true, FAILED=true },
         VERIFYING = { COMPLETE=true, PARTIAL=true, BLOCKED=true, FAILED=true },
         BLOCKED = { PLANNING=true, CANCELLED=true },
         PARTIAL = { PLANNING=true, CANCELLED=true },
