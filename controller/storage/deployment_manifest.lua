@@ -17,6 +17,7 @@ local M={files={
     "storage/app/lifecycle.lua",
     "storage/app/match.lua",
     "storage/app/monitor.lua",
+    "storage/app/planning_refresh.lua",
     "storage/app/requests.lua",
     "storage/app/recovery.lua",
     "storage/app/search.lua",
