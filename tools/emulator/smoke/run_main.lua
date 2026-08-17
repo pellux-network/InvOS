@@ -18,7 +18,13 @@ coordinator:redraw()
 local timer=os.startTimer(0.05)
 while true do
     local event={os.pullEventRaw()}
-    if profileWorld and event[1]=="key" and event[2]==keys.f8 then
+    if profileWorld and event[1]=="key" and event[2]==keys.f7 then
+        local dropoff=scenario.config and scenario.config.dropoff
+        if not dropoff then error("profile deposit requires a configured Drop-off",0) end
+        peripheral.call(dropoff.peripheral_name,"setItem",1,{
+            name="minecraft:stone",count=1,displayName="Stone",maxCount=64})
+        coordinator:requestRescan({"dropoff"})
+    elseif profileWorld and event[1]=="key" and event[2]==keys.f8 then
         local marker=fs.open("/profile-reset","w")
         if marker then marker.write("reset") marker.close() end
         if fs.exists("/profile-reset") then
