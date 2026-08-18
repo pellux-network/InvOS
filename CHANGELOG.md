@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.1.0](https://github.com/pellux-network/InvOS/compare/v1.0.1...v1.1.0) (2026-08-18)
+
+
+### Features
+
+* **emulator:** craft through an emulated turtle ([15a6c9f](https://github.com/pellux-network/InvOS/commit/15a6c9f8e1492f488bbcecfee011286723a31e4e))
+
+
+### Performance Improvements
+
+* **storage:** make transfer latency independent of node count ([f643dca](https://github.com/pellux-network/InvOS/commit/f643dcae8345190e5de4715c7849e8848af59502))
+
 ## [1.0.1](https://github.com/pellux-network/InvOS/compare/v1.0.0...v1.0.1) (2026-08-16)
 
 
