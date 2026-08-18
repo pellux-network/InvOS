@@ -3,7 +3,7 @@ local Lifecycle=require("app.lifecycle")
 local Requests=require("app.requests")
 local T=require("tests.mock_cc")
 
-return {{name="changed storage source blocks for a source-only rescan",run=function()
+return {{name="changed storage source abandons the pre-call attempt and replans",run=function()
     local planner={planRetrieval=function() return {{source_name="store",source_slot=1,
         source_epoch=1,source_pre_count=4,destination_name="pickup",
         identity_key="minecraft:stone\0-",limit=4}},0 end}
@@ -13,10 +13,12 @@ return {{name="changed storage source blocks for a source-only rescan",run=funct
         alerts=Alerts.new(function() return 0 end),transition=Lifecycle.transition,
         clock=function() return 0 end,idGenerator=function() return "request" end})
     requests:create({key="minecraft:stone\0-",name="minecraft:stone"},4)
-    local context={index={},pickup={},generation=1,now=0}
-    requests:tick(context);requests:tick(context)
+    local context={index={},pickup={node_id="pickup",peripheral_name="pickup",slots={}},
+        storage={{node_id="storage",peripheral_name="store",health="READY",slots={}}},
+        generation=1,now=0}
+    requests:tick(context);requests:tick(context);requests:tick(context)
     local result=requests:tick(context)
-    T.equal(result.state,"BLOCKED")
-    T.equal(result.reason.code,"SOURCE_CHANGED")
-    T.arrayEqual(result.rescan,{"store"})
+    T.equal(result.state,"PLANNING")
+    T.equal(result.reason,nil)
+    T.equal(result.journal,nil)
 end}}

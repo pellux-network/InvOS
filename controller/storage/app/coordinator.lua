@@ -147,11 +147,11 @@ function Coordinator:_context(now)
             storage[#storage + 1]=snapshot
         end
     end
-    context.dropoff=self:_snapshotForRole("dropoff")
-    context.pickup=self:_snapshotForRole("pickup")
+    context.dropoff=self:_contextForRole("dropoff")
+    context.pickup=self:_contextForRole("pickup")
     -- Absent on an installation with no crafting turtle, which is why every consumer
     -- has to tolerate it being nil rather than assume a buffer exists.
-    context.craft_buffer=self:_snapshotForRole("craft_buffer")
+    context.craft_buffer=self:_contextForRole("craft_buffer")
     context.storage=storage
     context.index=self.index
     return context
@@ -167,6 +167,20 @@ end
 function Coordinator:_snapshotForRole(role)
     for _, node in ipairs(self.nodes) do
         if node.role == role then return self.snapshots[node.id] end
+    end
+end
+
+-- Planning needs the configured endpoint identity even before its first scan completes.
+-- A placeholder is not presented as fresh inventory: its health mirrors the node state and
+-- its empty slots merely let a service decide which exact nodes it needs refreshed.
+function Coordinator:_contextForRole(role)
+    for _, node in ipairs(self.nodes) do
+        if node.role == role then
+            local snapshot=copy(self.snapshots[node.id] or {node_id=node.id,
+                peripheral_name=node.peripheral_name,slots={}})
+            snapshot.health=node.state
+            return snapshot
+        end
     end
 end
 
@@ -275,21 +289,35 @@ end
 -- attempt, a recorded error and a repaint on every pass of the work loop, forever, which
 -- saturates the controller and makes the terminal stop responding to keys.
 function Coordinator:_staleNodeId(now)
+    local function eligibleAge(node)
+        local failedAt=self.scanFailedAt[node.id]
+        local backingOff=failedAt and (now-failedAt)<self:_scanBackoff(node.id)
+        if node.state=="DISABLED" or backingOff then return nil end
+        if not self.snapshots[node.id] then return math.huge end
+        local completedAt=self.scanCompletedAt[node.id]
+        return completedAt and (now-completedAt) or math.huge
+    end
+
+    -- Nothing else signals a physical deposit. Once Drop-off reaches its refresh deadline,
+    -- scan it before older routine storage work so adding storage nodes cannot stretch that
+    -- discovery bound. It becomes fresh afterward, so ordinary nodes immediately resume.
+    local dropoffId,dropoffAge
+    for _,node in ipairs(self.nodes) do
+        if node.role=="dropoff" then
+            local age=eligibleAge(node)
+            if age and age>=self.scanRefreshInterval and
+                (not dropoffAge or age>dropoffAge) then
+                dropoffId,dropoffAge=node.id,age
+            end
+        end
+    end
+    if dropoffId then return dropoffId end
+
     local bestId, bestAge
     for _, node in ipairs(self.nodes) do
-        local failedAt = self.scanFailedAt[node.id]
-        local backingOff = failedAt and (now - failedAt) < self:_scanBackoff(node.id)
-        if node.state ~= "DISABLED" and not backingOff then
-            local age
-            if not self.snapshots[node.id] then
-                age = math.huge
-            else
-                local completedAt = self.scanCompletedAt[node.id]
-                age = completedAt and (now - completedAt) or math.huge
-            end
-            if age >= self.scanRefreshInterval and (not bestAge or age > bestAge) then
-                bestId, bestAge = node.id, age
-            end
+        local age=eligibleAge(node)
+        if age and age>=self.scanRefreshInterval and (not bestAge or age>bestAge) then
+            bestId,bestAge=node.id,age
         end
     end
     return bestId
@@ -484,12 +512,12 @@ function Coordinator:_automationStep(now)
             if state=="TRANSFERRING" or state=="VERIFYING" then inFlight=true;break end
         end
         if not inFlight then
-            for _,entry in ipairs(entries) do
-                if (entry[1]=="imports" or entry[1]=="requests" or entry[1]=="crafts") and
-                    serviceState(entry[1],entry[2])=="PLANNING" then
-                    self:_setVerificationGate(entry[1],self:_preflightNames(entry[1]),"planning")
-                    return
-                end
+            -- Craft planning consumes the whole storage ledger, so it retains the full-pool
+            -- preflight. Requests and imports first produce a tentative plan, then return the
+            -- exact nodes that plan needs refreshed.
+            if serviceState("crafts",self.deps.crafts)=="PLANNING" then
+                self:_setVerificationGate("crafts",self:_preflightNames("crafts"),"planning")
+                return
             end
         end
         for _,entry in ipairs(entries) do
@@ -517,7 +545,8 @@ function Coordinator:_automationStep(now)
     else
         self:_clearError(selected[1])
         if type(result)=="table" and result.rescan and
-            (result.state=="VERIFYING" or result.state=="BLOCKED" or selected[1]=="crafts") then
+            (result.state=="PLANNING" or result.state=="VERIFYING" or
+                result.state=="BLOCKED" or selected[1]=="crafts") then
             -- Crafting asks for a rescan from its own states, not VERIFYING or BLOCKED: the
             -- turtle drops output into the buffer without anything telling the controller.
             --
@@ -528,7 +557,8 @@ function Coordinator:_automationStep(now)
             if serviceState(selected[1],selected[2])=="TRANSFERRING" then
                 self:requestRescan(result.rescan)
             else
-                self:_setVerificationGate(selected[1],result.rescan)
+                self:_setVerificationGate(selected[1],result.rescan,
+                    result.state=="PLANNING" and "planning" or nil)
             end
         end
     end

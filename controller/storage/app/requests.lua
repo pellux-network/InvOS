@@ -1,3 +1,6 @@
+local PlanningRefresh = require("app.planning_refresh")
+local StorageScope = require("core.storage_scope")
+
 local Requests = {}
 Requests.__index = Requests
 
@@ -132,6 +135,7 @@ function Requests:retry(id)
     if not request or (request.state ~= "FAILED" and request.state ~= "BLOCKED" and
         request.state ~= "PARTIAL") then return nil, "request is not retryable" end
     request.reason = nil
+    request.planning_refresh, request.rescan = nil, nil
     self:_state(request, "PLANNING")
     return true
 end
@@ -148,19 +152,49 @@ function Requests:tick(context)
         local destination = context[request.destination_role or "pickup"]
         local plan, remainder, planReason = self.planner.planRetrieval(
             request.identity.key, remaining, context.index, destination)
+        plan = plan or {}
         request.plan_remainder = remainder
-        if #plan == 0 then
-            self:_block(request, context, planReason)
+        local steps = {}
+        for index = 1, math.min(#plan, self.batchLimit) do steps[index] = copy(plan[index]) end
+
+        local candidateIds, scopeReason = {}, nil
+        if #steps > 0 then
+            local _, selectedIds
+            _, selectedIds, scopeReason = StorageScope.select("request", steps,
+                context.storage or {})
+            candidateIds = selectedIds or {}
+        end
+        if scopeReason then
+            request.reason=copy(scopeReason)
+            self:_state(request,"FAILED")
+            self.alerts:set("request_failed:"..request.id,"critical",scopeReason.message,
+                {request_id=request.id,code=scopeReason.code})
         else
-            -- One gate cycle per batch instead of per step, bounded so a single ambiguous
-            -- window can never span an unbounded number of issued calls.
-            request.steps = {}
-            for index = 1, math.min(#plan, self.batchLimit) do
-                request.steps[index] = copy(plan[index])
+            local action, refresh = PlanningRefresh.advance(request.planning_refresh,
+                candidateIds, #steps > 0)
+            if action == "SCAN" then
+                request.planning_refresh=refresh
+                local names, refreshReason = PlanningRefresh.names(refresh,
+                    context.storage or {}, destination)
+                if not names then
+                    request.reason=copy(refreshReason)
+                    self:_state(request,"FAILED")
+                    self.alerts:set("request_failed:"..request.id,"critical",
+                        refreshReason.message,{request_id=request.id,code=refreshReason.code})
+                else
+                    request.rescan=names
+                end
+            elseif action == "FINAL_NO_PLAN" then
+                request.planning_refresh,request.rescan=nil,nil
+                self:_block(request, context, planReason)
+            else
+                -- One gate cycle per batch instead of per step, bounded so a single
+                -- ambiguous window can never span an unbounded number of issued calls.
+                request.steps=steps
+                request.step=request.steps[1]
+                request.reason,request.rescan,request.planning_refresh=nil,nil,nil
+                self:_state(request,"TRANSFERRING")
             end
-            request.step = request.steps[1]
-            request.reason = nil
-            self:_state(request, "TRANSFERRING")
         end
     elseif request.state == "TRANSFERRING" then
         local result = self.transfer:executeMultiBatch(request, request.steps, context.storage or {})
@@ -169,7 +203,15 @@ function Requests:tick(context)
             request.pending_moved = result.moved
             request.rescan = copy(result.rescan)
             self:_state(request, "VERIFYING")
-        elseif result.reason and (result.reason.code=="SOURCE_CHANGED" or result.reason.retryable) then
+        elseif result.reason and not result.journal and
+            (result.reason.code=="SOURCE_CHANGED" or result.reason.code=="DESTINATION_CHANGED") then
+            -- Nothing was issued, so abandon the stale attempt and rediscover. A result with
+            -- a journal is never eligible for this path: it must reconcile, never replay.
+            request.step,request.steps,request.journal=nil,nil,nil
+            request.pending_moved,request.rescan,request.reason=nil,nil,nil
+            request.planning_refresh=nil
+            self:_state(request,"PLANNING")
+        elseif result.reason and result.reason.retryable then
             request.rescan=copy(result.rescan)
             self:_block(request,context,result.reason)
         else

@@ -5,7 +5,8 @@ local T = require("tests.mock_cc")
 local stone = "minecraft:stone\0-"
 
 local function storage(count)
-    return {{node_id="store", health="READY", slots={[1]={identity_key=stone, count=count or 30}}}}
+    return {{node_id="store", peripheral_name="store", health="READY",
+        slots={[1]={identity_key=stone, count=count or 30}}}}
 end
 
 -- Three planner steps out of one Drop-off slot: top up two partial stacks, then a fresh slot.
@@ -66,13 +67,17 @@ return {
 
     {name="one baseline covers the whole batch", run=function()
         local transfer = harness()
-        local result = transfer:executeBatch(operation, importSteps(), storage(123))
+        local snapshots = storage(123)
+        snapshots[#snapshots + 1] = {node_id="unused", peripheral_name="store_unused",
+            health="ERROR", slots={}}
+        local result = transfer:executeBatch(operation, importSteps(), snapshots)
         T.equal(result.journal.schema, 3)
         T.equal(result.journal.batch.storage_pre_count, 123,
             "a single fresh baseline is captured before any push")
         T.equal(result.journal.batch.identity_key, stone)
         T.equal(#result.journal.batch.steps, 3)
         T.equal(result.journal.batch.limit_total, 70)
+        T.arrayEqual(result.journal.batch.storage_node_ids, {"store"})
     end},
 
     {name="every destination is preflighted before any push", run=function()

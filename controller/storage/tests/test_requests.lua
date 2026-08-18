@@ -24,7 +24,9 @@ end
 local function service(plans,outcomes,extra)
     local planCalls=0;local planner={}
     function planner.planRetrieval()
-        planCalls=planCalls+1;local value=plans[planCalls]
+        planCalls=planCalls+1
+        local position=extra and extra.plan_each_call and planCalls or math.floor((planCalls+1)/2)
+        local value=plans[position]
         return value.plan,value.remainder,value.reason
     end
     local transfer=worker(outcomes);local alerts=Alerts.new(function() return 0 end)
@@ -36,14 +38,86 @@ local function service(plans,outcomes,extra)
     return requests,transfer,alerts,function() return planCalls end
 end
 local function context(generation)
-    return {index={},pickup={},storage={{node_id="storage",health="READY",slots={}}},
+    return {index={},pickup={node_id="pickup",peripheral_name="pickup",health="READY",slots={}},
+        storage={{node_id="storage",peripheral_name="store",health="READY",slots={}}},
         generation=generation or 1,now=100}
 end
 local function advance(requests,ctx)
-    requests:tick(ctx);requests:tick(ctx);requests:tick(ctx);return requests:tick(ctx)
+    requests:tick(ctx);requests:tick(ctx);requests:tick(ctx);requests:tick(ctx)
+    return requests:tick(ctx)
 end
 
 return {
+    {name="a tentative retrieval refreshes only its source and destination before moving",run=function()
+        local requests,transfer=service({{plan={planned(2)},remainder=0},
+            {plan={planned(2)},remainder=0}},{{state="COMPLETE",moved=2}})
+        requests:create({key=stone},2)
+        local ctx=context()
+        requests:tick(ctx)
+        local planning=requests:tick(ctx)
+        T.equal(planning.state,"PLANNING")
+        T.arrayEqual(planning.rescan,{"pickup","storage"})
+        T.equal(transfer.execute_calls,0)
+        local ready=requests:tick(ctx)
+        T.equal(ready.state,"TRANSFERRING")
+        T.equal(transfer.execute_calls,0)
+    end},
+    {name="one changed source retargets and accumulates the refreshed union",run=function()
+        local function step(name)
+            return {source_name=name,source_slot=1,destination_name="pickup",
+                source_epoch=1,source_pre_count=1,identity_key=stone,limit=1}
+        end
+        local requests=select(1,service({
+            {plan={step("store_a")},remainder=0},
+            {plan={step("store_b")},remainder=0},
+            {plan={step("store_a")},remainder=0},
+        },{},{plan_each_call=true}))
+        requests:create({key=stone},1)
+        local ctx=context()
+        ctx.storage={
+            {node_id="a",peripheral_name="store_a",health="READY",slots={}},
+            {node_id="b",peripheral_name="store_b",health="READY",slots={}},
+            {node_id="c",peripheral_name="store_c",health="READY",slots={}},
+        }
+        requests:tick(ctx)
+        T.arrayEqual(requests:tick(ctx).rescan,{"a","pickup"})
+        T.arrayEqual(requests:tick(ctx).rescan,{"a","b","pickup"})
+        T.equal(requests:tick(ctx).state,"TRANSFERRING")
+    end},
+    {name="a second unrefreshed source shift widens to the full storage pool",run=function()
+        local function step(name)
+            return {source_name=name,source_slot=1,destination_name="pickup",
+                source_epoch=1,source_pre_count=1,identity_key=stone,limit=1}
+        end
+        local requests=select(1,service({
+            {plan={step("store_a")}}, {plan={step("store_b")}},
+            {plan={step("store_c")}},
+        },{},{plan_each_call=true}))
+        requests:create({key=stone},1)
+        local ctx=context()
+        ctx.storage={
+            {node_id="a",peripheral_name="store_a",health="READY",slots={}},
+            {node_id="b",peripheral_name="store_b",health="READY",slots={}},
+            {node_id="c",peripheral_name="store_c",health="READY",slots={}},
+        }
+        requests:tick(ctx);requests:tick(ctx);requests:tick(ctx)
+        local widened=requests:tick(ctx)
+        T.equal(widened.state,"PLANNING")
+        T.arrayEqual(widened.rescan,{"a","b","c","pickup"})
+    end},
+    {name="an empty plan gets one full-pool refresh before blocking",run=function()
+        local noPlan={plan={},remainder=1,reason={code="NOT_FOUND",message="Not found"}}
+        local requests=select(1,service({noPlan,noPlan},{}))
+        requests:create({key=stone},1)
+        local ctx=context()
+        requests:tick(ctx)
+        local retry=requests:tick(ctx)
+        T.equal(retry.state,"PLANNING")
+        T.arrayEqual(retry.rescan,{"pickup","storage"})
+        local blocked=requests:tick(ctx)
+        T.equal(blocked.state,"BLOCKED")
+        T.equal(blocked.reason.code,"NOT_FOUND")
+    end},
     {name="request display name prefers identity display_name over the raw name",run=function()
         local requests=select(1,service({{plan={planned(1)},remainder=0}},{}))
         local request=requests:create({key=stone,name="minecraft:stone",display_name="Stone"},1)
@@ -94,7 +168,7 @@ return {
         local request=requests:create({key=stone},2);local ctx=context(1)
         T.equal(advance(requests,ctx).state,"PARTIAL")
         T.equal(requests:get(request.id).delivered,1)
-        ctx.generation=2;requests:tick(ctx);requests:tick(ctx);requests:tick(ctx)
+        ctx.generation=2;requests:tick(ctx);requests:tick(ctx);requests:tick(ctx);requests:tick(ctx)
         local result=requests:tick(ctx)
         T.equal(result.state,"COMPLETE");T.equal(result.delivered,2)
         T.equal(transfer.execute_calls,2);T.equal(transfer.retire_calls,2)
@@ -167,7 +241,7 @@ return {
             planner={planRetrieval=function(_,_,_,destination)
                 seen=destination; return {planned(1)},0 end}})
         requests:create({key=stone},1)
-        local ctx=context(); ctx.pickup={peripheral_name="pickup",health="READY"}
+        local ctx=context(); ctx.pickup={node_id="pickup",peripheral_name="pickup",health="READY"}
         advance(requests,ctx)
         T.equal(seen.peripheral_name,"pickup","the planner is handed the Pickup node")
     end},
@@ -178,8 +252,8 @@ return {
                 seen=destination; return {planned(1)},0 end}})
         requests:create({key=stone},1,{destination_role="craft_buffer",owner="craft-1"})
         local ctx=context()
-        ctx.pickup={peripheral_name="pickup",health="READY"}
-        ctx.craft_buffer={peripheral_name="buffer",health="READY"}
+        ctx.pickup={node_id="pickup",peripheral_name="pickup",health="READY"}
+        ctx.craft_buffer={node_id="craft_buffer",peripheral_name="buffer",health="READY"}
         advance(requests,ctx)
         T.equal(seen.peripheral_name,"buffer","the planner is handed the buffer node")
     end},
@@ -205,7 +279,7 @@ return {
         local requests,_,alerts=service({{plan={planned(1)}}},{{state="COMPLETE",moved=0}},{})
         requests:create({key=stone},1,{destination_role="craft_buffer",owner="craft-1"})
         local ctx=context()
-        ctx.craft_buffer={peripheral_name="buffer",health="READY"}
+        ctx.craft_buffer={node_id="craft_buffer",peripheral_name="buffer",health="READY"}
         local request=advance(requests,ctx)
         T.equal(request.state,"BLOCKED")
         T.equal(request.reason.code,"BUFFER_FULL")
@@ -214,7 +288,7 @@ return {
     {name="zero movement into Pickup still blocks with PICKUP_FULL",run=function()
         local requests=service({{plan={planned(1)}}},{{state="COMPLETE",moved=0}},{})
         requests:create({key=stone},1)
-        local ctx=context(); ctx.pickup={peripheral_name="pickup",health="READY"}
+        local ctx=context(); ctx.pickup={node_id="pickup",peripheral_name="pickup",health="READY"}
         local request=advance(requests,ctx)
         T.equal(request.state,"BLOCKED")
         T.equal(request.reason.code,"PICKUP_FULL")
@@ -224,10 +298,10 @@ return {
             {{state="COMPLETE",moved=0}},{})
         requests:create({key=stone},1,{destination_role="craft_buffer",owner="craft-1"})
         local ctx=context()
-        ctx.craft_buffer={peripheral_name="buffer",health="READY"}
+        ctx.craft_buffer={node_id="craft_buffer",peripheral_name="buffer",health="READY"}
         advance(requests,ctx)
         local later=context(99)
-        later.craft_buffer={peripheral_name="buffer",health="READY"}
+        later.craft_buffer={node_id="craft_buffer",peripheral_name="buffer",health="READY"}
         later.now=10000000
         local request=requests:tick(later)
         T.equal(request.state,"BLOCKED","a scan is not evidence the buffer drained")

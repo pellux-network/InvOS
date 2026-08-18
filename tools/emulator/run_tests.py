@@ -46,6 +46,10 @@ CATEGORIES = {
         ["test_smoke_nbt.NbtVariantTests"],
         "NBT-distinct item variants surviving scan, index and search",
     ),
+    "scan-scaling": (
+        ["test_scan_scaling"],
+        "operation-scoped peripheral call counts at one and twenty storage nodes",
+    ),
     "install": (
         ["test_install.InstallTests"],
         "install.lua fetch/verify/write against a local fixture server",
@@ -56,8 +60,8 @@ CATEGORIES = {
     ),
 }
 
-EMULATOR_CATEGORIES = ["smoke", "setup-wizard", "manifest", "keys", "nbt", "install",
-                       "craft"]
+EMULATOR_CATEGORIES = ["smoke", "setup-wizard", "manifest", "keys", "nbt",
+                       "scan-scaling", "install", "craft"]
 
 
 def targets_for(names):

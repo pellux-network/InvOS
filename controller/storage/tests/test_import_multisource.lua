@@ -12,7 +12,7 @@ local function dropoff(spec)
     for slot, entry in pairs(spec) do
         slots[slot] = {name=entry[1], count=entry[2], identity_key=key(entry[1]), max_count=64}
     end
-    return {health="READY", peripheral_name="drop", epoch=10, slots=slots}
+    return {node_id="dropoff", health="READY", peripheral_name="drop", epoch=10, slots=slots}
 end
 
 local function storage(size)
@@ -53,7 +53,7 @@ return {
                 [key("minecraft:dirt")]=16}})
         local ctx = context({[1]={"minecraft:stone",64}, [4]={"minecraft:coal",20},
             [9]={"minecraft:dirt",16}})
-        imports:tick(ctx); imports:tick(ctx); imports:tick(ctx)
+        imports:tick(ctx); imports:tick(ctx); imports:tick(ctx); imports:tick(ctx)
         T.equal(transfer.calls, 1, "one batch serves every Drop-off slot")
         local identities = {}
         for _, step in ipairs(transfer.submitted) do identities[step.identity_key] = true end
@@ -68,7 +68,7 @@ return {
         local imports, transfer = service({slotLimit=2})
         local ctx = context({[1]={"minecraft:stone",10}, [2]={"minecraft:coal",10},
             [3]={"minecraft:dirt",10}, [4]={"minecraft:sand",10}})
-        imports:tick(ctx); imports:tick(ctx); imports:tick(ctx)
+        imports:tick(ctx); imports:tick(ctx); imports:tick(ctx); imports:tick(ctx)
         local identities = {}
         for _, step in ipairs(transfer.submitted) do identities[step.identity_key] = true end
         local count = 0
@@ -80,7 +80,7 @@ return {
     {name="a slot batch limit of one reproduces single slot behaviour", run=function()
         local imports, transfer = service({slotLimit=1})
         local ctx = context({[1]={"minecraft:stone",10}, [2]={"minecraft:coal",10}})
-        imports:tick(ctx); imports:tick(ctx); imports:tick(ctx)
+        imports:tick(ctx); imports:tick(ctx); imports:tick(ctx); imports:tick(ctx)
         T.equal(#imports:status().sources, 1)
         T.equal(imports:status().source.identity_key, key("minecraft:stone"),
             "the lowest occupied slot is still chosen")
@@ -95,7 +95,7 @@ return {
         local imports, transfer = service({slotLimit=8})
         local ctx = context({[1]={"minecraft:stone",64}, [2]={"minecraft:coal",64},
             [3]={"minecraft:dirt",64}})
-        imports:tick(ctx); imports:tick(ctx); imports:tick(ctx)
+        imports:tick(ctx); imports:tick(ctx); imports:tick(ctx); imports:tick(ctx)
         T.equal(imports:status().state, "VERIFYING",
             "a mixed Drop-off must plan without colliding")
         local claimed = {}
@@ -140,7 +140,7 @@ return {
         T.equal(#imports:status().sources, 3)
         -- a player takes the coal back out before anything was issued
         ctx.dropoff.slots[2] = nil
-        imports:tick(ctx); imports:tick(ctx)
+        imports:tick(ctx); imports:tick(ctx); imports:tick(ctx)
         T.equal(imports:status().state, "VERIFYING",
             "the surviving sources still import")
         local identities = {}
@@ -168,7 +168,7 @@ return {
         local imports, transfer, alerts = service({slotLimit=3, moved=30,
             byIdentity={[key("minecraft:stone")]=10, [key("minecraft:coal")]=20}})
         local ctx = context({[1]={"minecraft:stone",10}, [2]={"minecraft:coal",20}})
-        imports:tick(ctx); imports:tick(ctx); imports:tick(ctx)
+        imports:tick(ctx); imports:tick(ctx); imports:tick(ctx); imports:tick(ctx)
         local result = imports:tick(ctx)
         T.equal(result.state, "COMPLETE")
         T.equal(result.moved, 30, "every source's measured movement is credited")
@@ -180,7 +180,7 @@ return {
         local imports, _, alerts = service({slotLimit=3, moved=999,
             byIdentity={[key("minecraft:stone")]=999}})
         local ctx = context({[1]={"minecraft:stone",10}, [2]={"minecraft:coal",20}})
-        imports:tick(ctx); imports:tick(ctx); imports:tick(ctx); imports:tick(ctx)
+        imports:tick(ctx); imports:tick(ctx); imports:tick(ctx); imports:tick(ctx); imports:tick(ctx)
         local active = alerts:active()
         T.equal(active[1].details.code, "OVER_DELIVERY")
         T.equal(active[1].severity, "critical")

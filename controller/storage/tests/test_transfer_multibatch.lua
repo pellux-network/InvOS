@@ -6,7 +6,7 @@ local stone = "minecraft:stone\0-"
 local pearl = "minecraft:ender_pearl\0-"
 
 local function storage(stoneCount, pearlCount)
-    return {{node_id="store", health="READY", slots={
+    return {{node_id="store", peripheral_name="store", health="READY", slots={
         [1]={identity_key=stone, count=stoneCount or 20},
         [2]={identity_key=pearl, count=pearlCount or 10}}}}
 end
@@ -71,7 +71,10 @@ return {
 
     {name="each identity records its own baseline", run=function()
         local transfer = harness()
-        local journal = transfer:executeMultiBatch(operation, mixedSteps(), storage(20, 10)).journal
+        local snapshots = storage(20, 10)
+        snapshots[#snapshots + 1] = {node_id="unused", peripheral_name="store_unused",
+            health="ERROR", slots={}}
+        local journal = transfer:executeMultiBatch(operation, mixedSteps(), snapshots).journal
         local byKey = {}
         for _, entry in ipairs(journal.batch.identities) do byKey[entry.identity_key] = entry end
         T.equal(byKey[stone].storage_pre_count, 20)
@@ -80,6 +83,7 @@ return {
         T.equal(byKey[pearl].limit_total, 16)
         T.equal(journal.batch.identities[1].identity_key < journal.batch.identities[2].identity_key,
             true, "identities are sorted for deterministic validation")
+        T.arrayEqual(journal.batch.storage_node_ids, {"store"})
     end},
 
     {name="verification credits each identity from its own delta", run=function()

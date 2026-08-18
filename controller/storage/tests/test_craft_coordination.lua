@@ -67,6 +67,16 @@ local function names(list)
 end
 
 return {
+    {name="unscanned endpoint roles still reach services as placeholders",run=function()
+        local coordinator = build()
+        local context = coordinator:_context(1000)
+        T.equal(context.dropoff.node_id,"dropoff")
+        T.equal(context.dropoff.peripheral_name,"drop")
+        T.equal(context.dropoff.health,"SCANNING")
+        T.equal(context.pickup.node_id,"pickup")
+        T.equal(context.craft_buffer.node_id,"craft_buffer")
+        T.equal(type(context.pickup.slots),"table")
+    end},
     {name="the craft buffer snapshot reaches the shared context",run=function()
         local coordinator = build()
         for _ = 1, 12 do coordinator:workStep(1000) end
@@ -130,6 +140,45 @@ return {
         local coordinator = build({crafts=crafts, configured=true})
         for _ = 1, 30 do coordinator:workStep(1000) end
         T.truthy(crafts.calls.ticks > 0, "a craft job must be able to advance")
+    end},
+    {name="request planning chooses its own targeted gate before any full-pool gate",run=function()
+        local requests={ticks=0}
+        function requests:list() return {{state="PLANNING",destination_role="pickup"}} end
+        function requests:tick()
+            self.ticks=self.ticks+1
+            return {state="PLANNING",rescan={"storage_1","pickup"}}
+        end
+        local coordinator=build({requests=requests,configured=true})
+        coordinator:_automationStep(1000)
+        T.equal(requests.ticks,1,"the service must plan from current snapshots first")
+        T.equal(coordinator.verificationGate.phase,"planning")
+        T.equal(coordinator.verificationGate.required.storage_1,1)
+        T.equal(coordinator.verificationGate.required.pickup,1)
+        T.equal(coordinator.verificationGate.required.dropoff,nil)
+    end},
+    {name="import planning chooses its own targeted gate before any full-pool gate",run=function()
+        local imports={ticks=0}
+        function imports:status() return {state="PLANNING"} end
+        function imports:tick()
+            self.ticks=self.ticks+1
+            return {state="PLANNING",rescan={"storage_1","dropoff"}}
+        end
+        local coordinator=build({imports=imports,configured=true})
+        coordinator:_automationStep(1000)
+        T.equal(imports.ticks,1)
+        T.equal(coordinator.verificationGate.phase,"planning")
+        T.equal(coordinator.verificationGate.required.storage_1,1)
+        T.equal(coordinator.verificationGate.required.dropoff,1)
+        T.equal(coordinator.verificationGate.required.pickup,nil)
+    end},
+    {name="craft planning retains its full-pool preflight gate",run=function()
+        local crafts=stubService("PLANNING")
+        local coordinator=build({crafts=crafts,configured=true})
+        coordinator:_automationStep(1000)
+        T.equal(crafts.calls.ticks,0)
+        T.equal(coordinator.verificationGate.phase,"planning")
+        T.equal(coordinator.verificationGate.required.storage_1,1)
+        T.equal(coordinator.verificationGate.required.craft_buffer,1)
     end},
     {name="an in-flight craft blocks a topology change",run=function()
         local coordinator = build({crafts=stubService("TRANSFERRING")})

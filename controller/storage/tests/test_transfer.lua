@@ -54,13 +54,15 @@ return {
         T.equal(complete.reported_moved,1)
         T.equal(store:recover("journal",Transfer.validateJournal).step.phase,"RECONCILED")
     end},
-    {name="incomplete storage scope waits without another inventory call",run=function()
+    {name="retrieval journals only the storage nodes used by its plan",run=function()
         local transfer,_,adapter=makeTransfer(2)
         local called=transfer:execute(operation("request"),requestStep(2),{
-            snapshot("a",{[7]={identity_key=echo,count=3}}),snapshot("b",{})})
-        local waiting=transfer:verify(called.journal,{snapshot("a",{})})
-        T.equal(waiting.state,"WAITING");T.equal(waiting.reason.code,"STORAGE_SCOPE_INCOMPLETE")
-        T.arrayEqual(waiting.rescan,{"a","b"});T.equal(adapter.push_calls,1)
+            snapshot("a",{[7]={identity_key=echo,count=3}}),snapshot("b",{},"ERROR")})
+        T.equal(called.state,"VERIFYING")
+        T.arrayEqual(called.journal.step.storage_node_ids,{"a"})
+        T.arrayEqual(called.rescan,{"a"})
+        local complete=transfer:verify(called.journal,{snapshot("a",{})})
+        T.equal(complete.state,"COMPLETE");T.equal(adapter.push_calls,1)
     end},
     {name="import reconciles aggregate storage increase",run=function()
         local transfer,_,adapter=makeTransfer(2)
@@ -76,6 +78,15 @@ return {
         local result=transfer:execute(operation("request"),requestStep(2),{snapshot("a",{})})
         T.equal(result.state,"FAILED");T.equal(result.reason.code,"SOURCE_CHANGED")
         T.equal(adapter.push_calls,0)
+    end},
+    {name="missing touched storage mapping fails before journal or inventory mutation",run=function()
+        local transfer,store,adapter=makeTransfer(2)
+        local result=transfer:execute(operation("request"),requestStep(2),{
+            snapshot("b",{})})
+        T.equal(result.state,"FAILED")
+        T.equal(result.reason.code,"STORAGE_SCOPE_MISSING")
+        T.equal(adapter.push_calls,0)
+        T.equal(store:recover("journal",Transfer.validateJournal),nil)
     end},
     {name="transfer exception leaves a calling journal for scan recovery",run=function()
         local transfer,store,adapter=makeTransfer(2)

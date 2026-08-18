@@ -99,7 +99,7 @@ class Scenario(object):
 
     def __init__(self, inventories=None, config=None, data=None,
                  modem="back", catalogue=None, skip_splash=True, profile=False,
-                 turtle=None):
+                 turtle=None, environment=None):
         self.inventories = inventories if inventories is not None else []
         self.config = config
         self.data = data or {}
@@ -108,6 +108,7 @@ class Scenario(object):
         self.skip_splash = skip_splash
         self.profile = profile
         self.turtle = turtle
+        self.environment = environment
 
     def to_lua(self):
         world = {
@@ -123,6 +124,8 @@ class Scenario(object):
             table["config"] = self.config
         if self.data:
             table["data"] = self.data
+        if self.environment is not None:
+            table["environment"] = self.environment
         return "return %s\n" % lua_value(table)
 
     def turtle_lua(self):

@@ -19,8 +19,9 @@ return {{name="post-transfer gate discards a source scan started before the move
     function requests:list() return {{id="request",state=state}} end
     function requests:tick()
         requestTicks=requestTicks+1
-        if requestTicks==1 then state="TRANSFERRING";return {state=state} end
-        if requestTicks==2 then state="VERIFYING";return {state=state,rescan={"source","destination"}} end
+        if requestTicks==1 then return {state="PLANNING",rescan={"source","destination"}} end
+        if requestTicks==2 then state="TRANSFERRING";return {state=state} end
+        if requestTicks==3 then state="VERIFYING";return {state=state,rescan={"source","destination"}} end
         state="COMPLETE";return {state=state}
     end
     local ui={reduce=function(_,value) return value end,render=function() end}
@@ -30,7 +31,7 @@ return {{name="post-transfer gate discards a source scan started before the move
         ui=ui,keymap={command=function() end},initial_ui={query="",results={}},
         build_index=function() return {items=function() return {} end} end,search=function() return {} end,
         lifecycle={derive=function() return "READY","" end},requests=requests})
-    for tick=1,8 do coordinator:tick(tick);if requestTicks==3 then break end end
+    for tick=1,10 do coordinator:tick(tick);if requestTicks==4 then break end end
     T.equal(sourceBegins,3)
-    T.equal(requestTicks,3)
+    T.equal(requestTicks,4)
 end}}

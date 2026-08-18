@@ -304,6 +304,7 @@ python3 run_tests.py smoke           # Search, index totals, navigation, theme
 python3 run_tests.py setup-wizard    # the unconfigured-computer setup wizard
 python3 run_tests.py nbt             # NBT variant scanning/search
 python3 run_tests.py craft           # the emulated turtle: oracle, boot, real crafts
+python3 run_tests.py scan-scaling    # retrieval/import call counts at 1 and 20 storage nodes
 python3 run_tests.py manifest keys   # deployment manifest + key-code drift
 python3 run_tests.py emulator        # every category that boots an emulator
 python3 run_tests.py all             # everything test_smoke.py's `-m unittest` invocation covers
@@ -316,6 +317,14 @@ rather than something to agonise over — when in doubt, run everything.
 test in those two classes boots its own bare computer via `run_probe` rather
 than sharing a class-level session.
 Extra arguments (`-v`, `-k pattern`, ...) pass straight through to `unittest`.
+
+`scan-scaling` profiles complete retrieval and Drop-off transactions inside Lua 5.2 after
+boot indexing has finished. Its scenario-only F8 hook resets the peripheral-call profile;
+F7 then deposits an item into Drop-off with CraftOS-PC's `setItem` and requests a rescan.
+Those hooks live only in the emulator harness and are never installed by either deployment
+manifest. The assertions compare exact call counts at 1 and 20 storage nodes, so this test
+catches node-count-dependent planning or reconciliation scans without treating host timing
+as a model of server ticks.
 
 The workdir is keyed to the checkout it runs from — `invos-emulator-run-<hash>`
 under `$TMPDIR` — so separate clones and separate git worktrees no longer
